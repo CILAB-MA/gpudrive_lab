@@ -2,7 +2,6 @@
 
 #include <madrona/math.hpp>
 #include <madrona/types.hpp>
-
 using namespace madrona;
 using namespace madrona::math;
 namespace gpudrive
@@ -53,7 +52,7 @@ namespace gpudrive
     {
         // Clip acceleration and steering
         action.acceleration = fmaxf(-6.0, fminf(action.acceleration, 6.0));
-        action.steering = fmaxf(-3.0, fminf(action.steering, 3.0));
+        action.steering = fmaxf(-0.3, fminf(action.steering, 0.3));
 
         const float dt{0.1};
         float yaw = utils::quatToYaw(rotation);
@@ -90,7 +89,6 @@ namespace gpudrive
 
         // accel = (new_vel - vel) / dt
         action.acceleration = (target_speed - speed) / dt;
-
         float yaw = utils::NormalizeAngle<float>(utils::quatToYaw(rotation));
         float target_yaw = utils::NormalizeAngle<float>(utils::quatToYaw(targetRotation));
 

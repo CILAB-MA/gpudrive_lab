@@ -165,7 +165,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 ego_states = ego_states_unprocessed
         else:
             ego_states = torch.Tensor().to(self.device)
+        # abs_obs = self.sim.absolute_self_observation_tensor().to_torch()[0, 5, :2]
+        # print('EGO Speed Unprocesssed',self.config.norm_obs, ego_states_unprocessed[0, 5, 0])
 
+        # print('EGO PROCESSED', ego_states[0, 5, 3:5])
         # PARTNER OBSERVATIONS
         if self.config.partner_obs:
             partner_observations = (
@@ -220,22 +223,39 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
     def get_expert_actions(self):
         """Get expert actions for the full trajectories across worlds."""
         expert_traj = self.sim.expert_trajectory_tensor().to_torch()
+        positions = expert_traj[:, :, :2 * self.episode_len].view(self.num_worlds,
+                                                                                     self.max_agent_count,
+                                                                                     self.episode_len, -1)
 
-        # Extract the inferred expert actions for the full trajectory
-        inferred_expert_actions = expert_traj[
-            :, :, -3 * self.episode_len :
-        ].reshape(self.num_worlds, self.max_agent_count, self.episode_len, -1)
+        velocity = expert_traj[:, :, 2 * self.episode_len:4 * self.episode_len].view(self.num_worlds,
+                                                                        self.max_agent_count, self.episode_len, -1)
 
-        return inferred_expert_actions
+        inferred_expert_actions = expert_traj[:, :, -3 * self.episode_len:].view(self.num_worlds,
+                                                                        self.max_agent_count, self.episode_len, -1)
+        inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], -6, 6)
+        inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -0.3, 0.3)
+        velo2speed = torch.norm(velocity[0, 5], dim=-1) / self.config.max_speed
+        positions[..., 0] = self.normalize_tensor(
+            positions[..., 0],
+            self.config.min_rel_goal_coord,
+            self.config.max_rel_goal_coord,
+        )
+        positions[..., 1] = self.normalize_tensor(
+            positions[..., 1],
+            self.config.min_rel_goal_coord,
+            self.config.max_rel_goal_coord,
+        )
+        # print(f'Expert Trajectory 5 one speed {torch.norm(velocity[0, 5], dim=-1) / self.config.max_speed}, sum of speed : {torch.norm(velocity[0, 5], dim=-1).sum() / 100}')
+        return inferred_expert_actions, velo2speed, positions[0, 5]
 
     def normalize_ego_state(self, state):
         """Normalize ego state features."""
-
         # Speed, vehicle length, vehicle width
         state[:, :, 0] /= self.config.max_speed
         state[:, :, 1] /= self.config.max_veh_len
         state[:, :, 2] /= self.config.max_veh_width
 
+        # print(f'Check normalize after {state[0, 5, 0]}')
         # Relative goal coordinates
         state[:, :, 3] = self.normalize_tensor(
             state[:, :, 3],
