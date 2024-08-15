@@ -1,6 +1,7 @@
 #include "level_gen.hpp"
 #include "utils.hpp"
 #include "dynamics.hpp"
+#include "dynamics_delta.hpp"
 
 namespace gpudrive {
 using namespace madrona;

@@ -2,14 +2,14 @@
 #include <limits>
 #include <madrona/mw_gpu_entry.hpp>
 #include <madrona/physics.hpp>
-
+#include <iostream>
 #include "level_gen.hpp"
 #include "obb.hpp"
 #include "sim.hpp"
 #include "utils.hpp"
 #include "knn.hpp"
 #include "dynamics.hpp"
-
+#include "dynamics_delta.hpp"
 using namespace madrona;
 using namespace madrona::math;
 using namespace madrona::phys;
@@ -32,6 +32,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     RenderingSystem::registerTypes(registry, cfg.renderBridge);
 
     registry.registerComponent<Action>();
+    registry.registerComponent<DeltaAction>();
     registry.registerComponent<SelfObservation>();
     registry.registerComponent<MapObservation>();
     registry.registerComponent<AgentMapObservations>();
@@ -62,6 +63,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.exportSingleton<Shape>((uint32_t)ExportID::Shape);
     registry.exportColumn<Agent, Action>(
         (uint32_t)ExportID::Action);
+    registry.exportColumn<Agent, DeltaAction>(
+        (uint32_t)ExportID::DeltaAction);
     registry.exportColumn<Agent, SelfObservation>(
         (uint32_t)ExportID::SelfObservation);
     registry.exportColumn<Agent, AgentMapObservations>(
@@ -233,6 +236,7 @@ inline void agentZeroVelSystem(Engine &,
 
 inline void movementSystem(Engine &e,
                            Action &action,
+                           DeltaAction &dAction,
                            VehicleSize &size,
                            Rotation &rotation,
                            Position &position,
@@ -286,7 +290,6 @@ inline void movementSystem(Engine &e,
         velocity.angular = Vector3::zero();
         return;
     }
-
     if (type == EntityType::Vehicle && controlledState.controlledState == ControlMode::BICYCLE)
     {
         if(e.data().params.useWayMaxModel)
@@ -299,6 +302,18 @@ inline void movementSystem(Engine &e,
         }
         // TODO(samk): factor out z-dimension constant and reuse when scaling cubes
     }
+//    else if (type == EntityType::Vehicle && controlledState.controlledState == ControlMode::DELTA)
+//    {
+//        if(e.data().params.useDeltaModel)
+//        {
+//            forwardDeltaModel(dAction, rotation, position, velocity);
+//        }
+//        else
+//        {
+//            forwardKinematics(action, size, rotation, position, velocity);
+//        }
+//        // TODO(samk): factor out z-dimension constant and reuse when scaling cubes
+//    }
     else
     {
         // Follow expert trajectory
@@ -510,6 +525,19 @@ void collisionDetectionSystem(Engine &ctx,
                     return true;
                 }
             }
+//            else if (controlledState.value().controlledState == ControlMode::DELTA)
+//            {
+//                // Case: If a controlled agent gets done, we teleport it to the padding position
+//                // Hence we need to ignore the collision detection for it.
+//                // The agent can also be done because it collided.
+//                // In that case, we dont want to ignore collision. Especially if AgentStop is set.
+//                auto done = ctx.get<Done>(candidate);
+//                auto collisionEvent = ctx.getCheck<CollisionDetectionEvent>(candidate);
+//                if(done.v && collisionEvent.valid() && !collisionEvent.value().hasCollided.load_relaxed())
+//                {
+//                    return true;
+//                }
+//            }
         }
         return false;
     };
@@ -650,6 +678,7 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
     auto moveSystem = builder.addToGraph<ParallelForNode<Engine,
         movementSystem,
             Action,
+            DeltaAction,
             VehicleSize,
             Rotation,
             Position,
@@ -662,6 +691,7 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
             ResponseType,
             Done
         >>({});
+
 
     // setupBroadphaseTasks consists of the following sub-tasks:
     // 1. updateLeafPositionsEntry
