@@ -220,7 +220,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             axis=2
         )
 
-    def get_expert_actions(self):
+    def get_expert_actions(self, debug_world_idx=None, debug_veh_idx=None):
         """Get expert actions for the full trajectories across worlds."""
         expert_traj = self.sim.expert_trajectory_tensor().to_torch()
         positions = expert_traj[:, :, :2 * self.episode_len].view(self.num_worlds,
@@ -234,19 +234,23 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                                                                         self.max_agent_count, self.episode_len, -1)
         inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], -6, 6)
         inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -0.3, 0.3)
-        velo2speed = torch.norm(velocity[0, 5], dim=-1) / self.config.max_speed
-        positions[..., 0] = self.normalize_tensor(
-            positions[..., 0],
-            self.config.min_rel_goal_coord,
-            self.config.max_rel_goal_coord,
-        )
-        positions[..., 1] = self.normalize_tensor(
-            positions[..., 1],
-            self.config.min_rel_goal_coord,
-            self.config.max_rel_goal_coord,
-        )
+        velo2speed = None
+        debug_positions = None
+        if debug_world_idx:
+            velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / self.config.max_speed
+            positions[..., 0] = self.normalize_tensor(
+                positions[..., 0],
+                self.config.min_rel_goal_coord,
+                self.config.max_rel_goal_coord,
+            )
+            positions[..., 1] = self.normalize_tensor(
+                positions[..., 1],
+                self.config.min_rel_goal_coord,
+                self.config.max_rel_goal_coord,
+            )
+            debug_positions = positions[debug_world_idx, debug_veh_idx]
         # print(f'Expert Trajectory 5 one speed {torch.norm(velocity[0, 5], dim=-1) / self.config.max_speed}, sum of speed : {torch.norm(velocity[0, 5], dim=-1).sum() / 100}')
-        return inferred_expert_actions, velo2speed, positions[0, 5]
+        return inferred_expert_actions, velo2speed, debug_positions
 
     def normalize_ego_state(self, state):
         """Normalize ego state features."""

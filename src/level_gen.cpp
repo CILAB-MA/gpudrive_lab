@@ -3,7 +3,6 @@
 #include "dynamics.hpp"
 
 namespace gpudrive {
-
 using namespace madrona;
 using namespace madrona::math;
 using namespace madrona::phys;

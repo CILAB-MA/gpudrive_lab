@@ -59,9 +59,16 @@ struct Action {
     float headAngle;
 };
 
+struct DeltaAction {
+    float dx;
+    float dy;
+    float dyaw;
+};
+
 // Per-agent reward
 // Exported as an [N * A, 1] float tensor to training code
 struct Reward {
+
     float v;
 };
 
@@ -188,6 +195,7 @@ struct Trajectory {
     madrona::math::Vector2 velocities[consts::kTrajectoryLength];
     float headings[consts::kTrajectoryLength];
     float valids[consts::kTrajectoryLength];
+//    DeltaAction inverseActions[consts::kTrajectoryLength];
     Action inverseActions[consts::kTrajectoryLength];
 };
 
@@ -202,7 +210,8 @@ struct Shape {
 
 enum class ControlMode {
    EXPERT,
-   BICYCLE
+   BICYCLE,
+   DELTA
 };
 
 struct ControlledState {
