@@ -48,6 +48,7 @@ namespace gpudrive
             .def_rw("roadObservationAlgorithm", &Parameters::roadObservationAlgorithm)
             .def_rw("initOnlyValidAgentsAtFirstStep ", &Parameters::initOnlyValidAgentsAtFirstStep)
             .def_rw("useWayMaxModel", &Parameters::useWayMaxModel)
+            .def_rw("useDeltaModel", &Parameters::useDeltaModel)
             .def_rw("enableLidar", &Parameters::enableLidar)
             .def_rw("disableClassicalObs", &Parameters::disableClassicalObs)
             .def_rw("isStaticAgentControlled", &Parameters::isStaticAgentControlled);
