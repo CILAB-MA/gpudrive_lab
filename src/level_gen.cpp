@@ -67,6 +67,7 @@ static inline void populateExpertTrajectory(Engine &ctx, const Entity &agent, co
         if(!trajectory.valids[i] || !trajectory.valids[i+1])
         {
             trajectory.inverseActions[i] = Action{.acceleration = 0, .steering = 0, .headAngle = 0};
+            trajectory.inverseDeltaActions[i] = DeltaAction{.dx = 0, .dy = 0, .dyaw = 0};
             continue;
         }
         Rotation rot = Quat::angleAxis(trajectory.headings[i], madrona::math::up);
@@ -74,6 +75,8 @@ static inline void populateExpertTrajectory(Engine &ctx, const Entity &agent, co
         Rotation targetRot = Quat::angleAxis(trajectory.headings[i+1], madrona::math::up);
         Velocity targetVel = {Vector3{.x = trajectory.velocities[i+1].x, .y = trajectory.velocities[i+1].y, .z = 0}, Vector3::zero()};
         trajectory.inverseActions[i] = inverseWaymaxModel(rot, vel, targetRot, targetVel);
+        trajectory.inverseDeltaActions[i] = DeltaAction{.dx = 0, .dy = 0, .dyaw = 0};
+
     }
 }
 
@@ -91,9 +94,7 @@ static inline Entity createAgent(Engine &ctx, const MapObject &agentInit) {
     ctx.get<EntityType>(agent) = agentInit.type;
 
     ctx.get<Goal>(agent)= Goal{.position = Vector2{.x = agentInit.goalPosition.x - ctx.data().mean.x, .y = agentInit.goalPosition.y - ctx.data().mean.y}};
-
     populateExpertTrajectory(ctx, agent, agentInit);
-
     if(!ctx.data().params.isStaticAgentControlled && (ctx.get<Goal>(agent).position - ctx.get<Trajectory>(agent).positions[0]).length() < consts::staticThreshold)
     {
         ctx.get<ResponseType>(agent) = ResponseType::Static;

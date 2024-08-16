@@ -195,11 +195,12 @@ struct Trajectory {
     madrona::math::Vector2 velocities[consts::kTrajectoryLength];
     float headings[consts::kTrajectoryLength];
     float valids[consts::kTrajectoryLength];
-//    DeltaAction inverseActions[consts::kTrajectoryLength];
     Action inverseActions[consts::kTrajectoryLength];
+    DeltaAction inverseDeltaActions[consts::kTrajectoryLength];
 };
 
-const size_t TrajectoryExportSize = 2 * 2 * consts::kTrajectoryLength + 2 * consts::kTrajectoryLength + 3 * consts::kTrajectoryLength;
+
+const size_t TrajectoryExportSize = 2 * 2 * consts::kTrajectoryLength + 2 * consts::kTrajectoryLength + 6 * consts::kTrajectoryLength; // 6 bc of action & deltaaction
 
 static_assert(sizeof(Trajectory) == sizeof(float) * TrajectoryExportSize);
 

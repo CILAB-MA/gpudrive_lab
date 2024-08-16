@@ -42,7 +42,7 @@ def test_forward_inverse_dynamics(sim_init):
     pos = traj[:2*91].view(91,2)
     vel = traj[2*91:4*91].view(91,2)
     headings = traj[4*91:5*91].view(91,1)
-    invActions = traj[6*91:].view(91,3)
+    invActions = traj[6*91:9*91].view(91,3)
 
     position = absolute_obs[0,valid_agent_idx,:2]
     heading = absolute_obs[0,valid_agent_idx,7]
