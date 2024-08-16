@@ -71,11 +71,13 @@ static inline void populateExpertTrajectory(Engine &ctx, const Entity &agent, co
             continue;
         }
         Rotation rot = Quat::angleAxis(trajectory.headings[i], madrona::math::up);
+        Position pos = Vector3{.x = trajectory.positions[i].x - ctx.data().mean.x, .y = trajectory.positions[i].y - ctx.data().mean.y, .z = 1};
         Velocity vel = {Vector3{.x = trajectory.velocities[i].x, .y = trajectory.velocities[i].y, .z = 0}, Vector3::zero()};
         Rotation targetRot = Quat::angleAxis(trajectory.headings[i+1], madrona::math::up);
+        Position targetPos = Vector3{.x = trajectory.positions[i+1].x - ctx.data().mean.x, .y = trajectory.positions[i+1].y - ctx.data().mean.y, .z = 1};
         Velocity targetVel = {Vector3{.x = trajectory.velocities[i+1].x, .y = trajectory.velocities[i+1].y, .z = 0}, Vector3::zero()};
         trajectory.inverseActions[i] = inverseWaymaxModel(rot, vel, targetRot, targetVel);
-        trajectory.inverseDeltaActions[i] = DeltaAction{.dx = 0, .dy = 0, .dyaw = 0};
+        trajectory.inverseDeltaActions[i] = inverseDeltaModel(rot, pos, targetRot, targetPos);
 
     }
 }
