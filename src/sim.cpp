@@ -302,18 +302,18 @@ inline void movementSystem(Engine &e,
         }
         // TODO(samk): factor out z-dimension constant and reuse when scaling cubes
     }
-//    else if (type == EntityType::Vehicle && controlledState.controlledState == ControlMode::DELTA)
-//    {
-//        if(e.data().params.useDeltaModel)
-//        {
-//            forwardDeltaModel(dAction, rotation, position, velocity);
-//        }
-//        else
-//        {
-//            forwardKinematics(action, size, rotation, position, velocity);
-//        }
-//        // TODO(samk): factor out z-dimension constant and reuse when scaling cubes
-//    }
+    else if (type == EntityType::Vehicle && controlledState.controlledState == ControlMode::DELTA)
+    {
+        if(e.data().params.useDeltaModel)
+        {
+            forwardDeltaModel(dAction, rotation, position, velocity);
+        }
+        else
+        {
+            forwardKinematics(action, size, rotation, position, velocity);
+        }
+        // TODO(samk): factor out z-dimension constant and reuse when scaling cubes
+    }
     else
     {
         // Follow expert trajectory
@@ -525,19 +525,19 @@ void collisionDetectionSystem(Engine &ctx,
                     return true;
                 }
             }
-//            else if (controlledState.value().controlledState == ControlMode::DELTA)
-//            {
-//                // Case: If a controlled agent gets done, we teleport it to the padding position
-//                // Hence we need to ignore the collision detection for it.
-//                // The agent can also be done because it collided.
-//                // In that case, we dont want to ignore collision. Especially if AgentStop is set.
-//                auto done = ctx.get<Done>(candidate);
-//                auto collisionEvent = ctx.getCheck<CollisionDetectionEvent>(candidate);
-//                if(done.v && collisionEvent.valid() && !collisionEvent.value().hasCollided.load_relaxed())
-//                {
-//                    return true;
-//                }
-//            }
+            else if (controlledState.value().controlledState == ControlMode::DELTA)
+            {
+                // Case: If a controlled agent gets done, we teleport it to the padding position
+                // Hence we need to ignore the collision detection for it.
+                // The agent can also be done because it collided.
+                // In that case, we dont want to ignore collision. Especially if AgentStop is set.
+                auto done = ctx.get<Done>(candidate);
+                auto collisionEvent = ctx.getCheck<CollisionDetectionEvent>(candidate);
+                if(done.v && collisionEvent.valid() && !collisionEvent.value().hasCollided.load_relaxed())
+                {
+                    return true;
+                }
+            }
         }
         return false;
     };
