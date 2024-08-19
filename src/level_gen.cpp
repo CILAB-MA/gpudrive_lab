@@ -104,7 +104,14 @@ static inline Entity createAgent(Engine &ctx, const MapObject &agentInit) {
 
     if(ctx.data().numControlledVehicles < ctx.data().params.maxNumControlledVehicles && agentInit.type == EntityType::Vehicle && agentInit.valid[0] && ctx.get<ResponseType>(agent) == ResponseType::Dynamic)
     {
+        if (ctx.data().params.useWayMaxModel == true)
+        {
         ctx.get<ControlledState>(agent) = ControlledState{.controlledState = ControlMode::BICYCLE};
+        }
+        else
+        {
+        ctx.get<ControlledState>(agent) = ControlledState{.controlledState = ControlMode::DELTA};
+        }
         ctx.data().numControlledVehicles++;
     }
     else
