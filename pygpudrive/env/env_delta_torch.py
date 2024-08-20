@@ -105,7 +105,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             raise ValueError(f"Invalid action shape: {actions.shape}")
 
         # Feed the actual action values to gpudrive
-        self.sim.action_tensor().to_torch().copy_(action_value_tensor)
+        if self.useDeltaModel:
+            self.sim.delta_action_tensor().to_torch().copy_(action_value_tensor)
+        else:
+            self.sim.action_tensor().to_torch().copy_(action_value_tensor)
 
     def _set_discrete_action_space(self) -> None:
         """Configure a discrete joint action space.
@@ -149,7 +152,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         ).to(self.device)
 
         return Discrete(n=int(len(self.action_key_to_values)))
-
 
     def _set_discrete_delta_action_space(self) -> None:
         """Configure a discrete joint delta action space.
