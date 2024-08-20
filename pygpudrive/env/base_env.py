@@ -187,7 +187,10 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             ValueError: If the specified action type is not supported.
         """
         if action_type == "discrete":
-            self.action_space = self._set_discrete_action_space()
+            if hasattr(self, "useDeltaModel") and self.useDeltaModel:
+                self.action_space = self._set_discrete_delta_action_space()
+            else:
+                self.action_space = self._set_discrete_action_space()
         else:
             raise ValueError(f"Action space not supported: {action_type}")
 

@@ -30,6 +30,15 @@ class EnvConfig:
     accel_actions: torch.Tensor = torch.round(
         torch.linspace(-4.0, 4.0, 7), decimals=3
     )
+    dx: torch.Tensor = torch.round(
+        torch.linspace(-6.0, 6.0, 7), decimals=3
+    )
+    dy: torch.Tensor = torch.round(
+        torch.linspace(-6.0, 6.0, 7), decimals=3
+    )
+    dyaw: torch.Tensor = torch.round(
+        torch.linspace(-3.14, 3.14, 13), decimals=3
+    )
 
     # Collision behavior
     collision_behavior: str = "remove"  # options: "remove", "stop", "ignore"
