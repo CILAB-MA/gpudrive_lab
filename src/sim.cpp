@@ -2,7 +2,6 @@
 #include <limits>
 #include <madrona/mw_gpu_entry.hpp>
 #include <madrona/physics.hpp>
-#include <iostream>
 #include "level_gen.hpp"
 #include "obb.hpp"
 #include "sim.hpp"
@@ -280,7 +279,7 @@ inline void movementSystem(Engine &e,
 
     if(done.v)
     {
-        // Case: Agent has not collided but is done. 
+        // Case: Agent has not collided but is done.
         // This can only happen if the agent has reached goal or the episode has ended.
         // In that case we teleport the agent. The agent will not collide with anything.
         position = consts::kPaddingPosition;
@@ -290,13 +289,14 @@ inline void movementSystem(Engine &e,
         velocity.angular = Vector3::zero();
         return;
     }
+
     if (type == EntityType::Vehicle && controlledState.controlledState == ControlMode::BICYCLE)
     {
         if(e.data().params.useWayMaxModel)
         {
             forwardWaymaxModel(action, rotation, position, velocity);
         }
-        else 
+        else
         {
             forwardKinematics(action, size, rotation, position, velocity);
         }
@@ -675,6 +675,7 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
     TaskGraphBuilder &builder = taskgraph_mgr.init(TaskGraphID::Step);
 
     // Turn policy actions into movement
+
     auto moveSystem = builder.addToGraph<ParallelForNode<Engine,
         movementSystem,
             Action,

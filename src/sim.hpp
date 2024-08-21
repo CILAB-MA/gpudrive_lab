@@ -34,7 +34,6 @@ enum class ExportID : uint32_t {
     Info,
     ResponseType,
     Trajectory,
-    DeltaTrajectory,
     NumExports
 };
 

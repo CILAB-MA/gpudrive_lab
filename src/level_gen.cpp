@@ -35,6 +35,8 @@ static inline void resetAgent(Engine &ctx, Entity agent) {
         Vector3{.x = xVelocity, .y = yVelocity, .z = 0}, Vector3::zero()};
     ctx.get<Action>(agent) =
         Action{.acceleration = 0, .steering = 0, .headAngle = 0};
+    ctx.get<DeltaAction>(agent) =
+        DeltaAction{.dx = 0, .dy = 0, .dyaw = 0};
     ctx.get<StepsRemaining>(agent).t = consts::episodeLen;
     ctx.get<Done>(agent).v = 0;
     ctx.get<Reward>(agent).v = 0;

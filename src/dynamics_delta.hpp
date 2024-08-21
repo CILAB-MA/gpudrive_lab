@@ -2,7 +2,6 @@
 
 #include <madrona/math.hpp>
 #include <madrona/types.hpp>
-#include <iostream>
 using namespace madrona;
 using namespace madrona::math;
 namespace gpudrive
@@ -27,15 +26,16 @@ namespace gpudrive
         position.x = position.x + dx;
         position.y = position.y + dy;
 
-        velocity.linear.x = dx/ dt;
+        velocity.linear.x = dx / dt;
         velocity.linear.y = dy / dt;
         velocity.linear.z = 0;
-
         velocity.angular = Vector3::zero();
         velocity.angular.z = action.dyaw / dt; // Is this correct ?
             // end DeltaGlobal
         float new_yaw = utils::AngleAdd(yaw, action.dyaw);
         // end delta model
+
+        rotation = Quat::angleAxis(new_yaw, madrona::math::up);
 
     }
 
