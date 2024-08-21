@@ -56,6 +56,7 @@ namespace gpudrive
         action.dy = fmaxf(-6.0, fminf(action.dy, 6.0));
             // end DeltaGlobal
             // start DeltaLocal
+
         // rotated_xy = jnp.matmul(rotation_mat, action.data[..., :2, jnp.newaxis], precision='float32')[..., 0]
         // From https://en.wikipedia.org/wiki/Rotation_matrix
         float cos = std::cos(-yaw);
@@ -67,7 +68,7 @@ namespace gpudrive
 
         action.dx = fmaxf(-6.0, fminf(local_dx, 6.0));
         action.dy = fmaxf(-6.0, fminf(local_dy, 6.0));
-        action.dyaw = fmaxf(-3.14, fminf(action.dy, 3.14));
+        action.dyaw = fmaxf(-3.14, fminf(action.dyaw, 3.14));
             // end DeltaLocal
         // end delta model
         
