@@ -36,6 +36,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Environment parameter setup
         params = self._setup_environment_parameters()
         params.useDeltaModel = self.useDeltaModel
+        params.useWayMaxModel = False if self.useDeltaModel else True
 
         # Initialize simulator with parameters
         self.sim = self._initialize_simulator(params, scene_config)
@@ -103,9 +104,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 action_value_tensor = actions.to(self.device)
         else:
             raise ValueError(f"Invalid action shape: {actions.shape}")
-
         # Feed the actual action values to gpudrive
         if self.useDeltaModel:
+            print("DELTAACTION ", action_value_tensor)
             self.sim.delta_action_tensor().to_torch().copy_(action_value_tensor)
         else:
             self.sim.action_tensor().to_torch().copy_(action_value_tensor)
@@ -186,7 +187,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 for key in sorted(self.action_key_to_values.keys())
             ]
         ).to(self.device)
-
         self.value_keys_tensor = torch.tensor(
             [
                 self.values_to_action_key[key]
