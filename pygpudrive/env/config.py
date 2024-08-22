@@ -31,13 +31,13 @@ class EnvConfig:
         torch.linspace(-4.0, 4.0, 7), decimals=3
     )
     dx: torch.Tensor = torch.round(
-        torch.linspace(-6.0, 6.0, 7), decimals=3
+        torch.linspace(-1.0, 1.0, 30), decimals=3
     )
     dy: torch.Tensor = torch.round(
-        torch.linspace(-6.0, 6.0, 7), decimals=3
+        torch.linspace(-1.0, 1.0, 30), decimals=3
     )
     dyaw: torch.Tensor = torch.round(
-        torch.linspace(-3.14, 3.14, 13), decimals=3
+        torch.linspace(-1.14, 1.14, 30), decimals=3
     )
 
     # Collision behavior

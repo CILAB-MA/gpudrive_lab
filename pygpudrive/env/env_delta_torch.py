@@ -106,7 +106,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             raise ValueError(f"Invalid action shape: {actions.shape}")
         # Feed the actual action values to gpudrive
         if self.useDeltaModel:
-            print("DELTAACTION ", action_value_tensor)
+            # print("DELTAACTION ", action_value_tensor)
             self.sim.delta_action_tensor().to_torch().copy_(action_value_tensor)
         else:
             self.sim.action_tensor().to_torch().copy_(action_value_tensor)
@@ -282,9 +282,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         inferred_expert_actions = expert_traj[:, :, -3 * self.episode_len:].view(self.num_worlds,
                                                                                  self.max_agent_count, self.episode_len,
-                                                                                 -1)
+                                                                                 -1) #todo : should be fixed with changed dimension
+
         inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], -6, 6)
-        inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -0.3, 0.3)
+        inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -6, 6)
+        print( inferred_expert_actions[0, 5])
         velo2speed = None
         debug_positions = None
         if debug_world_idx:
@@ -469,7 +471,7 @@ if __name__ == "__main__":
     # RUN
     obs = env.reset()
     frames = []
-
+    env.get_expert_actions()
     for _ in range(TOTAL_STEPS):
         # Take a random actions
         rand_action = torch.Tensor(
@@ -482,7 +484,7 @@ if __name__ == "__main__":
         ).reshape(NUM_WORLDS, MAX_NUM_OBJECTS)
 
         # Step the environment
-        env.step_dynamics(rand_action)
+        env.step_dynamics(None)
 
         frames.append(env.render())
 

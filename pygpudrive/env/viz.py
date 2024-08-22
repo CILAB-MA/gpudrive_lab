@@ -373,7 +373,7 @@ class PyGameVisualizer:
         self, cont_agent_mask, world_render_idx=0, color_objects_by_actor=None
     ):
         """Render the environment."""
-
+        # print('render mode ', self.render_config.render_mode)
         if self.render_config.render_mode == RenderMode.PYGAME_EGOCENTRIC:
             render_rgbs = []
             num_agents = self.num_agents[world_render_idx][0]
@@ -561,7 +561,8 @@ class PyGameVisualizer:
                     agent_sizes[agent_idx, 0],
                     agent_rot[agent_idx],
                 )
-
+                # if agent_idx == 5:
+                #     print(f'agent {agent_idx} pos in vis {agent_pos[agent_idx]}')
                 for i, agent_corner in enumerate(agent_corners):
                     agent_corners[i] = self.scale_coords(
                         agent_corner, world_render_idx

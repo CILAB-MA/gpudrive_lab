@@ -395,7 +395,7 @@ if __name__ == "__main__":
     # CONFIGURE
     TOTAL_STEPS = 90
     MAX_NUM_OBJECTS = 128
-    NUM_WORLDS = 50
+    NUM_WORLDS = 30
 
     env_config = EnvConfig()
     env_config = EnvConfig()
@@ -407,7 +407,7 @@ if __name__ == "__main__":
         config=env_config,
         scene_config=scene_config,
         max_cont_agents=MAX_NUM_OBJECTS,  # Number of agents to control
-        device="cuda",
+        device="cpu",
         render_config=render_config,
     )
 
@@ -438,7 +438,7 @@ if __name__ == "__main__":
         done = env.get_dones()
 
     # import imageio
-    imageio.mimsave("world1.gif", np.array(frames))
+    imageio.mimsave("world1_waymax.gif", np.array(frames))
 
     # run.finish()
     env.visualizer.destroy()
