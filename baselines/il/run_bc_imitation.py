@@ -3,7 +3,8 @@ import torch
 from imitation.algorithms import bc
 from imitation.data.types import Transitions
 from stable_baselines3.common import policies
-
+import os,sys
+sys.path.append(os.getcwd())
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
@@ -102,7 +103,13 @@ if __name__ == "__main__":
     NUM_WORLDS = 10
 
     # Configurations
-    env_config = EnvConfig(use_bicycle_model=True)
+    env_config = EnvConfig(
+        steer_actions=torch.round(
+            torch.linspace(-1.0, 1.0, 30), decimals=3
+        ),
+        accel_actions=torch.round(
+            torch.linspace(-3.0, 3.0, 30), decimals=3
+        ))
     render_config = RenderConfig()
     scene_config = SceneConfig("data", NUM_WORLDS)
     bc_config = BehavCloningConfig()

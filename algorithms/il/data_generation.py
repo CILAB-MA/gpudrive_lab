@@ -30,7 +30,7 @@ def generate_state_action_pairs(
     discretize_actions=False,
     use_action_indices=False,
     make_video=False,
-    render_index=[0],
+    render_index=[0, 1],
     save_path="output_video.mp4",
     debug_world_idx=None,
     debug_veh_idx=None,
@@ -50,6 +50,7 @@ def generate_state_action_pairs(
             tuple with (acceleration, steering, heading).
         obs_tensor: Expert observations for the controlled agents.
     """
+    print(render_index)
     frames = [[] for _ in range(render_index[1] - render_index[0])]
 
     logging.info(

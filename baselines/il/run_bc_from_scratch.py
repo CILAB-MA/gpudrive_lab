@@ -23,7 +23,14 @@ logger.setLevel(logging.INFO)
 if __name__ == "__main__":
 
     # Configurations
-    env_config = EnvConfig(use_bicycle_model=True)
+    # Configurations
+    env_config = EnvConfig(
+        steer_actions=torch.round(
+            torch.linspace(-1.0, 1.0, 30), decimals=3
+        ),
+        accel_actions=torch.round(
+            torch.linspace(-3.0, 3.0, 30), decimals=3
+        ))
     render_config = RenderConfig()
     bc_config = BehavCloningConfig()
 

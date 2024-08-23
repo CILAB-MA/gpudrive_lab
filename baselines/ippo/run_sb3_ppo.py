@@ -3,7 +3,8 @@ import pyrallis
 from typing import Callable
 from datetime import datetime
 
-from utils.process import generate_valid_files_json
+import os, sys
+sys.path.append(os.getcwd())
 from algorithms.rl.sb3.ppo.ippo import IPPO
 from algorithms.rl.sb3.callbacks import MultiAgentCallback
 from baselines.ippo.config import ExperimentConfig

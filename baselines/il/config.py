@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 class BehavCloningConfig:
 
     # Dataset & device
-    data_dir: str = "data"
-    device: str = "cuda"
+    data_dir: str = "/data"
+    device: str = "cpu"
 
     # Number of scenarios / worlds
     num_worlds: int = 3
