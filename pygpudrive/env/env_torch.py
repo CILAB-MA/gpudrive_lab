@@ -247,6 +247,39 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         return action_space
 
+    def _set_multi_discrete_action_space(self) -> None:
+        pass
+
+    def _set_continuous_action_space(self) -> None:
+        """Configure the continuous action space."""
+        if self.action_features == 'delta_local':
+            self.dx = self.config.dx.to(self.device)
+            self.dy = self.config.dy.to(self.device)
+            self.dyaw = self.config.dyaw.to(self.device)
+            action_1 = self.dx.clone().cpu().numpy()
+            action_2 = self.dy.clone().cpu().numpy()
+            action_3 = self.dyaw.clone().cpu().numpy()
+        else:
+            self.steer_actions = self.config.steer_actions.to(self.device)
+            self.accel_actions = self.config.accel_actions.to(self.device)
+            self.head_actions = torch.tensor([0], device=self.device)
+            action_1 = self.steer_actions.clone().cpu().numpy()
+            action_2 = self.accel_actions.clone().cpu().numpy()
+            action_3 = self.head_actions.clone().cpu().numpy()
+
+        action_space = Tuple(
+            (Box(action_1.min(), action_1.max(), shape=(1,)),
+            Box(action_2.min(), action_2.max(), shape=(1,)),
+            Box(action_3.min(), action_3.max(), shape=(1,)))
+        )
+        return action_space
+
+    def _set_multi_discrete_action_space(self) -> None:
+        pass
+
+    def _set_continuous_action_space(self) -> None:
+        pass
+
     def get_obs(self):
         """Get observation: Combine different types of environment information into a single tensor.
 
@@ -425,13 +458,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             )
             positions[..., 0] = self.normalize_tensor(
                 positions[..., 0],
-                constants.MIN_REL_GOAL_COORD,
-                constants.MAX_REL_GOAL_COORD,
+                constants.MIN_REL_AGENT_POS,
+                constants.MAX_REL_AGENT_POS,
             )
             positions[..., 1] = self.normalize_tensor(
                 positions[..., 1],
-                constants.MIN_REL_GOAL_COORD,
-                constants.MAX_REL_GOAL_COORD,
+                constants.MIN_REL_AGENT_POS,
+                constants.MAX_REL_AGENT_POS,
             )
             debug_positions = positions[debug_world_idx, debug_veh_idx]
 

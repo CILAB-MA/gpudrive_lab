@@ -12,14 +12,10 @@ logging.getLogger(__name__)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser("Select the dynamics model that you use")
-    parser.add_argument(
-        "--dynamics-model",
-        "-d",
-        type=str,
-        default="delta_local",
-        choices=["delta_local", "bicycle", "classic"],
-    )
+    parser = argparse.ArgumentParser('Select the dynamics model that you use')
+    parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
+    parser.add_argument('--action-type', '-at', type=str, default='discrete', choices=['discrete', 'multi_discrete', 'continuous'],)
+    parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
     args = parser.parse_args()
     return args
 
@@ -205,7 +201,78 @@ def generate_state_action_pairs(
     flat_expert_actions = torch.cat(expert_actions_lst, dim=0)
     flat_next_expert_obs = torch.cat(expert_next_obs_lst, dim=0)
     flat_expert_dones = torch.cat(expert_dones_lst, dim=0)
+    if debug_world_idx is not None:
+        '''for plotting '''
+        if env.action_features == 'delta_local':
+            fig, axs = plt.subplots(2, 3, figsize=(8, 8))
+        else:
+            fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+        # Speed plot
+        axs[0, 0].plot(expert_speeds.numpy(), label='Expert Speeds', color='b')
+        axs[0, 0].plot(speeds.numpy(), label='Simulation Speeds', color='r')
+        axs[0, 0].set_title('Speeds Comparison')
+        axs[0, 0].set_xlabel('Time Step')
+        axs[0, 0].set_ylabel('Speed')
+        axs[0, 0].legend()
 
+        # Position plot
+        axs[0, 1].plot(expert_positions[:, 0].numpy(), expert_positions[:, 1].numpy(), label='Expert Position',
+                       color='b',
+                       marker='o')
+        axs[0, 1].plot(poss[:, 0].numpy(), poss[:, 1].numpy(), label='Environment Position', color='r', marker='x')
+        axs[0, 1].set_title('Position Comparison with Order')
+        axs[0, 1].set_xlabel('X Position')
+        axs[0, 1].set_ylabel('Y Position')
+        axs[0, 1].legend()
+
+        if env.action_features == 'delta_local':
+            # dx plot
+            axs[1, 0].plot(expert_dx.numpy(), label='Expert dx', color='b')
+            axs[1, 0].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 0].numpy(), label='Simulation dx',
+                           color='r')
+            axs[1, 0].set_title('dx Comparison')
+            axs[1, 0].set_xlabel('Time Step')
+            axs[1, 0].set_ylabel('dx')
+            axs[1, 0].legend()
+
+            # dy plot
+            axs[1, 1].plot(expert_dy.numpy(), label='Expert dy', color='b')
+            axs[1, 1].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 1].numpy(), label='Simulation dy',
+                           color='r')
+            axs[1, 1].set_title('dy Comparison')
+            axs[1, 1].set_xlabel('Time Step')
+            axs[1, 1].set_ylabel('dy')
+            axs[1, 1].legend()
+
+            # dyaw plot
+            axs[1, 2].plot(expert_dyaw.numpy(), label='Expert dyaw', color='b')
+            axs[1, 2].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 2].numpy(), label='Simulation dyaw',
+                           color='r')
+            axs[1, 2].set_title('dyaw Comparison')
+            axs[1, 2].set_xlabel('Time Step')
+            axs[1, 2].set_ylabel('dyaw')
+            axs[1, 2].legend()
+        else:
+            # Accels plot
+            axs[1, 0].plot(expert_accel.numpy(), label='Expert Accels', color='b')
+            axs[1, 0].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 0].numpy(), label='Simulation Accels',
+                           color='r')
+            axs[1, 0].set_title('Accels Comparison')
+            axs[1, 0].set_xlabel('Time Step')
+            axs[1, 0].set_ylabel('Accels')
+            axs[1, 0].legend()
+
+            # Steers plot
+            axs[1, 1].plot(expert_steer.numpy(), label='Expert Steers', color='b')
+            axs[1, 1].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 1].numpy(), label='Simulation Steers',
+                           color='r')
+            axs[1, 1].set_title('Steers Comparison')
+            axs[1, 1].set_xlabel('Time Step')
+            axs[1, 1].set_ylabel('Steers')
+            axs[1, 1].legend()
+
+        plt.tight_layout()
+        plt.savefig(f'Analysis_numAction{num_action}_W{debug_world_idx}_V{debug_veh_idx}.jpg', dpi=150)
     return (
         flat_expert_obs,
         flat_expert_actions,
@@ -233,51 +300,75 @@ if __name__ == "__main__":
     # Action space (joint discrete)
 
     render_config = RenderConfig(draw_obj_idx=True)
-    scene_config = SceneConfig(
-        "/data/formatted_json_v2_no_tl_train/", NUM_WORLDS
-    )
-    env_config = EnvConfig(
-        dynamics_model=args.dynamics_model,
-        steer_actions=torch.round(
-            torch.linspace(-0.3, 0.3, 7), decimals=3
-        ),
-        accel_actions=torch.round(
-            torch.linspace(-6.0, 6.0, 7), decimals=3
-        ),
-        dx=torch.round(torch.linspace(-3.0, 3.0, 100), decimals=3),
-        dy=torch.round(torch.linspace(-3.0, 3.0, 100), decimals=3),
-        dyaw=torch.round(torch.linspace(-1.0, 1.0, 300), decimals=3),
-    )
+    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
+    for combi in combinations:
+        num_dx, num_dy, num_dyaw = combi
+        env_config = EnvConfig(
+            dynamics_model=args.dynamics_model,
+            steer_actions=torch.round(
+                torch.linspace(-0.3, 0.3, 7), decimals=3
+            ),
+            accel_actions=torch.round(
+                torch.linspace(-6.0, 6.0, 7), decimals=3
+            ),
+            dx=torch.round(
+                torch.linspace(-6.0, 6.0, num_dx), decimals=3
+            ),
+            dy=torch.round(
+                torch.linspace(-6.0, 6.0, num_dy), decimals=3
+            ),
+            dyaw=torch.round(
+                torch.linspace(-6.0, 6.0, num_dyaw), decimals=3
+            ),
+        )
 
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=MAX_NUM_OBJECTS,  # Number of agents to control
-        device="cpu",
-        render_config=render_config,
-        action_type="continuous"
-    )
-    # Generate expert actions and observations
-    (
-        expert_obs,
-        expert_actions,
-        next_expert_obs,
-        expert_dones,
-        goal_rate,
-        collision_rate,
-    ) = generate_state_action_pairs(
-        env=env,
-        device="cpu",
-        action_space_type="continuous",  # Discretize the expert actions
-        use_action_indices=True,  # Map action values to joint action index
-        make_video=True,  # Record the trajectories as sanity check
-        render_index=[0, 1],  # start_idx, end_idx
-        save_path="use_discr_actions_fix",
-    )
-    env.close()
-    del env
-    del env_config
+        env = GPUDriveTorchEnv(
+            config=env_config,
+            scene_config=scene_config,
+            max_cont_agents=MAX_NUM_OBJECTS,  # Number of agents to control
+            device=args.device,
+            render_config=render_config,
+        )
+        # Generate expert actions and observations
+        (
+            expert_obs,
+            expert_actions,
+            next_expert_obs,
+            expert_dones,
+            goal_rate,
+            collision_rate
+        ) = generate_state_action_pairs(
+            env=env,
+            device=args.device,
+            action_space_type=args.action_type,  # Discretize the expert actions
+            use_action_indices=True,  # Map action values to joint action index
+            make_video=True,  # Record the trajectories as sanity check
+            render_index=[0, 0],  #start_idx, end_idx
+            debug_world_idx=None,
+            debug_veh_idx=None,
+            save_path="use_discr_actions_fix",
+            num_action=combi
+        )
+        env.close()
+        del env
+        del env_config
+        # Calculate the total number of actions based on the combination
+        num_action = num_dx * num_dy * num_dyaw
 
+        # Store the results
+        num_actions.append(num_action)
+        goal_rates.append(goal_rate.cpu().numpy())
+        collision_rates.append(collision_rate.cpu().numpy())
+        print(f'dx {num_dx} dy {num_dy} dyaw {num_dyaw} Collision rate {collision_rate} Goal RATE {goal_rate}')
+        # Plot the results
+    plt.figure(figsize=(10, 5))
+    plt.plot(num_actions, goal_rates, label='Goal Rate', marker='o')
+    plt.plot(num_actions, collision_rates, label='Collision Rate', marker='x')
+    plt.xlabel('Number of Actions')
+    plt.ylabel('Rate')
+    plt.title('Goal Rate and Collision Rate vs. Number of Actions')
+    plt.legend()
+    plt.savefig('Trade-off.jpg',dpi=300)
     # Uncommment to save the expert actions and observations
     # torch.save(expert_actions, "expert_actions.pt")
     # torch.save(expert_obs, "expert_obs.pt")
