@@ -150,6 +150,12 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         return Discrete(n=int(len(self.action_key_to_values)))
 
+    def _set_multi_discrete_action_space(self) -> None:
+        pass
+
+    def _set_continuous_action_space(self) -> None:
+        pass
+
     def get_obs(self):
         """Get observation: Combine different types of environment information into a single tensor.
 
