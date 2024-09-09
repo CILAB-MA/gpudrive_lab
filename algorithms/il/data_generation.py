@@ -13,7 +13,9 @@ logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
-    parser.add_argument('--dynamics-model', '-d', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
+    parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
+    parser.add_argument('--action-type', '-at', type=str, default='discrete', choices=['discrete', 'multi_discrete', 'continuous'],)
+    parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
     args = parser.parse_args()
     return args
 
@@ -235,7 +237,7 @@ def generate_state_action_pairs(
         axs[0, 0].legend()
 
         # Position plot
-        axs[0, 1].plot(expert_positions[:, 1].numpy(), expert_positions[:, 0].numpy(), label='Expert Position',
+        axs[0, 1].plot(expert_positions[:, 0].numpy(), expert_positions[:, 1].numpy(), label='Expert Position',
                        color='b',
                        marker='o')
         axs[0, 1].plot(poss[:, 0].numpy(), poss[:, 1].numpy(), label='Environment Position', color='r', marker='x')
@@ -334,13 +336,13 @@ if __name__ == "__main__":
                 torch.linspace(-6.0, 6.0, 7), decimals=3
             ),
             dx=torch.round(
-                torch.linspace(-3.0, 3.0, num_dx), decimals=3
+                torch.linspace(-6.0, 6.0, num_dx), decimals=3
             ),
             dy=torch.round(
-                torch.linspace(-3.0, 3.0, num_dy), decimals=3
+                torch.linspace(-6.0, 6.0, num_dy), decimals=3
             ),
             dyaw=torch.round(
-                torch.linspace(-1.0, 1.0, num_dyaw), decimals=3
+                torch.linspace(-6.0, 6.0, num_dyaw), decimals=3
             ),
         )
 
@@ -348,7 +350,7 @@ if __name__ == "__main__":
             config=env_config,
             scene_config=scene_config,
             max_cont_agents=MAX_NUM_OBJECTS,  # Number of agents to control
-            device="cpu",
+            device=args.device,
             render_config=render_config,
         )
         # Generate expert actions and observations
@@ -361,8 +363,8 @@ if __name__ == "__main__":
             collision_rate
         ) = generate_state_action_pairs(
             env=env,
-            device="cpu",
-            action_space_type='discrete',  # Discretize the expert actions
+            device=args.device,
+            action_space_type=args.action_type,  # Discretize the expert actions
             use_action_indices=True,  # Map action values to joint action index
             make_video=True,  # Record the trajectories as sanity check
             render_index=[0, 0],  #start_idx, end_idx
