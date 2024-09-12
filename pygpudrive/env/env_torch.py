@@ -1,6 +1,6 @@
 """Base Gym Environment that interfaces with the GPU Drive simulator."""
 
-from gymnasium.spaces import Box, Discrete
+from gymnasium.spaces import Box, Discrete, Tuple
 import numpy as np
 import torch
 import copy
@@ -154,7 +154,28 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         pass
 
     def _set_continuous_action_space(self) -> None:
-        pass
+        """Configure the continuous action space."""
+        if self.action_features == 'delta_local':
+            self.dx = self.config.dx.to(self.device)
+            self.dy = self.config.dy.to(self.device)
+            self.dyaw = self.config.dyaw.to(self.device)
+            action_1 = self.dx.clone().cpu().numpy()
+            action_2 = self.dy.clone().cpu().numpy()
+            action_3 = self.dyaw.clone().cpu().numpy()
+        else:
+            self.steer_actions = self.config.steer_actions.to(self.device)
+            self.accel_actions = self.config.accel_actions.to(self.device)
+            self.head_actions = torch.tensor([0], device=self.device)
+            action_1 = self.steer_actions.clone().cpu().numpy()
+            action_2 = self.accel_actions.clone().cpu().numpy()
+            action_3 = self.head_actions.clone().cpu().numpy()
+
+        action_space = Tuple(
+            Box(action_1.min(), action_1.max(), shape=(1,)),
+            Box(action_2.min(), action_2.max(), shape=(1,)),
+            Box(action_3.min(), action_3.max(), shape=(1,))
+        )
+        return action_space
 
     def get_obs(self):
         """Get observation: Combine different types of environment information into a single tensor.
