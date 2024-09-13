@@ -72,7 +72,8 @@ def generate_state_action_pairs(
     distances_masked = distances.masked_fill(mask, float('inf'))
     sorted_indices = distances_masked.argsort(dim=2)  # torch.Size([5, 128, 128, 91])
 
-    other_actions = expert_actions.unsqueeze(2).expand(num_scene, num_vehicle, num_vehicle, timestep, 3)  # torch.Size([5, 128, 128, 91, 3])
+    other_actions = expert_actions.unsqueeze(2).expand(num_scene, num_vehicle, num_vehicle, timestep,
+                                                       3)  # torch.Size([5, 128, 128, 91, 3])
 
     sorted_actions = torch.gather(other_actions, 2, sorted_indices.unsqueeze(-1).expand(-1, -1, -1, -1,
                                                                                         3))  # torch.Size([5, 128, 128, 91, 3])
@@ -182,13 +183,16 @@ def generate_state_action_pairs(
 
         dones = env.get_dones().to(device)
         infos = env.get_infos()
+        if debug_world_idx is not None and debug_veh_idx is not None:
+            if dones[debug_world_idx, debug_veh_idx] == 0:
+                speeds.append(next_obs[debug_world_idx, debug_veh_idx, 0].unsqueeze(-1))
+                poss.append(next_obs[debug_world_idx, debug_veh_idx, 3:5].unsqueeze(0))
 
         # Unpack and store (obs, action, next_obs, dones) pairs for controlled agents
         expert_observations_lst.append(obs[~dead_agent_mask, :])
         expert_actions_lst.append(
             expert_actions[~dead_agent_mask][:, time_step, :]
         )
-
         expert_next_obs_lst.append(next_obs[~dead_agent_mask, :])
         expert_dones_lst.append(dones[~dead_agent_mask])
 
@@ -262,18 +266,18 @@ def generate_state_action_pairs(
             action_comb = (len(env.accel_actions), len(env.steer_actions))
             
         # Speed plot
-        axs[0, 0].plot(expert_speeds.numpy(), label='Expert Speeds', color='b')
-        axs[0, 0].plot(speeds.numpy(), label='Simulation Speeds', color='r')
+        axs[0, 0].plot(debug_speeds.cpu().numpy(), label='Expert Speeds', color='b')
+        axs[0, 0].plot(speeds.cpu().numpy(), label='Simulation Speeds', color='r')
         axs[0, 0].set_title('Speeds Comparison')
         axs[0, 0].set_xlabel('Time Step')
         axs[0, 0].set_ylabel('Speed')
         axs[0, 0].legend()
 
         # Position plot
-        axs[0, 1].plot(expert_positions[:, 0].numpy(), expert_positions[:, 1].numpy(), label='Expert Position',
+        axs[0, 1].plot(debug_positions[:, 0].cpu().numpy(), debug_positions[:, 1].cpu().numpy(), label='Expert Position',
                        color='b',
                        marker='o')
-        axs[0, 1].plot(poss[:, 0].numpy(), poss[:, 1].numpy(), label='Environment Position', color='r', marker='x')
+        axs[0, 1].plot(poss[:, 0].cpu().numpy(), poss[:, 1].cpu().numpy(), label='Environment Position', color='r', marker='x')
         axs[0, 1].set_title('Position Comparison with Order')
         axs[0, 1].set_xlabel('X Position')
         axs[0, 1].set_ylabel('Y Position')
@@ -355,7 +359,6 @@ if __name__ == "__main__":
     
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    
     NUM_WORLDS = 5
     MAX_NUM_OBJECTS = 128
 
@@ -397,6 +400,8 @@ if __name__ == "__main__":
             action_type=args.action_type,
             device=args.device,
             render_config=render_config,
+            num_stack=3,
+            action_type=args.action_type
         )
 
         # Generate expert actions and observations
