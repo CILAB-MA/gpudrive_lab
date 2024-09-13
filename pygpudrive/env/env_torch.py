@@ -178,7 +178,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Create a mapping from action indices to action values
         self.action_key_to_values = {}
         self.values_to_action_key = {}
-        self.action_keys_tensor = torch.zeros(20, 20, 20, 3).to(self.device)
+        self.action_keys_tensor = torch.zeros(*action_range, 3).to(self.device)
 
         for action_idx, (action_1, action_2, action_3) in zip(action_indices, action_values):
             action_idx = tuple(action_idx)
@@ -346,16 +346,16 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         velo2speed = None
         debug_positions = None
         if debug_world_idx is not None and debug_veh_idx is not None:
-            velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / self.config.max_speed
+            velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
             positions[..., 0] = self.normalize_tensor(
                 positions[..., 0],
-                self.config.min_rel_goal_coord,
-                self.config.max_rel_goal_coord,
+                constants.MIN_REL_GOAL_COORD,
+                constants.MAX_REL_GOAL_COORD,
             )
             positions[..., 1] = self.normalize_tensor(
                 positions[..., 1],
-                self.config.min_rel_goal_coord,
-                self.config.max_rel_goal_coord,
+                constants.MIN_REL_GOAL_COORD,
+                constants.MAX_REL_GOAL_COORD,
             )
             debug_positions = positions[debug_world_idx, debug_veh_idx]
         return inferred_expert_actions, velo2speed, debug_positions
