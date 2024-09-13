@@ -80,7 +80,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         return self.sim.reward_tensor().to_torch().squeeze(dim=2)
 
     def step_dynamics(self, actions):
-
         if actions is not None:
             self._apply_actions(actions)
         self.sim.step()
@@ -92,13 +91,12 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             # Map action indices to action values if indices are provided
             actions = torch.nan_to_num(actions, nan=0).long().to(self.device)
             action_value_tensor = self.action_keys_tensor[actions]
-
         elif actions.dim() == 3:
             if actions.shape[2] == 1:
                 actions = actions.squeeze(dim=2).to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions]
             elif (
-                actions.shape[2] == 3
+                actions.shape[2] != 1
             ):  # Assuming we are given the actual action values (acceleration, steering, heading)
                 action_value_tensor = actions.to(self.device)
         else:
@@ -171,9 +169,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             action_3 = self.head_actions.clone().cpu().numpy()
 
         action_space = Tuple(
-            Box(action_1.min(), action_1.max(), shape=(1,)),
+            (Box(action_1.min(), action_1.max(), shape=(1,)),
             Box(action_2.min(), action_2.max(), shape=(1,)),
-            Box(action_3.min(), action_3.max(), shape=(1,))
+            Box(action_3.min(), action_3.max(), shape=(1,)))
         )
         return action_space
 
@@ -303,16 +301,16 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         velo2speed = None
         debug_positions = None
         if debug_world_idx is not None and debug_veh_idx is not None:
-            velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / self.config.max_speed
+            velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
             positions[..., 0] = self.normalize_tensor(
                 positions[..., 0],
-                self.config.min_rel_goal_coord,
-                self.config.max_rel_goal_coord,
+                constants.MIN_REL_AGENT_POS,
+                constants.MAX_REL_AGENT_POS,
             )
             positions[..., 1] = self.normalize_tensor(
                 positions[..., 1],
-                self.config.min_rel_goal_coord,
-                self.config.max_rel_goal_coord,
+                constants.MIN_REL_AGENT_POS,
+                constants.MAX_REL_AGENT_POS,
             )
             debug_positions = positions[debug_world_idx, debug_veh_idx]
         return inferred_expert_actions, velo2speed, debug_positions
