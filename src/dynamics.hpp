@@ -177,7 +177,7 @@ namespace gpudrive
 
         action.dx = fmaxf(-6.0, fminf(local_dx, 6.0));
         action.dy = fmaxf(-6.0, fminf(local_dy, 6.0));
-        action.dyaw = fmaxf(-3.14, fminf(action.dyaw, 3.14));
+        action.dyaw  = utils::NormalizeAngle<float>(action.dyaw);
             // end DeltaLocal
         // end delta model
 
