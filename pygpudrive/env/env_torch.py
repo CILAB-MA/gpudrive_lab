@@ -39,7 +39,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.action_features = "delta_local"
         else:
             self.action_features = "bicycle"
-
         # Initialize simulator with parameters
         self.sim = self._initialize_simulator(params, scene_config)
         # Controlled agents setup
@@ -80,7 +79,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         return self.sim.reward_tensor().to_torch().squeeze(dim=2)
 
     def step_dynamics(self, actions):
-
         if actions is not None:
             self._apply_actions(actions)
         self.sim.step()
@@ -92,19 +90,17 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Map action indices to action values if indices are provided
         if actions.dim() == 2:  # (num_worlds, max_agent_count)
             action_value_tensor = self.action_keys_tensor[actions]
-
         elif actions.dim() == 3:
             if actions.shape[2] == 1:
                 actions = actions.squeeze(dim=2).to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions]
-
-            elif actions.shape[2] == 3:
-                if isinstance(self.action_space, Discrete):
-                    action_value_tensor = actions.to(self.device)
-                elif isinstance(self.action_space, MultiDiscrete):
-                    action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
-                else:
-                    NotImplementedError("Invalid action space")
+            elif isinstance(self.action_space, MultiDiscrete):
+                action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+            else:
+                action_value_tensor = actions.to(self.device)
+        elif actions.dim() == 4:
+            actions = actions.squeeze(dim=3).to(self.device)
+            action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
         else:
             raise ValueError(f"Invalid action shape: {actions.shape}")
 
@@ -214,9 +210,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             action_3 = self.head_actions.clone().cpu().numpy()
 
         action_space = Tuple(
-            Box(action_1.min(), action_1.max(), shape=(1,)),
+            (Box(action_1.min(), action_1.max(), shape=(1,)),
             Box(action_2.min(), action_2.max(), shape=(1,)),
-            Box(action_3.min(), action_3.max(), shape=(1,))
+            Box(action_3.min(), action_3.max(), shape=(1,)))
         )
         return action_space
 
@@ -349,13 +345,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
             positions[..., 0] = self.normalize_tensor(
                 positions[..., 0],
-                constants.MIN_REL_GOAL_COORD,
-                constants.MAX_REL_GOAL_COORD,
+                constants.MIN_REL_AGENT_POS,
+                constants.MAX_REL_AGENT_POS,
             )
             positions[..., 1] = self.normalize_tensor(
                 positions[..., 1],
-                constants.MIN_REL_GOAL_COORD,
-                constants.MAX_REL_GOAL_COORD,
+                constants.MIN_REL_AGENT_POS,
+                constants.MAX_REL_AGENT_POS,
             )
             debug_positions = positions[debug_world_idx, debug_veh_idx]
         return inferred_expert_actions, velo2speed, debug_positions
