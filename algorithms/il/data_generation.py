@@ -210,9 +210,8 @@ def generate_state_action_pairs(
     expert_dones_lst = []
 
     # Initialize dead agent mask
-
-    dead_agent_mask = ~env.cont_agent_mask.clone()
-    alive_agent_mask = env.cont_agent_mask.clone()
+    dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
+    alive_agent_mask = env.cont_agent_mask.clone().to(device)
     print(alive_agent_mask)
     if debug_world_idx is not None and debug_veh_idx is not None:
         speeds = [obs[debug_world_idx, debug_veh_idx, 0].unsqueeze(-1)]
@@ -225,7 +224,7 @@ def generate_state_action_pairs(
 
         next_obs = env.get_obs()
 
-        dones = env.get_dones()
+        dones = env.get_dones().to(device)
         infos = env.get_infos()
 
         if debug_world_idx is not None and debug_veh_idx is not None:
@@ -366,7 +365,7 @@ if __name__ == "__main__":
     import argparse
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    NUM_WORLDS = 10
+    NUM_WORLDS = 50
     MAX_NUM_OBJECTS = 128
 
     # Initialize lists to store results
