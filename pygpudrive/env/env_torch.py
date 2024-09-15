@@ -85,25 +85,21 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def _apply_actions(self, actions):
         """Apply the actions to the simulator."""
-        actions = torch.nan_to_num(actions, nan=0).long().to(self.device)
-
         # Map action indices to action values if indices are provided
-        if actions.dim() == 2:  # (num_worlds, max_agent_count)
-            action_value_tensor = self.action_keys_tensor[actions]
-        elif actions.dim() == 3:
-            if actions.shape[2] == 1:
-                actions = actions.squeeze(dim=2).to(self.device)
-                action_value_tensor = self.action_keys_tensor[actions]
-            elif isinstance(self.action_space, MultiDiscrete):
-                action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+        if isinstance(self.action_space, Discrete):
+            if actions.dim() == 2 or (actions.dim() == 3 and actions.shape[2] == 3):
+                actions = torch.nan_to_num(actions, nan=0).long().to(self.device)
+                actions = actions.to(self.device)
             else:
-                action_value_tensor = actions.to(self.device)
-        elif actions.dim() == 4:
-            actions = actions.squeeze(dim=3).to(self.device)
+                actions = actions.squeeze(dim=2).to(self.device) if actions.dim() == 3 else actions.to(self.device)
+                action_value_tensor = self.action_keys_tensor[actions]
+        elif isinstance(self.action_space, MultiDiscrete):
+            actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
             action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+        elif isinstance(self.action_space, Tuple):
+            action_value_tensor = actions.to(self.device)
         else:
             raise ValueError(f"Invalid action shape: {actions.shape}")
-
         # Feed the actual action values to gpudrive
         if self.action_features == 'delta_local':
             self.sim.delta_action_tensor().to_torch().copy_(action_value_tensor)
