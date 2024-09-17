@@ -253,7 +253,7 @@ def generate_state_action_pairs(
         if (dead_agent_mask == True).all():
             break
     controlled_agent_info = infos[alive_agent_mask]
-    # print(infos.shape, controlled_agent_info.shape, alive_agent_mask.shape)
+    print(infos.shape, controlled_agent_info.shape, alive_agent_mask.sum())
     off_road = controlled_agent_info[:, 0]
     veh_collision = controlled_agent_info[:, 1]
     non_veh_collision = controlled_agent_info[:, 2]
@@ -365,7 +365,7 @@ if __name__ == "__main__":
     import argparse
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    NUM_WORLDS = 50
+    NUM_WORLDS = 150
     MAX_NUM_OBJECTS = 128
 
     # Initialize lists to store results
@@ -410,6 +410,8 @@ if __name__ == "__main__":
             action_type=args.action_type,
             device=args.device,
             render_config=render_config,
+            action_type=args.action_type,
+            num_stack=3
         )
 
         # Generate expert actions and observations

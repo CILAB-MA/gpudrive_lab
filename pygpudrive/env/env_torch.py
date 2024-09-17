@@ -23,6 +23,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         max_cont_agents,
         device="cuda",
         action_type="discrete",
+        num_stack=1,
         render_config: RenderConfig = RenderConfig(),
     ):
         # Initialization of environment configurations
@@ -31,7 +32,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.max_cont_agents = max_cont_agents
         self.device = device
         self.render_config = render_config
-
+        self.num_stack = num_stack
         # Environment parameter setup
         params = self._setup_environment_parameters()
         params.dynamicsModel = self.dynamics_model[config.dynamics_model]
@@ -50,7 +51,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         # Setup action and observation spaces
         self.observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(self.get_obs().shape[-1],)
+            low=-np.inf, high=np.inf, shape=(self.get_obs(reset=True).shape[-1],)
         )
         self._setup_action_space(action_type)
         self.info_dim = 5  # Number of info features
@@ -61,7 +62,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
     def reset(self):
         """Reset the worlds and return the initial observations."""
         self.sim.reset(list(range(self.num_worlds)))
-        return self.get_obs()
+        return self.get_obs(reset=True)
 
     def get_dones(self):
         return self.sim.done_tensor().to_torch().squeeze(dim=2).to(torch.float)
@@ -212,7 +213,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         return action_space
 
-    def get_obs(self):
+    def get_obs(self, reset=False):
         """Get observation: Combine different types of environment information into a single tensor.
 
         Returns:
@@ -274,8 +275,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             ),
             dim=-1,
         )
+        if reset:
+            self.stacked_obs = torch.zeros_like(torch.cat([obs_filtered for _ in range(self.num_stack)],dim=-1))
+        else:
+            self.stacked_obs[..., :-obs_filtered.shape[-1]] = self.stacked_obs[..., obs_filtered.shape[-1]:]
+        self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
 
-        return obs_filtered
+        return self.stacked_obs.clone()
 
     def get_controlled_agents_mask(self):
         """Get the control mask. Bicycle = 1, DeltaModel = 2"""
