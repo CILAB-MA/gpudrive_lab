@@ -85,7 +85,7 @@ def generate_state_action_pairs(
         # for (pos_x, pos_y), speed in zip(expert_positions, expert_speeds):
         #     print(f'position : ({pos_x}. {pos_y}), speed : {speed}')
     if action_space_type == 'discrete':
-        logging.info("Discretizing expert actions... \n")
+        logging.info("Converting expert actions into discrete format... \n")
         # Discretize the expert actions: map every value to the closest
         # value in the action grid.
         disc_expert_actions = expert_actions.clone()
@@ -141,9 +141,65 @@ def generate_state_action_pairs(
         else:
             # Map action values to joint action index
             expert_actions = disc_expert_actions
+
     elif action_space_type == 'multi_discrete':
-        '''will be update'''
-        pass
+        logging.info("Converting expert actions into multi-discrete format... \n")
+        # Discretize the expert actions: map every value to the closest
+        # value in the action grid.
+        disc_expert_actions = expert_actions.clone()
+
+        if env.action_features == 'delta_local':
+            disc_expert_actions[:, :, :, 0], _ = map_to_closest_discrete_value(
+                grid=env.dx, cont_actions=expert_actions[:, :, :, 0]
+            )
+            disc_expert_actions[:, :, :, 1], _ = map_to_closest_discrete_value(
+                grid=env.dy, cont_actions=expert_actions[:, :, :, 1]
+            )
+            disc_expert_actions[:, :, :, 2], _ = map_to_closest_discrete_value(
+                grid=env.dyaw, cont_actions=expert_actions[:, :, :, 2]
+            )
+        else:
+            # Acceleration
+            disc_expert_actions[:, :, :, 0], _ = map_to_closest_discrete_value(
+                grid=env.accel_actions, cont_actions=expert_actions[:, :, :, 0]
+            )
+            # Steering
+            disc_expert_actions[:, :, :, 1], _ = map_to_closest_discrete_value(
+                grid=env.steer_actions, cont_actions=expert_actions[:, :, :, 1]
+            )
+
+        if use_action_indices:  # Map action values to joint action index
+            logging.info("Mapping expert actions to joint action index... \n")
+            expert_action_indices = torch.zeros(
+                expert_actions.shape[0],
+                expert_actions.shape[1],
+                expert_actions.shape[2],
+                3,
+                dtype=torch.int32,
+            ).to(device)
+            for world_idx in range(disc_expert_actions.shape[0]):
+                for agent_idx in range(disc_expert_actions.shape[1]):
+                    for time_idx in range(disc_expert_actions.shape[2]):
+                        action_val_tuple = tuple(
+                            round(x, 3)
+                            for x in disc_expert_actions[
+                                     world_idx, agent_idx, time_idx, :
+                                     ].tolist()
+                        )
+                        if not env.action_features == 'delta_local':
+                            action_val_tuple = (action_val_tuple[0], action_val_tuple[1], 0.0)
+
+                        action_idx = env.values_to_action_key.get(
+                            action_val_tuple
+                        )
+                        expert_action_indices[
+                            world_idx, agent_idx, time_idx
+                        ] = torch.tensor(action_idx)
+
+            expert_actions = expert_action_indices
+        else:
+            # Map action values to joint action index
+            expert_actions = disc_expert_actions
     else:
         logging.info("Using continuous expert actions... \n")
 
@@ -154,9 +210,8 @@ def generate_state_action_pairs(
     expert_dones_lst = []
 
     # Initialize dead agent mask
-
-    dead_agent_mask = ~env.cont_agent_mask.clone()
-    alive_agent_mask = env.cont_agent_mask.clone()
+    dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
+    alive_agent_mask = env.cont_agent_mask.clone().to(device)
     print(alive_agent_mask)
     if debug_world_idx is not None and debug_veh_idx is not None:
         speeds = [obs[debug_world_idx, debug_veh_idx, 0].unsqueeze(-1)]
@@ -169,7 +224,7 @@ def generate_state_action_pairs(
 
         next_obs = env.get_obs()
 
-        dones = env.get_dones()
+        dones = env.get_dones().to(device)
         infos = env.get_infos()
 
         if debug_world_idx is not None and debug_veh_idx is not None:
@@ -310,7 +365,7 @@ if __name__ == "__main__":
     import argparse
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    NUM_WORLDS = 400
+    NUM_WORLDS = 50
     MAX_NUM_OBJECTS = 128
 
     # Initialize lists to store results
@@ -338,13 +393,13 @@ if __name__ == "__main__":
                 torch.linspace(-6.0, 6.0, 7), decimals=3
             ),
             dx=torch.round(
-                torch.linspace(-6.0, 6.0, 100), decimals=3
+                torch.linspace(-6.0, 6.0, num_dx), decimals=3
             ),
             dy=torch.round(
-                torch.linspace(-6.0, 6.0, 5), decimals=3
+                torch.linspace(-6.0, 6.0, num_dy), decimals=3
             ),
             dyaw=torch.round(
-                torch.linspace(-np.pi, np.pi, 5), decimals=3
+                torch.linspace(-np.pi, np.pi, num_dyaw), decimals=3
             ),
         )
 
@@ -352,10 +407,11 @@ if __name__ == "__main__":
             config=env_config,
             scene_config=scene_config,
             max_cont_agents=MAX_NUM_OBJECTS,  # Number of agents to control
+            action_type=args.action_type,
             device=args.device,
             render_config=render_config,
-            action_type=args.action_type
         )
+
         # Generate expert actions and observations
         (
             expert_obs,
@@ -370,9 +426,9 @@ if __name__ == "__main__":
             action_space_type=args.action_type,  # Discretize the expert actions
             use_action_indices=True,  # Map action values to joint action index
             make_video=True,  # Record the trajectories as sanity check
-            render_index=[0, 0],  #start_idx, end_idx
-            debug_world_idx=None,
-            debug_veh_idx=None,
+            render_index=[0, 1],  #start_idx, end_idx
+            debug_world_idx=0,
+            debug_veh_idx=0,
             save_path="use_discr_actions_fix",
             num_action=combi
         )
