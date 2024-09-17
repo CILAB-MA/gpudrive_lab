@@ -404,6 +404,7 @@ if __name__ == "__main__":
             action_type=args.action_type,
             device=args.device,
             render_config=render_config,
+            action_type=args.action_type,
             num_stack=3
         )
 
