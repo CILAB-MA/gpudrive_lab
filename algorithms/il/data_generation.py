@@ -212,7 +212,6 @@ def generate_state_action_pairs(
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
     alive_agent_mask = env.cont_agent_mask.clone().to(device)
-    print(alive_agent_mask)
     if debug_world_idx is not None and debug_veh_idx is not None:
         speeds = [obs[debug_world_idx, debug_veh_idx, 0].unsqueeze(-1)]
         poss = [obs[debug_world_idx, debug_veh_idx, 3:5].unsqueeze(0)]
@@ -226,7 +225,6 @@ def generate_state_action_pairs(
 
         dones = env.get_dones().to(device)
         infos = env.get_infos()
-
         if debug_world_idx is not None and debug_veh_idx is not None:
             if dones[debug_world_idx, debug_veh_idx] == 0:
                 speeds.append(next_obs[debug_world_idx, debug_veh_idx, 0].unsqueeze(-1))
@@ -237,10 +235,8 @@ def generate_state_action_pairs(
         expert_actions_lst.append(
             expert_actions[~dead_agent_mask][:, time_step, :]
         )
-
         expert_next_obs_lst.append(next_obs[~dead_agent_mask, :])
         expert_dones_lst.append(dones[~dead_agent_mask])
-
         # Update
         obs = next_obs
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
@@ -253,7 +249,6 @@ def generate_state_action_pairs(
         if (dead_agent_mask == True).all():
             break
     controlled_agent_info = infos[alive_agent_mask]
-    print(infos.shape, controlled_agent_info.shape, alive_agent_mask.sum())
     off_road = controlled_agent_info[:, 0]
     veh_collision = controlled_agent_info[:, 1]
     non_veh_collision = controlled_agent_info[:, 2]
@@ -365,8 +360,8 @@ if __name__ == "__main__":
     import argparse
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    NUM_WORLDS = 150
-    MAX_NUM_OBJECTS = 128
+    NUM_WORLDS = 1
+    MAX_NUM_OBJECTS = 1
 
     # Initialize lists to store results
     num_actions = []
@@ -410,7 +405,6 @@ if __name__ == "__main__":
             action_type=args.action_type,
             device=args.device,
             render_config=render_config,
-            action_type=args.action_type,
             num_stack=3
         )
 
@@ -428,9 +422,9 @@ if __name__ == "__main__":
             action_space_type=args.action_type,  # Discretize the expert actions
             use_action_indices=True,  # Map action values to joint action index
             make_video=True,  # Record the trajectories as sanity check
-            render_index=[0, 1],  #start_idx, end_idx
-            debug_world_idx=0,
-            debug_veh_idx=0,
+            render_index=[0, 0],  #start_idx, end_idx
+            debug_world_idx=None,
+            debug_veh_idx=None,
             save_path="use_discr_actions_fix",
             num_action=combi
         )
