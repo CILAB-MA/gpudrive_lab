@@ -14,7 +14,6 @@ sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from datetime import datetime
 import numpy  as np
-
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
@@ -67,6 +66,37 @@ if __name__ == "__main__":
         with np.load(os.path.join(args.data_path, f)) as npz:
             expert_obs.append(npz['obs'])
             expert_actions.append(npz['actions'])
+    NUM_WORLDS = 50
+    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
+    env = GPUDriveTorchEnv(
+        config=env_config,
+        scene_config=scene_config,
+        max_cont_agents=128,  # Number of agents to control
+        device=args.device,
+        action_type=args.action_type,
+        num_stack=args.num_stack
+    )
+    # Generate expert actions and observations
+    (
+        expert_obs,
+        expert_actions,
+        next_expert_obs,
+        expert_dones,
+        goal_rate,
+        collision_rate
+    ) = generate_state_action_pairs(
+        env=env,
+        device='cpu',
+        action_space_type=args.action_type,  # Discretize the expert actions
+        use_action_indices=True,  # Map action values to joint action index
+        make_video=True,  # Record the trajectories as sanity check
+        render_index=[0, 0],  # start_idx, end_idx
+        debug_world_idx=None,
+        debug_veh_idx=None,
+        save_path="run_bc_from_scratch",
+    )
+    print('Generating action pairs...')
+
 
     expert_obs = np.concatenate(expert_obs, axis=0)
     expert_actions = np.concatenate(expert_actions, axis=0)
