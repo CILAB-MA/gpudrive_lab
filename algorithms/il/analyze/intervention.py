@@ -169,7 +169,6 @@ if __name__ == "__main__":
             diff = action_deltas.mean()
             diffs[:, time_step, veh_ind] = diff
         env.step_dynamics(actions / args.action_scale)
-
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()

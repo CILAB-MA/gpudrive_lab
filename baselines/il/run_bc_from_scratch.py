@@ -12,7 +12,10 @@ from torch.distributions.normal import Normal
 import os, sys, torch
 sys.path.append(os.getcwd())
 import wandb, yaml, argparse
+<<<<<<< HEAD
 from datetime import datetime
+=======
+>>>>>>> a7f0fbe (Make IL model)
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
@@ -28,8 +31,11 @@ def parse_args():
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
     parser.add_argument('--model-name', '-m', type=str, default='bc_policy')
+<<<<<<< HEAD
     parser.add_argument('--action-scale', '-as', type=int, default=100)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
+=======
+>>>>>>> a7f0fbe (Make IL model)
     args = parser.parse_args()
     return args
 logger = logging.getLogger(__name__)
@@ -59,7 +65,11 @@ if __name__ == "__main__":
     render_config = RenderConfig()
     bc_config = BehavCloningConfig()
 
+<<<<<<< HEAD
     NUM_WORLDS = 50
+=======
+    NUM_WORLDS = 1
+>>>>>>> a7f0fbe (Make IL model)
     scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
     env = GPUDriveTorchEnv(
         config=env_config,
@@ -67,7 +77,11 @@ if __name__ == "__main__":
         max_cont_agents=128,  # Number of agents to control
         device=args.device,
         action_type=args.action_type,
+<<<<<<< HEAD
         num_stack=args.num_stack
+=======
+        num_stack=3
+>>>>>>> a7f0fbe (Make IL model)
     )
     # Generate expert actions and observations
     (

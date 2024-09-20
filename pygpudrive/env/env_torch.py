@@ -288,6 +288,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.stacked_obs = torch.zeros_like(torch.cat([obs_filtered for _ in range(self.num_stack)],dim=-1))
         else:
             self.stacked_obs[..., :-obs_filtered.shape[-1]] = self.stacked_obs[..., obs_filtered.shape[-1]:]
+
         self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
         self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
         return self.stacked_obs.clone()

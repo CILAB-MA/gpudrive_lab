@@ -194,7 +194,7 @@ def generate_state_action_pairs(
         )
         expert_next_obs_lst.append(next_obs[~dead_agent_mask, :])
         expert_dones_lst.append(dones[~dead_agent_mask])
-        
+
         # Update
         obs = next_obs
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
@@ -358,7 +358,6 @@ if __name__ == "__main__":
     
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    
     NUM_WORLDS = 5
     MAX_NUM_OBJECTS = 128
 
@@ -404,7 +403,6 @@ if __name__ == "__main__":
             action_type=args.action_type,
             device=args.device,
             render_config=render_config,
-            action_type=args.action_type,
             num_stack=3
         )
 
