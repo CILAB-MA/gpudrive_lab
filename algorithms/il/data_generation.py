@@ -104,8 +104,7 @@ def generate_state_action_pairs(
         else:
             expert_accel = raw_expert_action[debug_world_idx, debug_veh_idx, :, 0]
             expert_steer = raw_expert_action[debug_world_idx, debug_veh_idx, :, 1]
-        # for (pos_x, pos_y), speed in zip(expert_positions, expert_speeds):
-        #     print(f'position : ({pos_x}. {pos_y}), speed : {speed}')
+
     if action_space_type == 'discrete':
         logging.info("Converting expert actions into discrete format... \n")
         # Discretize the expert actions: map every value to the closest
@@ -234,6 +233,10 @@ def generate_state_action_pairs(
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
     alive_agent_mask = env.cont_agent_mask.clone().to(device)
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
     if debug_world_idx is not None and debug_veh_idx is not None:
         speeds = [obs[debug_world_idx, debug_veh_idx, 0].unsqueeze(-1)]
         poss = [obs[debug_world_idx, debug_veh_idx, 3:5].unsqueeze(0)]
@@ -270,6 +273,7 @@ def generate_state_action_pairs(
                 frames[render].append(frame)
         if (dead_agent_mask == True).all():
             break
+        
     controlled_agent_info = infos[alive_agent_mask]
     off_road = controlled_agent_info[:, 0]
     veh_collision = controlled_agent_info[:, 1]
@@ -285,9 +289,8 @@ def generate_state_action_pairs(
 
     if debug_world_idx is not None:
         speeds = torch.cat(speeds)
-        # print(f'Environment speeds {speeds}')
         poss = torch.cat(poss, dim=0)
-        # print(f'Environment poss {poss}')
+
     if make_video:
         for render in range(render_index[0], render_index[1]):
             imageio.mimwrite(f'{save_path}_world_{render}.mp4', np.array(frames[render]), fps=30)
@@ -416,7 +419,7 @@ if __name__ == "__main__":
                 torch.linspace(-6.0, 6.0, num_dy), decimals=3
             ),
             dyaw=torch.round(
-                torch.linspace(-np.pi, np.pi, num_dyaw), decimals=3
+                torch.linspace(-1.0, 1.0, num_dyaw), decimals=3
             ),
         )
 
@@ -440,7 +443,7 @@ if __name__ == "__main__":
             collision_rate
         ) = generate_state_action_pairs(
             env=env,
-            device='cpu',
+            device=env.device,
             action_space_type=args.action_type,  # Discretize the expert actions
             use_action_indices=True,  # Map action values to joint action index
             make_video=True,  # Record the trajectories as sanity check
@@ -453,14 +456,14 @@ if __name__ == "__main__":
         env.close()
         del env
         del env_config
-        # Calculate the total number of actions based on the combination
-        num_action = num_dx * num_dy * num_dyaw
 
         # Store the results
+        num_action = num_dx * num_dy * num_dyaw
         num_actions.append(num_action)
         goal_rates.append(goal_rate.cpu().numpy())
         collision_rates.append(collision_rate.cpu().numpy())
         print(f'Collision rate {collision_rate} Goal RATE {goal_rate}')
+<<<<<<< Updated upstream
         # Plot the results
     # plt.figure(figsize=(10, 5))
     # plt.plot(num_actions, goal_rates, label='Goal Rate', marker='o')
@@ -473,3 +476,5 @@ if __name__ == "__main__":
     # Uncommment to save the expert actions and observations
     # torch.save(expert_actions, "expert_actions.pt")
     # torch.save(expert_obs, "expert_obs.pt")
+=======
+>>>>>>> Stashed changes
