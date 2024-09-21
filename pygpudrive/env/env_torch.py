@@ -33,6 +33,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.device = device
         self.render_config = render_config
         self.num_stack = num_stack
+        
         # Environment parameter setup
         params = self._setup_environment_parameters()
         params.dynamicsModel = self.dynamics_model[config.dynamics_model]
@@ -40,8 +41,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.action_features = "delta_local"
         else:
             self.action_features = "bicycle"
+            
         # Initialize simulator with parameters
         self.sim = self._initialize_simulator(params, scene_config)
+        
         # Controlled agents setup
         self.cont_agent_mask = self.get_controlled_agents_mask()
         self.max_agent_count = self.cont_agent_mask.shape[1]
@@ -54,8 +57,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             low=-np.inf, high=np.inf, shape=(self.get_obs(reset=True).shape[-1],)
         )
         self._setup_action_space(action_type)
+        
         self.info_dim = 5  # Number of info features
         self.episode_len = self.config.episode_len
+        
         # Rendering setup
         self.visualizer = self._setup_rendering()
 
@@ -101,6 +106,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             action_value_tensor = actions.to(self.device)
         else:
             raise ValueError(f"Invalid action shape: {actions.shape}")
+        
         # Feed the actual action values to gpudrive
         if self.action_features == 'delta_local':
             self.sim.delta_action_tensor().to_torch().copy_(action_value_tensor)
@@ -328,26 +334,31 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         velocity = expert_traj[:, :, 2 * self.episode_len:4 * self.episode_len].view(self.num_worlds,
                                                                                      self.max_agent_count,
                                                                                      self.episode_len, -1)
+        
         if self.action_features == 'delta_local':
             inferred_expert_actions = expert_traj[:, :, -3 * self.episode_len:].view(self.num_worlds,
                                                                                      self.max_agent_count,
                                                                                      self.episode_len, -1)
-            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], -6, 6)
-            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -6, 6)
-            inferred_expert_actions[..., 2] = torch.clamp(inferred_expert_actions[..., 2], -3.14, 3.14)
+            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], min(self.dx).item(), max(self.dx).item())
+            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], min(self.dy).item(), max(self.dy).item())
+            inferred_expert_actions[..., 2] = torch.clamp(inferred_expert_actions[..., 2], min(self.dyaw).item(), max(self.dyaw).item())
+        
         else:
             inferred_expert_actions = expert_traj[:, :, -6 * self.episode_len:-3 * self.episode_len].view(
                 self.num_worlds,
                 self.max_agent_count,
                 self.episode_len, -1)
-            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], -6, 6)
-            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -0.3, 0.3)
+            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], min(self.steer_actions).item(), max(self.steer_actions).item())
+            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], min(self.accel_actions).item(), max(self.accel_actions).item())
+        
         velo2speed = None
         debug_positions = None
+        
         if debug_world_idx is not None and debug_veh_idx is not None:
             velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
             debug_positions = positions[debug_world_idx, debug_veh_idx]
-        return inferred_expert_actions, velo2speed, positions
+            
+        return inferred_expert_actions, velo2speed, debug_positions
 
     def normalize_and_flatten_partner_obs(self, obs):
         """Normalize partner state features.
@@ -399,7 +410,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
-
         # Set garbage object types to zero
         road_types = torch.where(
             (roadmap_type_tensor < self.MIN_OBJ_ENTITY_ENUM)
@@ -497,6 +507,7 @@ if __name__ == "__main__":
         device="cpu",
         render_config=render_config,
     )
+    
     # RUN
     obs = env.reset()
     frames = []
