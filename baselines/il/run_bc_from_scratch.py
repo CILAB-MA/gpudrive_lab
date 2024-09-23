@@ -66,6 +66,7 @@ if __name__ == "__main__":
         with np.load(os.path.join(args.data_path, f)) as npz:
             expert_obs.append(npz['obs'])
             expert_actions.append(npz['actions'])
+
     NUM_WORLDS = 50
     scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
     env = GPUDriveTorchEnv(
