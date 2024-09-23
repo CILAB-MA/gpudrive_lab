@@ -72,7 +72,7 @@ if __name__ == "__main__":
         max_cont_agents=1,  # Number of agents to control
         device=args.device,
         render_config=render_config,
-        num_stack=3,
+        num_stack=5,
         action_type=args.action_type
     )
     # torch.serialization.add_safe_globals([ContFeedForwardMSE])
@@ -88,9 +88,9 @@ if __name__ == "__main__":
         # print(f'OBS {obs[~dead_agent_mask, :] }')
         actions = bc_policy(obs[~dead_agent_mask, :], deterministic=True)
         # actions = bc_policy.act(obs[~dead_agent_mask, :], deterministic=True)
-        all_actions[~dead_agent_mask] = actions /10
+        all_actions[~dead_agent_mask] = actions / 50
         env.step_dynamics(all_actions)
-        loss = (actions / 10 - expert_actions[~dead_agent_mask][:, time_step, :])
+        loss = (actions / 50 - expert_actions[~dead_agent_mask][:, time_step, :])
         print(f'TIME {time_step} LOss: {loss}')
         obs = env.get_obs()
 

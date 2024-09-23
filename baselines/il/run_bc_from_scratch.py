@@ -12,6 +12,7 @@ from torch.distributions.normal import Normal
 import os, sys, torch
 sys.path.append(os.getcwd())
 import wandb, yaml, argparse
+from datetime import datetime
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
@@ -56,7 +57,7 @@ if __name__ == "__main__":
     render_config = RenderConfig()
     bc_config = BehavCloningConfig()
 
-    NUM_WORLDS = 1
+    NUM_WORLDS = 50
     scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
     env = GPUDriveTorchEnv(
         config=env_config,
@@ -64,7 +65,7 @@ if __name__ == "__main__":
         max_cont_agents=128,  # Number of agents to control
         device=args.device,
         action_type=args.action_type,
-        num_stack=3
+        num_stack=5
     )
     # Generate expert actions and observations
     (
@@ -91,7 +92,16 @@ if __name__ == "__main__":
     with open("private.yaml") as f:
         private_info = yaml.load(f, Loader=yaml.FullLoader)
     wandb.login(key=private_info["wandb_key"])
-    wandb.init(project=private_info['project'], entity=private_info['entity'])
+    filename = datetime.now().strftime("%Y%m%d%H%M%S")
+    wandb.init(project=private_info['project'], entity=private_info['entity'],
+               name=f'{filename}')
+    wandb.config.update({
+        'lr': bc_config.lr,
+        'batch_size': bc_config.batch_size,
+        'num_stack': 5,
+        'num_scene': NUM_WORLDS,
+        'num_vehicle': 128
+    })
 
 
     class ExpertDataset(torch.utils.data.Dataset):
@@ -141,12 +151,12 @@ if __name__ == "__main__":
             # mu, vars, mixed_weights = bc_policy(obs)
             # log_prob = bc_policy._log_prob(obs, expert_action)
             # loss = -log_prob
-            loss = F.smooth_l1_loss(pred_action, expert_action * 10)
+            loss = F.smooth_l1_loss(pred_action, expert_action * 100)
             # loss = gmm_loss(mu, vars, mixed_weights, expert_actions)
             # Backward pass
             with torch.no_grad():
                 pred_action = bc_policy(obs)
-                action_loss = torch.abs(pred_action - expert_action * 10)
+                action_loss = torch.abs(pred_action - expert_action * 100)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
                 dyaw_loss = action_loss[:, 2].mean().item()
