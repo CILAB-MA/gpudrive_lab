@@ -197,7 +197,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             self.action_space = self._set_continuous_action_space()
         else:
             raise ValueError(f"Action space not supported: {action_type}")
-        print('ActionSpace', self.action_space, action_type)
+
     def _set_collision_behavior(self, params):
         """Defines the behavior when a collision occurs.
 

@@ -127,22 +127,23 @@ if __name__ == "__main__":
         max_cont_agents=128,  # Number of agents to control
         device=args.device,
         render_config=render_config,
-        action_type='continuous'
+        action_type='continuous',
+        num_stack=3
     )
-    bc_policy = torch.load(os.path.join(args.load_dir, 'bc_policy.pt'))
+    bc_policy = torch.load(os.path.join(args.load_dir, 'bc_policy_stack3.pt'))
     bc_policy.eval()
     alive_agent_mask = env.cont_agent_mask.clone()
     obs = env.reset()
     frames = []
     delta = random.uniform(-0.5, 0.5)
-    diffs = torch.zeros(91, 127).to(args.device)
+    diffs = torch.zeros(NUM_WORLDS, 91, 127).to(args.device)
     for time_step in range(env.episode_len):
         actions = bc_policy(obs, deterministic=True)
         for veh_ind in range(127):
             obs_prime = change_partner_state(obs, veh_ind=veh_ind, delta=delta)
             actions_prime = bc_policy(obs_prime, deterministic=True)
             diff = abs(actions - actions_prime) / 3
-            diffs[time_step, veh_ind] = diff.sum()
+            diffs[:, time_step, veh_ind] = diff.sum()
         env.step_dynamics(actions)
 
         obs = env.get_obs()
