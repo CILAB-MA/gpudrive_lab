@@ -358,7 +358,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         
         if debug_world_idx is not None and debug_veh_idx is not None:
             velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
-            
+            debug_positions = positions[debug_world_idx, debug_veh_idx]
+
         return inferred_expert_actions, velo2speed, positions
 
     def normalize_and_flatten_partner_obs(self, obs):
