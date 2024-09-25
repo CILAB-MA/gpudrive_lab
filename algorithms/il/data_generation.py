@@ -212,25 +212,43 @@ def generate_state_action_pairs(
     off_road = controlled_agent_info[:, 0]
     veh_collision = controlled_agent_info[:, 1]
     non_veh_collision = controlled_agent_info[:, 2]
-    goal_achieved = controlled_agent_info[:, 3]
-
+    goal_achieved = controlled_agent_info[:, 3]        
+    
     off_road_rate = off_road.sum().float() / alive_agent_mask.sum().float()
     veh_coll_rate = veh_collision.sum().float() / alive_agent_mask.sum().float()
     non_veh_coll_rate = non_veh_collision.sum().float() / alive_agent_mask.sum().float()
     goal_rate = goal_achieved.sum().float() / alive_agent_mask.sum().float()
     collision_rate = off_road_rate + veh_coll_rate + non_veh_coll_rate
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Non-vehCol {non_veh_coll_rate} Goal {goal_rate}')
+    
+    scene_collision = []
+    for i in range(env.num_worlds):
+        scene_info = infos[i,...][alive_agent_mask[i,...]]
+        scene_off_road = scene_info[:, 0]
+        scene_veh_collision = scene_info[:, 1]
+        scene_non_veh_collision = scene_info[:, 2]
+        scene_goal_achieved = scene_info[:, 3]
+        
+        scene_off_road_rate = scene_off_road.sum().float() / scene_off_road.size(0)
+        scene_veh_collision_rate = scene_veh_collision.sum().float() / scene_veh_collision.size(0)
+        scene_non_veh_collision_rate = scene_non_veh_collision.sum().float() / scene_non_veh_collision.size(0)
+        scene_goal_rate = scene_goal_achieved.sum().float() / scene_goal_achieved.size(0)
+        scene_collision_rate = scene_off_road_rate + scene_veh_collision_rate + scene_non_veh_collision_rate
+        
+        scene_collision.append(True if scene_collision_rate > 0.0 else False)
+        print(f'World{i} : Offroad {scene_off_road_rate} VehCol {scene_veh_collision_rate} Non-vehCol {scene_non_veh_collision_rate} Goal {scene_goal_rate}')
 
     if debug_world_idx is not None:
         speeds = torch.cat(speeds)
         poss = torch.cat(poss, dim=0)
 
     if make_video:
-        for render in range(render_index[0], render_index[1]):
-            path = os.path.join(save_path, f"world_{render}_used_{action_type}.mp4")
-            if not os.path.exists(save_path):
-                print(f"Error: {save_path} does not exist.")
-            else:
+        if not os.path.exists(save_path):
+            print(f"Error: {save_path} does not exist.")
+        else:
+            for render in range(render_index[0], render_index[1]):
+                collision_status = "collided" if scene_collision[render] else "used"
+                path = os.path.join(save_path, f"world_{render}_{collision_status}_{action_type}.mp4")
                 imageio.mimwrite(path, np.array(frames[render]), fps=30)
 
     flat_expert_obs = torch.cat(expert_observations_lst, dim=0)
@@ -331,10 +349,19 @@ def generate_state_action_pairs(
 
 if __name__ == "__main__":
     import argparse
+    def parse_args():
+        parser = argparse.ArgumentParser('Select the dynamics model that you use')
+        parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
+        parser.add_argument('--action-type', '-at', type=str, default='multi_discrete', choices=['discrete', 'multi_discrete', 'continuous'],)
+        parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
+        args = parser.parse_args()
+        return args
+    
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    NUM_WORLDS = 1
-    MAX_NUM_OBJECTS = 1
+    
+    NUM_WORLDS = 5
+    MAX_NUM_OBJECTS = 128
 
     # Initialize lists to store results
     num_actions = []
@@ -343,13 +370,13 @@ if __name__ == "__main__":
 
     # Set the environment and render configurations
     # Action space (joint discrete)
-    num_dx_values = reversed(range(100, 101, 1))
-    num_dy_values = reversed(range(100, 101, 1))
+    num_dx_values = reversed(range(300, 301, 1))
+    num_dy_values = reversed(range(300, 301, 1))
     num_dyaw_values = reversed(range(300, 301, 1))
 
     combinations = itertools.product(num_dx_values, num_dy_values, num_dyaw_values)
     render_config = RenderConfig(draw_obj_idx=True)
-    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
+    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS, start_idx=5)
     for combi in combinations:
         num_dx, num_dy, num_dyaw = combi
         env_config = EnvConfig(
@@ -361,10 +388,10 @@ if __name__ == "__main__":
                 torch.linspace(-6.0, 6.0, 7), decimals=3
             ),
             dx=torch.round(
-                torch.linspace(-6.0, 6.0, num_dx), decimals=3
+                torch.linspace(-3.0, 3.0, num_dx), decimals=3
             ),
             dy=torch.round(
-                torch.linspace(-6.0, 6.0, num_dy), decimals=3
+                torch.linspace(-3.0, 3.0, num_dy), decimals=3
             ),
             dyaw=torch.round(
                 torch.linspace(-1.0, 1.0, num_dyaw), decimals=3
@@ -391,15 +418,12 @@ if __name__ == "__main__":
             collision_rate
         ) = generate_state_action_pairs(
             env=env,
-            device=env.device,
-            action_space_type=args.action_type,  # Discretize the expert actions
-            use_action_indices=True,  # Map action values to joint action index
+            use_action_indices=False,  # Map action values to joint action index
             make_video=True,  # Record the trajectories as sanity check
-            render_index=[0, 0],  #start_idx, end_idx
-            debug_world_idx=None,
-            debug_veh_idx=None,
-            save_path="use_discr_actions_fix",
-            num_action=combi
+            render_index=[0, NUM_WORLDS],  #start_idx, end_idx
+            save_path="./",
+            debug_world_idx=0,
+            debug_veh_idx=0,
         )
         env.close()
         del env
@@ -410,7 +434,7 @@ if __name__ == "__main__":
         num_actions.append(num_action)
         goal_rates.append(goal_rate.cpu().numpy())
         collision_rates.append(collision_rate.cpu().numpy())
-        print(f'Collision rate {collision_rate} Goal RATE {goal_rate}')
+        print(f'\nCollision rate {collision_rate} Goal RATE {goal_rate}')
 
     # Plot the results
     # plt.figure(figsize=(10, 5))
