@@ -20,9 +20,12 @@ def parse_args():
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--action-type', '-at', type=str, default='discrete', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
+    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--load-dir', '-l', type=str, default='models')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--model-name', '-m', type=str, default='bc_policy')
+    parser.add_argument('--action-scale', '-as', type=int, default=100)
+    parser.add_argument('--num-stack', '-s', type=int, default=5)
     args = parser.parse_args()
     return args
 
@@ -62,8 +65,9 @@ if __name__ == "__main__":
     #     max_cont_agents=bc_config.max_cont_agents,
     #     device=bc_config.device,  # Use DEVICE here for consistency
     #
+
     NUM_WORLDS = 50
-    scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
+    scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/", NUM_WORLDS)
     render_config = RenderConfig(draw_obj_idx=True)
     # print('Initializeing env....')
     env = GPUDriveTorchEnv(
@@ -72,7 +76,7 @@ if __name__ == "__main__":
         max_cont_agents=1,  # Number of agents to control
         device=args.device,
         render_config=render_config,
-        num_stack=5,
+        num_stack=args.num_stack,
         action_type=args.action_type
     )
     # torch.serialization.add_safe_globals([ContFeedForwardMSE])
@@ -88,12 +92,11 @@ if __name__ == "__main__":
         # print(f'OBS {obs[~dead_agent_mask, :] }')
         actions = bc_policy(obs[~dead_agent_mask, :], deterministic=True)
         # actions = bc_policy.act(obs[~dead_agent_mask, :], deterministic=True)
-        all_actions[~dead_agent_mask] = actions / 50
+        all_actions[~dead_agent_mask] = actions / args.action_scale
         env.step_dynamics(all_actions)
-        loss = (actions / 50 - expert_actions[~dead_agent_mask][:, time_step, :])
+        loss = (actions / args.action_scale - expert_actions[~dead_agent_mask][:, time_step, :])
         print(f'TIME {time_step} LOss: {loss}')
         obs = env.get_obs()
-
         dones = env.get_dones()
         infos = env.get_infos()
         if args.make_video:

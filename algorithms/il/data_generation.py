@@ -70,7 +70,29 @@ def generate_state_action_pairs(
     obs = env.reset()
 
     # Get expert actions for full trajectory in all worlds
-    expert_actions, expert_speeds, expert_positions = env.get_expert_actions(debug_world_idx, debug_veh_idx)
+    expert_actions, debug_speeds, expert_positions = env.get_expert_actions(debug_world_idx, debug_veh_idx)
+    print(f'EXPERT POSITIONS {expert_positions[0,0]}')
+    num_scene, num_vehicle, timestep, _ = expert_positions.shape
+    positions_expanded_1 = expert_positions.unsqueeze(2)  # torch.Size([5, 128, 1, 91, 2])
+    positions_expanded_2 = expert_positions.unsqueeze(1)  # torch.Size([5, 1, 128, 91, 2])
+
+    distances = torch.norm(positions_expanded_1 - positions_expanded_2, dim=-1)  # torch.Size([5, 128, 128, 91])
+
+    mask = torch.eye(num_vehicle, dtype=torch.bool).unsqueeze(0).unsqueeze(-1)  # torch.Size([1, 128, 128, 1])
+    distances_masked = distances.masked_fill(mask, float('inf'))
+    sorted_indices = distances_masked.argsort(dim=2)  # torch.Size([5, 128, 128, 91])
+
+    other_actions = expert_actions.unsqueeze(2).expand(num_scene, num_vehicle, num_vehicle, timestep,
+                                                       3)  # torch.Size([5, 128, 128, 91, 3])
+
+    sorted_actions = torch.gather(other_actions, 2, sorted_indices.unsqueeze(-1).expand(-1, -1, -1, -1,
+                                                                                        3))  # torch.Size([5, 128, 128, 91, 3])
+    sorted_actions_without_self = sorted_actions[:, :, 1:, :, :]  # torch.Size([5, 128, 127, 91, 3])
+    sorted_actions_final = sorted_actions_without_self.permute(0, 1, 3, 2, 4).reshape(num_scene, num_vehicle,
+                                                                                      timestep,
+                                                                                      (num_vehicle - 1) * 3)
+    print(f'SORTED action {sorted_actions_final}')
+    debug_positions = expert_positions[debug_world_idx, debug_veh_idx]
     raw_expert_action = expert_actions.clone()
     expert_dx, expert_dy, expert_dyaw = None, None, None
     expert_accel, expert_steer = None, None
@@ -281,7 +303,7 @@ def generate_state_action_pairs(
         else:
             fig, axs = plt.subplots(2, 2, figsize=(8, 8))
         # Speed plot
-        axs[0, 0].plot(expert_speeds.cpu().numpy(), label='Expert Speeds', color='b')
+        axs[0, 0].plot(debug_speeds.cpu().numpy(), label='Expert Speeds', color='b')
         axs[0, 0].plot(speeds.cpu().numpy(), label='Simulation Speeds', color='r')
         axs[0, 0].set_title('Speeds Comparison')
         axs[0, 0].set_xlabel('Time Step')
@@ -289,7 +311,7 @@ def generate_state_action_pairs(
         axs[0, 0].legend()
 
         # Position plot
-        axs[0, 1].plot(expert_positions[:, 0].cpu().numpy(), expert_positions[:, 1].cpu().numpy(), label='Expert Position',
+        axs[0, 1].plot(debug_positions[:, 0].cpu().numpy(), debug_positions[:, 1].cpu().numpy(), label='Expert Position',
                        color='b',
                        marker='o')
         axs[0, 1].plot(poss[:, 0].cpu().numpy(), poss[:, 1].cpu().numpy(), label='Environment Position', color='r', marker='x')
