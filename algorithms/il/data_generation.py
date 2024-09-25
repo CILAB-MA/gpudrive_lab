@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import imageio
 import logging
-import argparse
+import os
 import itertools
 import matplotlib.pyplot as plt
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
@@ -11,13 +11,6 @@ from pygpudrive.env.env_torch import GPUDriveTorchEnv
 
 logging.getLogger(__name__)
 
-def parse_args():
-    parser = argparse.ArgumentParser('Select the dynamics model that you use')
-    parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
-    parser.add_argument('--action-type', '-at', type=str, default='discrete', choices=['discrete', 'multi_discrete', 'continuous'],)
-    parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
-    args = parser.parse_args()
-    return args
 
 def map_to_closest_discrete_value(grid, cont_actions):
     """
@@ -32,16 +25,12 @@ def map_to_closest_discrete_value(grid, cont_actions):
 
     return closest_values, indx
 
-
 def generate_state_action_pairs(
         env,
-        device,
-        action_space_type='discrete',
         use_action_indices=False,
         make_video=False,
-        render_index=[0],
-        num_action=10000,
-        save_path="output_video.mp4",
+        render_index=[0, 1],
+        save_path="./",
         debug_world_idx=None,
         debug_veh_idx=None,
 ):
@@ -49,11 +38,12 @@ def generate_state_action_pairs(
 
     Args:
         env (GPUDriveTorchEnv): Initialized environment class.
-        device (str): Where to run the simulation (cpu or cuda).
-        action_space_type (str): discrete, multi-discrete, continuous
         use_action_indices (bool): Whether to return action indices instead of action values.
         make_video (bool): Whether to save a video of the expert trajectory.
         render_index (int): Index of the world to render (must be <= num_worlds).
+        save_path (str): Path to save the video.
+        debug_world_idx (int): Index of the world to debug.
+        debug_veh_idx (int): Index of the vehicle to debug.
 
     Returns:
         expert_actions: Expert actions for the controlled agents. An action is a
@@ -96,6 +86,7 @@ def generate_state_action_pairs(
     raw_expert_action = expert_actions.clone()
     expert_dx, expert_dy, expert_dyaw = None, None, None
     expert_accel, expert_steer = None, None
+    
     if debug_world_idx is not None and debug_veh_idx is not None:
         if env.action_features == 'delta_local':
             expert_dx = raw_expert_action[debug_world_idx, debug_veh_idx, :, 0]
@@ -105,69 +96,15 @@ def generate_state_action_pairs(
             expert_accel = raw_expert_action[debug_world_idx, debug_veh_idx, :, 0]
             expert_steer = raw_expert_action[debug_world_idx, debug_veh_idx, :, 1]
 
-    if action_space_type == 'discrete':
-        logging.info("Converting expert actions into discrete format... \n")
-        # Discretize the expert actions: map every value to the closest
-        # value in the action grid.
-        disc_expert_actions = expert_actions.clone()
-        if env.action_features == 'delta_local':
-            disc_expert_actions[:, :, :, 0], _ = map_to_closest_discrete_value(
-                grid=env.dx, cont_actions=expert_actions[:, :, :, 0]
-            )
-            disc_expert_actions[:, :, :, 1], _ = map_to_closest_discrete_value(
-                grid=env.dy, cont_actions=expert_actions[:, :, :, 1]
-            )
-            disc_expert_actions[:, :, :, 2], _ = map_to_closest_discrete_value(
-                grid=env.dyaw, cont_actions=expert_actions[:, :, :, 2]
-            )
-        else:
-            # Acceleration
-            disc_expert_actions[:, :, :, 0], _ = map_to_closest_discrete_value(
-                grid=env.accel_actions, cont_actions=expert_actions[:, :, :, 0]
-            )
-            # Steering
-            disc_expert_actions[:, :, :, 1], _ = map_to_closest_discrete_value(
-                grid=env.steer_actions, cont_actions=expert_actions[:, :, :, 1]
-            )
-
-        if use_action_indices:  # Map action values to joint action index
-            logging.info("Mapping expert actions to joint action index... \n")
-            expert_action_indices = torch.zeros(
-                expert_actions.shape[0],
-                expert_actions.shape[1],
-                expert_actions.shape[2],
-                1,
-                dtype=torch.int32,
-            ).to(device)
-            for world_idx in range(disc_expert_actions.shape[0]):
-                for agent_idx in range(disc_expert_actions.shape[1]):
-                    for time_idx in range(disc_expert_actions.shape[2]):
-                        action_val_tuple = tuple(
-                            round(x, 3)
-                            for x in disc_expert_actions[
-                                     world_idx, agent_idx, time_idx, :
-                                     ].tolist()
-                        )
-                        if not env.action_features == 'delta_local':
-                            action_val_tuple = (action_val_tuple[0], action_val_tuple[1], 0.0)
-
-                        action_idx = env.values_to_action_key.get(
-                            action_val_tuple
-                        )
-                        expert_action_indices[
-                            world_idx, agent_idx, time_idx
-                        ] = action_idx
-
-            expert_actions = expert_action_indices
-        else:
-            # Map action values to joint action index
-            expert_actions = disc_expert_actions
-
-    elif action_space_type == 'multi_discrete':
-        logging.info("Converting expert actions into multi-discrete format... \n")
-        # Discretize the expert actions: map every value to the closest
-        # value in the action grid.
-        disc_expert_actions = expert_actions.clone()
+    # Convert expert actions to the desired action space type
+    action_type = env.action_type
+    device = env.device
+    
+    if action_type == 'continuous':
+        logging.info("Using continuous expert actions... \n")
+    else:
+        logging.info(f"Converting expert actions into {action_type} format... \n")
+        disc_expert_actions = torch.zeros_like(expert_actions)
 
         if env.action_features == 'delta_local':
             disc_expert_actions[:, :, :, 0], _ = map_to_closest_discrete_value(
@@ -189,15 +126,18 @@ def generate_state_action_pairs(
                 grid=env.steer_actions, cont_actions=expert_actions[:, :, :, 1]
             )
 
-        if use_action_indices:  # Map action values to joint action index
+        if use_action_indices:  
             logging.info("Mapping expert actions to joint action index... \n")
+            
+            action_indices = 1 if action_type == 'discrete' else 3
             expert_action_indices = torch.zeros(
                 expert_actions.shape[0],
                 expert_actions.shape[1],
                 expert_actions.shape[2],
-                3,
+                action_indices,
                 dtype=torch.int32,
-            ).to(device)
+                ).to(device)
+            
             for world_idx in range(disc_expert_actions.shape[0]):
                 for agent_idx in range(disc_expert_actions.shape[1]):
                     for time_idx in range(disc_expert_actions.shape[2]):
@@ -219,10 +159,7 @@ def generate_state_action_pairs(
 
             expert_actions = expert_action_indices
         else:
-            # Map action values to joint action index
             expert_actions = disc_expert_actions
-    else:
-        logging.info("Using continuous expert actions... \n")
 
     # Storage
     expert_observations_lst = []
@@ -233,18 +170,14 @@ def generate_state_action_pairs(
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
     alive_agent_mask = env.cont_agent_mask.clone().to(device)
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
     if debug_world_idx is not None and debug_veh_idx is not None:
         speeds = [obs[debug_world_idx, debug_veh_idx, 0].unsqueeze(-1)]
         poss = [obs[debug_world_idx, debug_veh_idx, 3:5].unsqueeze(0)]
 
     for time_step in range(env.episode_len):
-
         # Step the environment with inferred expert actions
-        env.step_dynamics(expert_actions[:, :, time_step, :])
+        env.step_dynamics(expert_actions[:, :, time_step, :], use_action_indices)
 
         next_obs = env.get_obs()
 
@@ -262,6 +195,7 @@ def generate_state_action_pairs(
         )
         expert_next_obs_lst.append(next_obs[~dead_agent_mask, :])
         expert_dones_lst.append(dones[~dead_agent_mask])
+        
         # Update
         obs = next_obs
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
@@ -293,18 +227,26 @@ def generate_state_action_pairs(
 
     if make_video:
         for render in range(render_index[0], render_index[1]):
-            imageio.mimwrite(f'{save_path}_world_{render}.mp4', np.array(frames[render]), fps=30)
+            path = os.path.join(save_path, f"world_{render}_used_{action_type}.mp4")
+            if not os.path.exists(save_path):
+                print(f"Error: {save_path} does not exist.")
+            else:
+                imageio.mimwrite(path, np.array(frames[render]), fps=30)
 
     flat_expert_obs = torch.cat(expert_observations_lst, dim=0)
     flat_expert_actions = torch.cat(expert_actions_lst, dim=0)
     flat_next_expert_obs = torch.cat(expert_next_obs_lst, dim=0)
     flat_expert_dones = torch.cat(expert_dones_lst, dim=0)
+    
     if debug_world_idx is not None:
         '''for plotting '''
         if env.action_features == 'delta_local':
             fig, axs = plt.subplots(2, 3, figsize=(12, 8))
+            action_comb = (len(env.dx), len(env.dy), len(env.dyaw))
         else:
             fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+            action_comb = (len(env.accel_actions), len(env.steer_actions))
+            
         # Speed plot
         axs[0, 0].plot(debug_speeds.cpu().numpy(), label='Expert Speeds', color='b')
         axs[0, 0].plot(speeds.cpu().numpy(), label='Simulation Speeds', color='r')
@@ -322,55 +264,61 @@ def generate_state_action_pairs(
         axs[0, 1].set_xlabel('X Position')
         axs[0, 1].set_ylabel('Y Position')
         axs[0, 1].legend()
+        
+        if not use_action_indices or action_type == 'continuous':
+            if env.action_features == 'delta_local':
+                # dx plot
+                axs[1, 0].plot(expert_dx.cpu().numpy(), label='Expert dx', color='b')
+                axs[1, 0].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 0].cpu().numpy(), label='Simulation dx',
+                            color='r')
+                axs[1, 0].set_title('dx Comparison')
+                axs[1, 0].set_xlabel('Time Step')
+                axs[1, 0].set_ylabel('dx')
+                axs[1, 0].legend()
 
-        if env.action_features == 'delta_local':
-            # dx plot
-            axs[1, 0].plot(expert_dx.cpu().numpy(), label='Expert dx', color='b')
-            axs[1, 0].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 0].cpu().numpy(), label='Simulation dx',
-                           color='r')
-            axs[1, 0].set_title('dx Comparison')
-            axs[1, 0].set_xlabel('Time Step')
-            axs[1, 0].set_ylabel('dx')
-            axs[1, 0].legend()
+                # dy plot
+                axs[1, 1].plot(expert_dy.cpu().numpy(), label='Expert dy', color='b')
+                axs[1, 1].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 1].cpu().numpy(), label='Simulation dy',
+                            color='r')
+                axs[1, 1].set_title('dy Comparison')
+                axs[1, 1].set_xlabel('Time Step')
+                axs[1, 1].set_ylabel('dy')
+                axs[1, 1].legend()
 
-            # dy plot
-            axs[1, 1].plot(expert_dy.cpu().numpy(), label='Expert dy', color='b')
-            axs[1, 1].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 1].cpu().numpy(), label='Simulation dy',
-                           color='r')
-            axs[1, 1].set_title('dy Comparison')
-            axs[1, 1].set_xlabel('Time Step')
-            axs[1, 1].set_ylabel('dy')
-            axs[1, 1].legend()
+                # dyaw plot
+                axs[1, 2].plot(expert_dyaw.cpu().numpy(), label='Expert dyaw', color='b')
+                axs[1, 2].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 2].cpu().numpy(), label='Simulation dyaw',
+                            color='r')
+                axs[1, 2].set_title('dyaw Comparison')
+                axs[1, 2].set_xlabel('Time Step')
+                axs[1, 2].set_ylabel('dyaw')
+                axs[1, 2].legend()
+            else:
+                # Accels plot
+                axs[1, 0].plot(expert_accel.cpu().numpy(), label='Expert Accels', color='b')
+                axs[1, 0].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 0].cpu().numpy(), label='Simulation Accels',
+                            color='r')
+                axs[1, 0].set_title('Accels Comparison')
+                axs[1, 0].set_xlabel('Time Step')
+                axs[1, 0].set_ylabel('Accels')
+                axs[1, 0].legend()
 
-            # dyaw plot
-            axs[1, 2].plot(expert_dyaw.cpu().numpy(), label='Expert dyaw', color='b')
-            axs[1, 2].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 2].cpu().numpy(), label='Simulation dyaw',
-                           color='r')
-            axs[1, 2].set_title('dyaw Comparison')
-            axs[1, 2].set_xlabel('Time Step')
-            axs[1, 2].set_ylabel('dyaw')
-            axs[1, 2].legend()
-        else:
-            # Accels plot
-            axs[1, 0].plot(expert_accel.cpu().numpy(), label='Expert Accels', color='b')
-            axs[1, 0].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 0].cpu().numpy(), label='Simulation Accels',
-                           color='r')
-            axs[1, 0].set_title('Accels Comparison')
-            axs[1, 0].set_xlabel('Time Step')
-            axs[1, 0].set_ylabel('Accels')
-            axs[1, 0].legend()
-
-            # Steers plot
-            axs[1, 1].plot(expert_steer.cpu().numpy(), label='Expert Steers', color='b')
-            axs[1, 1].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 1].cpu().numpy(), label='Simulation Steers',
-                           color='r')
-            axs[1, 1].set_title('Steers Comparison')
-            axs[1, 1].set_xlabel('Time Step')
-            axs[1, 1].set_ylabel('Steers')
-            axs[1, 1].legend()
+                # Steers plot
+                axs[1, 1].plot(expert_steer.cpu().numpy(), label='Expert Steers', color='b')
+                axs[1, 1].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 1].cpu().numpy(), label='Simulation Steers',
+                            color='r')
+                axs[1, 1].set_title('Steers Comparison')
+                axs[1, 1].set_xlabel('Time Step')
+                axs[1, 1].set_ylabel('Steers')
+                axs[1, 1].legend()
 
         plt.tight_layout()
-        plt.savefig(f'Analysis_numAction{num_action}_W{debug_world_idx}_V{debug_veh_idx}.jpg', dpi=150)
+        path = os.path.join(save_path, f"{action_type}_Action_{action_comb}_W{debug_world_idx}_V{debug_veh_idx}.jpg")
+        if not os.path.exists(save_path):
+            print(f"Error: {save_path} does not exist.")
+        else:
+            plt.savefig(path, dpi=150)
+        
     return (
         flat_expert_obs,
         flat_expert_actions,
@@ -463,8 +411,8 @@ if __name__ == "__main__":
         goal_rates.append(goal_rate.cpu().numpy())
         collision_rates.append(collision_rate.cpu().numpy())
         print(f'Collision rate {collision_rate} Goal RATE {goal_rate}')
-<<<<<<< Updated upstream
-        # Plot the results
+
+    # Plot the results
     # plt.figure(figsize=(10, 5))
     # plt.plot(num_actions, goal_rates, label='Goal Rate', marker='o')
     # plt.plot(num_actions, collision_rates, label='Collision Rate', marker='x')
@@ -476,5 +424,3 @@ if __name__ == "__main__":
     # Uncommment to save the expert actions and observations
     # torch.save(expert_actions, "expert_actions.pt")
     # torch.save(expert_obs, "expert_obs.pt")
-=======
->>>>>>> Stashed changes
