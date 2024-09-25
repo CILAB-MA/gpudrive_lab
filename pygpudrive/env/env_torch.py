@@ -57,6 +57,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             low=-np.inf, high=np.inf, shape=(self.get_obs(reset=True).shape[-1],)
         )
         self._setup_action_space(action_type)
+        self.action_type = action_type
         
         self.info_dim = 5  # Number of info features
         self.episode_len = self.config.episode_len
@@ -84,24 +85,26 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
     def get_rewards(self):
         return self.sim.reward_tensor().to_torch().squeeze(dim=2)
 
-    def step_dynamics(self, actions):
+    def step_dynamics(self, actions, use_indices=True):
         if actions is not None:
-            self._apply_actions(actions)
+            self._apply_actions(actions, use_indices)
         self.sim.step()
 
-    def _apply_actions(self, actions):
+    def _apply_actions(self, actions, use_indices=True):
         """Apply the actions to the simulator."""
         # Map action indices to action values if indices are provided
         if isinstance(self.action_space, Discrete):
-            if actions.dim() == 2 or (actions.dim() == 3 and actions.shape[2] == 3):
-                actions = torch.nan_to_num(actions, nan=0).long().to(self.device)
-                actions = actions.to(self.device)
-            else:
+            if use_indices:
                 actions = actions.squeeze(dim=2).to(self.device) if actions.dim() == 3 else actions.to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions]
+            else:
+                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
         elif isinstance(self.action_space, MultiDiscrete):
-            actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
-            action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+            if use_indices:
+                actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
+                action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+            else:
+                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
         elif isinstance(self.action_space, Tuple):
             action_value_tensor = actions.to(self.device)
         else:
