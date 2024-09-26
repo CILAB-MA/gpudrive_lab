@@ -65,7 +65,6 @@ if __name__ == "__main__":
     #     max_cont_agents=bc_config.max_cont_agents,
     #     device=bc_config.device,  # Use DEVICE here for consistency
     #
-
     NUM_WORLDS = 50
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/", NUM_WORLDS)
     render_config = RenderConfig(draw_obj_idx=True)
