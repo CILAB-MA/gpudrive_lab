@@ -156,7 +156,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         return Discrete(n=int(len(self.action_key_to_values)))
 
-    def _set_multi_discrete_action_space(self) -> MultiDiscrete:
+    def _set_multi_discrete_action_space(self) -> None:
         """Configure the multi discrete action space."""
         if self.action_features == 'delta_local':
             self.dx = self.config.dx.to(self.device)
@@ -355,13 +355,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], min(self.accel_actions).item(), max(self.accel_actions).item())
         
         velo2speed = None
-        debug_positions = None
         
         if debug_world_idx is not None and debug_veh_idx is not None:
             velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
-            debug_positions = positions[debug_world_idx, debug_veh_idx]
             
-        return inferred_expert_actions, velo2speed, debug_positions
+        return inferred_expert_actions, velo2speed, positions
 
     def normalize_and_flatten_partner_obs(self, obs):
         """Normalize partner state features.

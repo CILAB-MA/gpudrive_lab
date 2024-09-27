@@ -72,8 +72,7 @@ def generate_state_action_pairs(
     distances_masked = distances.masked_fill(mask, float('inf'))
     sorted_indices = distances_masked.argsort(dim=2)  # torch.Size([5, 128, 128, 91])
 
-    other_actions = expert_actions.unsqueeze(2).expand(num_scene, num_vehicle, num_vehicle, timestep,
-                                                       3)  # torch.Size([5, 128, 128, 91, 3])
+    other_actions = expert_actions.unsqueeze(2).expand(num_scene, num_vehicle, num_vehicle, timestep, 3)  # torch.Size([5, 128, 128, 91, 3])
 
     sorted_actions = torch.gather(other_actions, 2, sorted_indices.unsqueeze(-1).expand(-1, -1, -1, -1,
                                                                                         3))  # torch.Size([5, 128, 128, 91, 3])
@@ -323,7 +322,7 @@ def generate_state_action_pairs(
 
                 # Steers plot
                 axs[1, 1].plot(expert_steer.cpu().numpy(), label='Expert Steers', color='b')
-                axs[1, 1].plot(disc_expert_actions[debug_world_idx, debug_veh_idx, :, 1].cpu().numpy(), label='Simulation Steers',
+                axs[1, 1].plot(expert_actions[debug_world_idx, debug_veh_idx, :, 1].cpu().numpy(), label='Simulation Steers',
                             color='r')
                 axs[1, 1].set_title('Steers Comparison')
                 axs[1, 1].set_xlabel('Time Step')
@@ -351,9 +350,9 @@ if __name__ == "__main__":
     import argparse
     def parse_args():
         parser = argparse.ArgumentParser('Select the dynamics model that you use')
-        parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
+        parser.add_argument('--dynamics-model', '-dm', type=str, default='bicycle', choices=['delta_local', 'bicycle', 'classic'],)
         parser.add_argument('--action-type', '-at', type=str, default='multi_discrete', choices=['discrete', 'multi_discrete', 'continuous'],)
-        parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
+        parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
         args = parser.parse_args()
         return args
     
@@ -370,13 +369,13 @@ if __name__ == "__main__":
 
     # Set the environment and render configurations
     # Action space (joint discrete)
-    num_dx_values = reversed(range(300, 301, 1))
-    num_dy_values = reversed(range(300, 301, 1))
+    num_dx_values = reversed(range(100, 101, 1))
+    num_dy_values = reversed(range(100, 101, 1))
     num_dyaw_values = reversed(range(300, 301, 1))
 
     combinations = itertools.product(num_dx_values, num_dy_values, num_dyaw_values)
     render_config = RenderConfig(draw_obj_idx=True)
-    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS, start_idx=5)
+    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
     for combi in combinations:
         num_dx, num_dy, num_dyaw = combi
         env_config = EnvConfig(
