@@ -28,6 +28,8 @@ def parse_args():
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
     parser.add_argument('--model-name', '-m', type=str, default='bc_policy')
+    parser.add_argument('--action-scale', '-as', type=int, default=100)
+    parser.add_argument('--num-stack', '-s', type=int, default=5)
     args = parser.parse_args()
     return args
 logger = logging.getLogger(__name__)
@@ -65,7 +67,7 @@ if __name__ == "__main__":
         max_cont_agents=128,  # Number of agents to control
         device=args.device,
         action_type=args.action_type,
-        num_stack=5
+        num_stack=args.num_stack
     )
     # Generate expert actions and observations
     (
@@ -98,7 +100,7 @@ if __name__ == "__main__":
     wandb.config.update({
         'lr': bc_config.lr,
         'batch_size': bc_config.batch_size,
-        'num_stack': 5,
+        'num_stack': args.num_stack,
         'num_scene': NUM_WORLDS,
         'num_vehicle': 128
     })
@@ -151,12 +153,12 @@ if __name__ == "__main__":
             # mu, vars, mixed_weights = bc_policy(obs)
             # log_prob = bc_policy._log_prob(obs, expert_action)
             # loss = -log_prob
-            loss = F.smooth_l1_loss(pred_action, expert_action * 100)
+            loss = F.smooth_l1_loss(pred_action, expert_action * args.action_scale)
             # loss = gmm_loss(mu, vars, mixed_weights, expert_actions)
             # Backward pass
             with torch.no_grad():
                 pred_action = bc_policy(obs)
-                action_loss = torch.abs(pred_action - expert_action * 100)
+                action_loss = torch.abs(pred_action - expert_action * args.action_scale) / args.action_scale
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
                 dyaw_loss = action_loss[:, 2].mean().item()

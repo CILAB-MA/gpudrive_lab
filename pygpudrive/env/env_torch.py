@@ -346,18 +346,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         debug_positions = None
         if debug_world_idx is not None and debug_veh_idx is not None:
             velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
-            positions[..., 0] = self.normalize_tensor(
-                positions[..., 0],
-                constants.MIN_REL_AGENT_POS,
-                constants.MAX_REL_AGENT_POS,
-            )
-            positions[..., 1] = self.normalize_tensor(
-                positions[..., 1],
-                constants.MIN_REL_AGENT_POS,
-                constants.MAX_REL_AGENT_POS,
-            )
             debug_positions = positions[debug_world_idx, debug_veh_idx]
-        return inferred_expert_actions, velo2speed, debug_positions
+        return inferred_expert_actions, velo2speed, positions
 
     def normalize_and_flatten_partner_obs(self, obs):
         """Normalize partner state features.
@@ -372,6 +362,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs[:, :, :, 0] /= constants.MAX_SPEED
 
         # Relative position
+
+        # Sort by distance
+        relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
+        sorted_indices = torch.argsort(relative_distance, dim=2)
+        # print(f'Relative Distance {relative_distance}')
         obs[:, :, :, 1] = self.normalize_tensor(
             obs[:, :, :, 1],
             constants.MIN_REL_AGENT_POS,
@@ -390,6 +385,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs[:, :, :, 4] /= constants.MAX_VEH_LEN
         obs[:, :, :, 5] /= constants.MAX_VEH_WIDTH
 
+        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
+
         # One-hot encode the type of the other visible objects
         one_hot_encoded_object_types = self.one_hot_encode_object_type(
             obs[:, :, :, 6]
@@ -399,7 +396,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs = torch.concat(
             (obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1
         )
-
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
