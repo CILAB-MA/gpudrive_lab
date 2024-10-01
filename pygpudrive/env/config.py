@@ -123,6 +123,7 @@ class SelectionDiscipline(Enum):
     PAD_N = 2
     EXACT_N = 3
     K_UNIQUE_N = 4
+    RANGE_N = 5
 
 
 @dataclass
@@ -142,6 +143,7 @@ class SceneConfig:
     num_scenes: int
     discipline: SelectionDiscipline = SelectionDiscipline.PAD_N
     k_unique_scenes: Optional[int] = None
+    start_idx: Optional[int] = 0
     seed: Optional[int] = None
 
 
