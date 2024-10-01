@@ -33,6 +33,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.device = device
         self.render_config = render_config
         self.num_stack = num_stack
+        
         # Environment parameter setup
         params = self._setup_environment_parameters()
         params.dynamicsModel = self.dynamics_model[config.dynamics_model]
@@ -40,8 +41,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.action_features = "delta_local"
         else:
             self.action_features = "bicycle"
+            
         # Initialize simulator with parameters
         self.sim = self._initialize_simulator(params, scene_config)
+        
         # Controlled agents setup
         self.cont_agent_mask = self.get_controlled_agents_mask()
         self.max_agent_count = self.cont_agent_mask.shape[1]
@@ -54,8 +57,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             low=-np.inf, high=np.inf, shape=(self.get_obs(reset=True).shape[-1],)
         )
         self._setup_action_space(action_type)
+        self.action_type = action_type
+        
         self.info_dim = 5  # Number of info features
         self.episode_len = self.config.episode_len
+        
         # Rendering setup
         self.visualizer = self._setup_rendering()
 
@@ -79,28 +85,31 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
     def get_rewards(self):
         return self.sim.reward_tensor().to_torch().squeeze(dim=2)
 
-    def step_dynamics(self, actions):
+    def step_dynamics(self, actions, use_indices=True):
         if actions is not None:
-            self._apply_actions(actions)
+            self._apply_actions(actions, use_indices)
         self.sim.step()
 
-    def _apply_actions(self, actions):
+    def _apply_actions(self, actions, use_indices=True):
         """Apply the actions to the simulator."""
         # Map action indices to action values if indices are provided
         if isinstance(self.action_space, Discrete):
-            if actions.dim() == 2 or (actions.dim() == 3 and actions.shape[2] == 3):
-                actions = torch.nan_to_num(actions, nan=0).long().to(self.device)
-                actions = actions.to(self.device)
-            else:
+            if use_indices:
                 actions = actions.squeeze(dim=2).to(self.device) if actions.dim() == 3 else actions.to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions]
+            else:
+                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
         elif isinstance(self.action_space, MultiDiscrete):
-            actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
-            action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+            if use_indices:
+                actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
+                action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+            else:
+                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
         elif isinstance(self.action_space, Tuple):
             action_value_tensor = actions.to(self.device)
         else:
             raise ValueError(f"Invalid action shape: {actions.shape}")
+        
         # Feed the actual action values to gpudrive
         if self.action_features == 'delta_local':
             self.sim.delta_action_tensor().to_torch().copy_(action_value_tensor)
@@ -147,7 +156,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         return Discrete(n=int(len(self.action_key_to_values)))
 
-    def _set_multi_discrete_action_space(self) -> MultiDiscrete:
+    def _set_multi_discrete_action_space(self) -> None:
         """Configure the multi discrete action space."""
         if self.action_features == 'delta_local':
             self.dx = self.config.dx.to(self.device)
@@ -328,25 +337,28 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         velocity = expert_traj[:, :, 2 * self.episode_len:4 * self.episode_len].view(self.num_worlds,
                                                                                      self.max_agent_count,
                                                                                      self.episode_len, -1)
+        
         if self.action_features == 'delta_local':
             inferred_expert_actions = expert_traj[:, :, -3 * self.episode_len:].view(self.num_worlds,
                                                                                      self.max_agent_count,
                                                                                      self.episode_len, -1)
-            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], -6, 6)
-            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -6, 6)
-            inferred_expert_actions[..., 2] = torch.clamp(inferred_expert_actions[..., 2], -3.14, 3.14)
+            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], min(self.dx).item(), max(self.dx).item())
+            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], min(self.dy).item(), max(self.dy).item())
+            inferred_expert_actions[..., 2] = torch.clamp(inferred_expert_actions[..., 2], min(self.dyaw).item(), max(self.dyaw).item())
+        
         else:
             inferred_expert_actions = expert_traj[:, :, -6 * self.episode_len:-3 * self.episode_len].view(
                 self.num_worlds,
                 self.max_agent_count,
                 self.episode_len, -1)
-            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], -6, 6)
-            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], -0.3, 0.3)
+            inferred_expert_actions[..., 0] = torch.clamp(inferred_expert_actions[..., 0], min(self.steer_actions).item(), max(self.steer_actions).item())
+            inferred_expert_actions[..., 1] = torch.clamp(inferred_expert_actions[..., 1], min(self.accel_actions).item(), max(self.accel_actions).item())
+        
         velo2speed = None
-        debug_positions = None
+        
         if debug_world_idx is not None and debug_veh_idx is not None:
             velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
-            debug_positions = positions[debug_world_idx, debug_veh_idx]
+            
         return inferred_expert_actions, velo2speed, positions
 
     def normalize_and_flatten_partner_obs(self, obs):
@@ -399,7 +411,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
-
         # Set garbage object types to zero
         road_types = torch.where(
             (roadmap_type_tensor < self.MIN_OBJ_ENTITY_ENUM)
@@ -497,6 +508,7 @@ if __name__ == "__main__":
         device="cpu",
         render_config=render_config,
     )
+    
     # RUN
     obs = env.reset()
     frames = []
