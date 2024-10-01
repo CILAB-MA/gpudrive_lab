@@ -25,59 +25,6 @@ def parse_args():
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     args = parser.parse_args()
     return args
-def change_obs_prime(obs, veh_ind, features='partner'):
-
-    # todo: make variables for getting specific chagnes of values
-    if features == 'ego':
-        obs_prime = change_ego_state(obs) # this chnges the ego state value in reasonable boundary.
-
-    elif features == 'partner':
-        obs_prime = change_partner_state(obs, veh_ind) # this chnges the ego state value in reasonable boundary.
-
-    else:
-        obs_prime = change_edge_state(obs) # this chnges the ego state value in reasonable boundary.
-
-    return obs_prime
-
-def change_ego_state(obs):
-    '''
-    Define the reasonable bound of ego
-    - veh speed
-    - veh length
-    - veh width
-    - relative goal pos
-    - collision or not
-    '''
-
-    pass
-
-def change_partner_state(obs, veh_ind, feat_ind=0, delta=0.1):
-    '''
-    obs: (num_world, num_veh, num_partner, partner_feat)
-    delta: (N, )
-    Define the reasonable bound of partner
-    (num_control, 10)
-    - speed 1
-    - relative pos 2
-    - relative orienttaion 1
-    - length 1
-    - width 1
-    - type
-    '''
-    partner_obs = obs[:, :, 6:1276]
-
-    obs_prime = partner_obs.reshape(-1, 128, 127, 10).clone()
-
-    if feat_ind == 0:
-        obs_prime[:, :, veh_ind, 0] += delta
-        obs_prime[:, :, veh_ind, 0] = torch.clamp(obs_prime[:, :, veh_ind, 0], 0, 1)
-
-    elif feat_ind == 1:
-        obs_prime[:, veh_ind, 1:3] += delta
-        obs_prime[:, veh_ind, 1:3] = torch.clamp(obs_prime[:, veh_ind, 1:3], -1, 1)
-    obs_prime = obs_prime.reshape(-1, 128, 1270)
-    obs[:, :, 6:1276] = obs_prime
-    return obs
 
 def visualize_heatmap(diffs, delta):
 
@@ -108,13 +55,26 @@ def visualize_heatmap(diffs, delta):
     plt.show()
 
 
+def change_partner_state(obs, veh_ind, deltas):
+    '''
+    obs: (num_world, num_veh, num_partner, partner_feat)
+    '''
+    partner_obs = obs[:, :, 6:1276]
+    obs_prime = partner_obs.reshape(-1, 128, 127, 10).clone()
 
-def change_edge_state(obs):
-    pass
+    obs_prime = obs_prime.unsqueeze(1).repeat(1, len(deltas), 1, 1, 1)
+    deltas_expanded = deltas.view(1, len(deltas), 1, 1, 1).to(obs_prime.device)
+    print(deltas_expanded.shape, obs_prime[:, :, veh_ind, 0].shape)
+    obs_prime[:, :, :, veh_ind, 0] += deltas_expanded
+    obs_prime[:, :, :, veh_ind, 0] = torch.clamp(obs_prime[:, :, :, veh_ind, 0], 0, 1)
+
+    obs_prime = obs_prime.reshape(-1, len(deltas), 128, 1270)
+    return obs_prime
+
 
 if __name__ == "__main__":
     args = parse_args()
-    # Configurations
+
     # Configurations
     env_config = EnvConfig(
         dynamics_model=args.dynamics_model,
@@ -139,23 +99,25 @@ if __name__ == "__main__":
 
     NUM_WORLDS = 1
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
-    # print('Initializeing env....')
     env = GPUDriveTorchEnv(
         config=env_config,
         scene_config=scene_config,
-        max_cont_agents=1,  # Number of agents to control
+        max_cont_agents=1,
         device=args.device,
         render_config=render_config,
         action_type='continuous',
         num_stack=args.num_stack
     )
+
     bc_policy = torch.load(f"{bc_config.model_path}/{args.model_name}.pth").to(args.device)
     bc_policy.eval()
+
     alive_agent_mask = env.cont_agent_mask.clone()
     obs = env.reset()
     frames = []
-    deltas = torch.linspace(-0.5, 0.5, 20)
+    deltas = torch.linspace(-0.5, 0.5, 20).to(args.device)
     diffs = torch.zeros(NUM_WORLDS, 91, 127).to(args.device)
+
     for time_step in range(env.episode_len):
         with torch.no_grad():
             actions = bc_policy(obs, deterministic=True)
@@ -168,9 +130,10 @@ if __name__ == "__main__":
                     action_deltas[i] = abs(actions - actions_prime).sum() / (3 * args.action_scale)
             diff = action_deltas.mean()
             diffs[:, time_step, veh_ind] = diff
+
         env.step_dynamics(actions / args.action_scale)
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()
-    visualize_heatmap(diffs[0], delta)
 
+    visualize_heatmap(diffs[0], deltas)
