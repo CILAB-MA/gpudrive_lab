@@ -14,6 +14,7 @@ sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from datetime import datetime
 import numpy  as np
+
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
@@ -97,7 +98,6 @@ if __name__ == "__main__":
         save_path="run_bc_from_scratch",
     )
     print('Generating action pairs...')
-
 
     expert_obs = np.concatenate(expert_obs, axis=0)
     expert_actions = np.concatenate(expert_actions, axis=0)
