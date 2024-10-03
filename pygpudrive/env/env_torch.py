@@ -41,10 +41,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.action_features = "delta_local"
         else:
             self.action_features = "bicycle"
-            
+
         # Initialize simulator with parameters
         self.sim = self._initialize_simulator(params, scene_config)
-        
         # Controlled agents setup
         self.cont_agent_mask = self.get_controlled_agents_mask()
         self.max_agent_count = self.cont_agent_mask.shape[1]
@@ -94,12 +93,15 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         """Apply the actions to the simulator."""
         # Map action indices to action values if indices are provided
         if isinstance(self.action_space, Discrete):
+            actions = actions.long()
             if use_indices:
                 actions = actions.squeeze(dim=2).to(self.device) if actions.dim() == 3 else actions.to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions]
             else:
                 action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
         elif isinstance(self.action_space, MultiDiscrete):
+            actions = actions.long()
+            # print(actions)
             if use_indices:
                 actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]

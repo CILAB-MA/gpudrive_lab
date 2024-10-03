@@ -82,9 +82,9 @@ class IPPO(PPO):
 
         while n_steps < n_rollout_steps:
             if (
-                self.use_sde
-                and self.sde_sample_freq > 0
-                and n_steps % self.sde_sample_freq == 0
+                    self.use_sde
+                    and self.sde_sample_freq > 0
+                    and n_steps % self.sde_sample_freq == 0
             ):
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
@@ -95,7 +95,7 @@ class IPPO(PPO):
                 # EDIT_1: Mask out invalid observations (NaN axes and/or dead agents)
                 # Create dummy actions, values and log_probs (NaN)
                 actions = torch.full(
-                    fill_value=float("nan"), size=(self.n_envs,)
+                    fill_value=float("nan"), size=(self.n_envs, ) # todo: should change based on action space
                 ).to(self.device)
                 log_probs = torch.full(
                     fill_value=float("nan"),
@@ -108,8 +108,8 @@ class IPPO(PPO):
                         size=(self.n_envs,),
                         dtype=torch.float32,
                     )
-                    .unsqueeze(dim=1)
-                    .to(self.device)
+                        .unsqueeze(dim=1)
+                        .to(self.device)
                 )
 
                 # Get indices of alive agent ids
@@ -131,11 +131,12 @@ class IPPO(PPO):
                     obs_tensor_alive
                 )
                 nn_fps = actions_tmp.shape[0] / (
-                    time.perf_counter() - time_actions
+                        time.perf_counter() - time_actions
                 )
                 self.logger.record("rollout/nn_fps", nn_fps)
 
                 # Predict actions, vals and log_probs given obs
+                print(f"Before Action shape {len(actions)} {len(actions_tmp)} Alive agent mask {sum(alive_agent_mask)}")
                 (
                     actions[alive_agent_mask.squeeze(dim=1)],
                     values[alive_agent_mask.squeeze(dim=1)],
@@ -145,6 +146,7 @@ class IPPO(PPO):
                     values_tmp.float(),
                     log_prob_tmp.float(),
                 )
+                print(f"After Action shape {len(actions)} {len(actions_tmp)} Alive agent mask {sum(alive_agent_mask)}")
 
             # Rescale and perform action
             clipped_actions = actions
