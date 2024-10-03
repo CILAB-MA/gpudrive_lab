@@ -55,21 +55,30 @@ def visualize_heatmap(diffs, delta):
     plt.show()
 
 
-def change_partner_state(obs, veh_ind, deltas):
+def change_partner_state(obs, veh_ind, deltas, feat_size):
     '''
     obs: (num_world, num_veh, num_partner, partner_feat)
     '''
-    partner_obs = obs[:, :, 6:1276]
-    obs_prime = partner_obs.reshape(-1, 128, 127, 10).clone()
+    obs = obs.repeat(20, 1, 1)
+    for i in range(5):  # todo: should change for num_stack variable
+        partner_obs = obs[:, :, i * feat_size + 6:i * feat_size + 1276]
 
-    obs_prime = obs_prime.unsqueeze(1).repeat(1, len(deltas), 1, 1, 1)
-    deltas_expanded = deltas.view(1, len(deltas), 1, 1, 1).to(obs_prime.device)
-    print(deltas_expanded.shape, obs_prime[:, :, veh_ind, 0].shape)
-    obs_prime[:, :, :, veh_ind, 0] += deltas_expanded
-    obs_prime[:, :, :, veh_ind, 0] = torch.clamp(obs_prime[:, :, :, veh_ind, 0], 0, 1)
+        obs_prime = partner_obs.reshape(-1, 128, 127, 10).clone()
 
-    obs_prime = obs_prime.reshape(-1, len(deltas), 128, 1270)
-    return obs_prime
+        # Expand obs_prime along the second dimension to match deltas
+        # obs_prime = obs_prime.unsqueeze(1).repeat(1, len(deltas), 1, 1, 1)
+        # Expand deltas to match the obs_prime dimensions
+        deltas_expanded = deltas.view(len(deltas), 1).to(obs_prime.device)
+        deltas_expanded = deltas_expanded.repeat(1, 128)
+        # Adjust the delta along the vehicle index
+        obs_prime[:, :, veh_ind, 0] += deltas_expanded
+        obs_prime[:, :, veh_ind, 0] = torch.clamp(obs_prime[:, :, veh_ind, 0], 0, 1)
+
+        # Reshape back to the original shape
+        obs_prime = obs_prime.reshape(-1, len(deltas), 128, 1270)
+        obs[:, :, i * feat_size + 6:i * feat_size + 1276] = obs_prime
+
+    return obs
 
 
 if __name__ == "__main__":
@@ -98,6 +107,8 @@ if __name__ == "__main__":
     bc_config = BehavCloningConfig()
 
     NUM_WORLDS = 1
+    feat_size = 3876
+
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
     env = GPUDriveTorchEnv(
         config=env_config,
@@ -125,7 +136,8 @@ if __name__ == "__main__":
             action_deltas = torch.zeros(len(deltas))
             for i, delta in enumerate(deltas):
                 with torch.no_grad():
-                    obs_prime = change_partner_state(obs, veh_ind=veh_ind, delta=delta)
+                    obs_prime = change_partner_state(obs, veh_ind=veh_ind, deltas=deltas,
+                                                     feat_size=feat_size)
                     actions_prime = bc_policy(obs_prime, deterministic=True)
                     action_deltas[i] = abs(actions - actions_prime).sum() / (3 * args.action_scale)
             diff = action_deltas.mean()

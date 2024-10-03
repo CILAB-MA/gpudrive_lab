@@ -94,6 +94,7 @@ if __name__ == "__main__":
     parser.add_argument('--save-path', '-sp', type=str, default='/data/train_trajectory_npz')
     parser.add_argument('--num_worlds', type=int, default=100)
     parser.add_argument('--start_idx', type=int, default=0)
+    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
@@ -101,7 +102,7 @@ if __name__ == "__main__":
     MAX_NUM_OBJECTS = 128
 
     # Initialize configurations
-    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", 
+    scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
                                NUM_WORLDS, 
                                start_idx=args.start_idx, 
                                discipline=SelectionDiscipline.RANGE_N)
