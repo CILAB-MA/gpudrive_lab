@@ -19,7 +19,7 @@ class ExperimentConfig:
     render: bool = True
     render_mode: str = "rgb_array"
     render_freq: int = 50  # Render every k rollouts
-    render_n_worlds: int = 3  # Number of worlds to render
+    render_n_worlds: int = 1  # Number of worlds to render
 
     # TRACK THE TIME IT TAKES TO GET TO 95% GOAL RATE
     track_time_to_solve: bool = False

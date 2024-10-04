@@ -93,20 +93,22 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         """Apply the actions to the simulator."""
         # Map action indices to action values if indices are provided
         if isinstance(self.action_space, Discrete):
-            actions = actions.long()
             if use_indices:
-                actions = actions.squeeze(dim=2).to(self.device) if actions.dim() == 3 else actions.to(self.device)
+                actions = (
+                    torch.nan_to_num(actions, nan=0).long().to(self.device)
+                )
                 action_value_tensor = self.action_keys_tensor[actions]
             else:
-                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
+                action_value_tensor = actions.to(self.device)
         elif isinstance(self.action_space, MultiDiscrete):
-            actions = actions.long()
             # print(actions)
             if use_indices:
-                actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
+                actions = (
+                    torch.nan_to_num(actions, nan=0).long().to(self.device)
+                )
                 action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
             else:
-                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
+                action_value_tensor = actions.to(self.device)
         elif isinstance(self.action_space, Tuple):
             action_value_tensor = actions.to(self.device)
         else:

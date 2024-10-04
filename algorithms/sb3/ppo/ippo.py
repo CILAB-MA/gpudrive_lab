@@ -127,6 +127,8 @@ class IPPO(PPO):
 
                 # Predict actions, vals and log_probs given obs
                 time_actions = time.perf_counter()
+                print(alive_agent_mask)
+                print('obs tensro shape', obs_tensor_alive.shape)
                 actions_tmp, values_tmp, log_prob_tmp = self.policy(
                     obs_tensor_alive
                 )
@@ -136,7 +138,6 @@ class IPPO(PPO):
                 self.logger.record("rollout/nn_fps", nn_fps)
 
                 # Predict actions, vals and log_probs given obs
-                print(f"Before Action shape {len(actions)} {len(actions_tmp)} Alive agent mask {sum(alive_agent_mask)}")
                 (
                     actions[alive_agent_mask.squeeze(dim=1)],
                     values[alive_agent_mask.squeeze(dim=1)],
@@ -146,7 +147,6 @@ class IPPO(PPO):
                     values_tmp.float(),
                     log_prob_tmp.float(),
                 )
-                print(f"After Action shape {len(actions)} {len(actions_tmp)} Alive agent mask {sum(alive_agent_mask)}")
 
             # Rescale and perform action
             clipped_actions = actions

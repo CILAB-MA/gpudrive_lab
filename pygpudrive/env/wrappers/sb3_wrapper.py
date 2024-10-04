@@ -170,6 +170,7 @@ class SB3MultiAgentEnv(VecEnv):
             (done.nan_to_num(0) * self.controlled_agent_mask).sum(dim=1)
             == self.controlled_agent_mask.sum(dim=1)
         )[0]
+        print(f'DONE WORLD {done_worlds}')
 
         if done_worlds.any().item():
             self._update_info_dict(info, done_worlds)
