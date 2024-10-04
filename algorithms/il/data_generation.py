@@ -72,7 +72,8 @@ def generate_state_action_pairs(
     distances_masked = distances.masked_fill(mask, float('inf'))
     sorted_indices = distances_masked.argsort(dim=2)  # torch.Size([5, 128, 128, 91])
 
-    other_actions = expert_actions.unsqueeze(2).expand(num_scene, num_vehicle, num_vehicle, timestep, 3)  # torch.Size([5, 128, 128, 91, 3])
+    other_actions = expert_actions.unsqueeze(2).expand(num_scene, num_vehicle, num_vehicle, timestep,
+                                                       3)  # torch.Size([5, 128, 128, 91, 3])
 
     sorted_actions = torch.gather(other_actions, 2, sorted_indices.unsqueeze(-1).expand(-1, -1, -1, -1,
                                                                                         3))  # torch.Size([5, 128, 128, 91, 3])
@@ -194,7 +195,7 @@ def generate_state_action_pairs(
         )
         expert_next_obs_lst.append(next_obs[~dead_agent_mask, :])
         expert_dones_lst.append(dones[~dead_agent_mask])
-        
+
         # Update
         obs = next_obs
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
@@ -358,7 +359,6 @@ if __name__ == "__main__":
     
     args = parse_args()
     torch.set_printoptions(precision=3, sci_mode=False)
-    
     NUM_WORLDS = 5
     MAX_NUM_OBJECTS = 128
 
