@@ -170,9 +170,8 @@ class SB3MultiAgentEnv(VecEnv):
             (done.nan_to_num(0) * self.controlled_agent_mask).sum(dim=1)
             == self.controlled_agent_mask.sum(dim=1)
         )[0]
-        print(f'DONE WORLD {done_worlds}')
 
-        if done_worlds.any().item():
+        if len(done_worlds) > 0:
             self._update_info_dict(info, done_worlds)
             self.num_episodes += len(done_worlds)
             self._env.sim.reset(done_worlds.tolist())            
@@ -194,7 +193,7 @@ class SB3MultiAgentEnv(VecEnv):
         self.dead_agent_mask = torch.logical_or(self.dead_agent_mask, done)
 
         # Now override the dead agent mask for the reset worlds
-        if done_worlds.any().item():
+        if len(done_worlds) > 0:
             for world_idx in done_worlds:
                 self.dead_agent_mask[
                     world_idx, :
