@@ -95,17 +95,17 @@ class IPPO(PPO):
                 # EDIT_1: Mask out invalid observations (NaN axes and/or dead agents)
                 # Create dummy actions, values and log_probs (NaN)
                 actions = torch.full(
-                    fill_value=float("nan"), size=(self.n_envs, ) # todo: should change based on action space
+                    fill_value=float("nan"), size=(self.n_envs, 3) # todo: should change based on action space
                 ).to(self.device)
                 log_probs = torch.full(
                     fill_value=float("nan"),
-                    size=(self.n_envs,),
+                    size=(self.n_envs, ),
                     dtype=torch.float32,
                 ).to(self.device)
                 values = (
                     torch.full(
                         fill_value=float("nan"),
-                        size=(self.n_envs,),
+                        size=(self.n_envs, ),
                         dtype=torch.float32,
                     )
                         .unsqueeze(dim=1)
@@ -127,8 +127,6 @@ class IPPO(PPO):
 
                 # Predict actions, vals and log_probs given obs
                 time_actions = time.perf_counter()
-                print(alive_agent_mask)
-                print('obs tensro shape', obs_tensor_alive.shape)
                 actions_tmp, values_tmp, log_prob_tmp = self.policy(
                     obs_tensor_alive
                 )
@@ -136,7 +134,6 @@ class IPPO(PPO):
                         time.perf_counter() - time_actions
                 )
                 self.logger.record("rollout/nn_fps", nn_fps)
-
                 # Predict actions, vals and log_probs given obs
                 (
                     actions[alive_agent_mask.squeeze(dim=1)],
