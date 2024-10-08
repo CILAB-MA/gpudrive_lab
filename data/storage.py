@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import os
 import pickle
+from tqdm import tqdm
 
 from pygpudrive.env.config import EnvConfig, SceneConfig, SelectionDiscipline
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
@@ -85,6 +86,21 @@ def save_trajectory(env):
         world_action_pairs.append(torch.cat(x, dim=0))
     
     return world_obs_pairs, world_action_pairs
+
+def compress_trajectory(num_worlds, load_path, save_path):
+    obs = []
+    actions = []
+    for i in tqdm(range(500, 1000)):
+        path = os.path.join(load_path, f"scene_{i}_trajectory.npz")
+        trajectory = np.load(path)
+        obs.append(trajectory['obs'])
+        actions.append(trajectory['actions'])
+    
+    obs = np.concatenate(obs, axis=0)
+    actions = np.concatenate(actions, axis=0)
+    save_path = os.path.join(save_path, f"train_trajectories_{num_worlds}.npz")
+    np.savez_compressed(save_path, obs=obs, actions=actions)
+
 
 if __name__ == "__main__":
     import argparse
