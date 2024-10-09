@@ -37,7 +37,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             
         # Initialize simulator with parameters
         self.sim = self._initialize_simulator(params, scene_config)
-        
         # Controlled agents setup
         self.cont_agent_mask = self.get_controlled_agents_mask()
         self.max_agent_count = self.cont_agent_mask.shape[1]

@@ -31,6 +31,7 @@ class SB3MultiAgentEnv(VecEnv):
         scene_config,
         max_cont_agents,
         device,
+        action_type,
         render_mode="rgb_array",
     ):  
         kwargs={
@@ -47,7 +48,8 @@ class SB3MultiAgentEnv(VecEnv):
         self.num_envs = self._env.cont_agent_mask.sum().item()
         self.device = device
         self.controlled_agent_mask = self._env.cont_agent_mask.clone()
-        self.action_space = gym.spaces.Discrete(self._env.action_space.n)
+        self.action_space = self._env.action_space
+        print(f'wrapper action space {self.action_space} {action_type}')
         self.observation_space = gym.spaces.Box(
             -np.inf, np.inf, self._env.observation_space.shape, np.float32
         )
@@ -57,9 +59,7 @@ class SB3MultiAgentEnv(VecEnv):
         self.agent_step = torch.zeros(
             (self.num_worlds, self.max_agent_count)
         ).to(self.device)
-        self.actions_tensor = torch.zeros(
-            (self.num_worlds, self.max_agent_count)
-        ).to(self.device)
+        self._set_action_tensor(action_type, config.dynamics_model)
         # Storage: Fill buffer with nan values
         self.buf_rews = torch.full(
             (self.num_worlds, self.max_agent_count), fill_value=float("nan")
@@ -73,11 +73,20 @@ class SB3MultiAgentEnv(VecEnv):
         ).to(self.device)
 
         self.num_episodes = 0
+        self.info_dict = {
+            "off_road": 0,
+            "veh_collisions": 0,
+            "non_veh_collision": 0,
+            "goal_achieved": 0,
+        }
 
     def _reset_seeds(self) -> None:
         """Reset all environments' seeds."""
         self._seeds = None
 
+    def _set_action_tensor(self, action_type, dynamics_model):
+        pass
+    
     def reset(self, world_idx=None, seed=None):
         """Reset environment and return initial observations.
 

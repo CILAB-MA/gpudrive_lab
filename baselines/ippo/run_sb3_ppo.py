@@ -34,8 +34,23 @@ def linear_schedule(initial_value: float) -> Callable[[float], float]:
     return func
 
 
-def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: str = "discrete"):
+def train(exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: str = "discrete"):
     """Run PPO training with stable-baselines3."""
+
+    # CONFIG
+    env_config = EnvConfig(
+        dynamics_model="delta_local",
+        dx=torch.round(
+            torch.linspace(-6.0, 6.0, 20), decimals=3
+        ),
+        dy=torch.round(
+            torch.linspace(-6.0, 6.0, 20), decimals=3
+        ),
+        dyaw=torch.round(
+            torch.linspace(-np.pi, np.pi, 20), decimals=3
+        ),
+    )
+
     # MAKE SB3-COMPATIBLE ENVIRONMENT
     env = SB3MultiAgentEnv(
         config=env_config,
@@ -43,6 +58,7 @@ def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: Sce
         # Control up to all agents in the scene
         max_cont_agents=env_config.max_num_agents_in_scene,
         device=exp_config.device,
+        action_type=action_type
     )
 
     # SET MINIBATCH SIZE BASED ON ROLLOUT LENGTH
@@ -72,6 +88,7 @@ def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: Sce
     custom_callback = MultiAgentCallback(
         config=exp_config,
         wandb_run=run if run_id is not None else None,
+        # wandb_run=None,
     )
 
     # INITIALIZE IPPO
@@ -104,12 +121,11 @@ def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: Sce
         callback=custom_callback,
     )
 
-    run.finish()
+    # run.finish()
     env.close()
 
 
 if __name__ == "__main__":
-
     exp_config = pyrallis.parse(config_class=ExperimentConfig)
     
     env_config = EnvConfig(
@@ -132,4 +148,4 @@ if __name__ == "__main__":
         k_unique_scenes=exp_config.k_unique_scenes,
     )
 
-    train(env_config, exp_config, scene_config, action_type="discrete")
+    train(exp_config, scene_config, action_type="multi_discrete")
