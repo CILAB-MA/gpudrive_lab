@@ -226,7 +226,7 @@ class MultiAgentCallback(BaseCallback):
         policy = self.model
         base_env = self.locals["env"]._env
         action_tensor = torch.zeros(
-            (base_env.num_worlds, base_env.max_agent_count)
+            (base_env.num_worlds, base_env.max_agent_count, 3) # todo: fix the dim
         )
 
         obs = base_env.reset()

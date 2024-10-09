@@ -176,6 +176,21 @@ class MaskedRolloutBuffer(BaseBuffer):
             self.advantages
         ).any(), "Advantages arr contains NaN values: Check GAE computation"
 
+    # def swap_and_flatten(self, arr: np.ndarray) -> np.ndarray:
+    #     """
+    #     Swap and then flatten axes 0 (buffer_size) and 1 (n_envs)
+    #     to convert shape from [n_steps, n_envs, ...] (when ... is the shape of the features)
+    #     to [n_steps * n_envs, ...] (which maintain the order)
+    #
+    #     :param arr:
+    #     :return:
+    #     """
+    #     shape = arr.shape
+    #     print(shape)
+    #     if len(shape) < 3:
+    #         shape = (*shape, 1)
+    #     return arr.swapaxes(0, 1).reshape(shape[0] * shape[1], *shape[2:])
+
     def get(
         self, batch_size: Optional[int] = None
     ) -> Generator[RolloutBufferSamples, None, None]:
@@ -200,7 +215,7 @@ class MaskedRolloutBuffer(BaseBuffer):
             # Flatten data
             # EDIT_5: And mask out invalid samples
             for tensor in _tensor_names:
-                if tensor == "observations":
+                if tensor in ["observations", "actions"]:
                     self.__dict__[tensor] = self.swap_and_flatten(
                         self.__dict__[tensor]
                     )[self.valid_samples_mask.flatten(), :]
@@ -212,7 +227,6 @@ class MaskedRolloutBuffer(BaseBuffer):
                 assert not torch.isnan(
                     self.__dict__[tensor]
                 ).any(), f"{tensor} tensor contains NaN values; something went wrong"
-
             self.generator_ready = True
 
         # EDIT_6: Compute total number of samples and create indices
