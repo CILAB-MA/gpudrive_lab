@@ -90,7 +90,7 @@ def save_trajectory(env):
 def compress_trajectory(num_worlds, load_path, save_path):
     obs = []
     actions = []
-    for i in tqdm(range(500, 1000)):
+    for i in tqdm(range(num_worlds, num_worlds + 400)):
         path = os.path.join(load_path, f"scene_{i}_trajectory.npz")
         trajectory = np.load(path)
         obs.append(trajectory['obs'])
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--save-path', '-sp', type=str, default='/data/train_trajectory_npz')
-    parser.add_argument('--num_worlds', type=int, default=100)
+    parser.add_argument('--num_worlds', type=int, default=400)
     parser.add_argument('--start_idx', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     args = parser.parse_args()
@@ -116,42 +116,45 @@ if __name__ == "__main__":
     torch.set_printoptions(precision=3, sci_mode=False)
     NUM_WORLDS = args.num_worlds
     MAX_NUM_OBJECTS = 128
-
-    # Initialize configurations
-    scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
-                               NUM_WORLDS, 
-                               start_idx=args.start_idx, 
-                               discipline=SelectionDiscipline.RANGE_N)
-    env_config = EnvConfig(
-        dynamics_model=args.dynamics_model,
-        steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        accel_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dx=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dy=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
-    )
-
-    # Initialize environment
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=MAX_NUM_OBJECTS,
-        device=args.device,
-        action_type="continuous",
-        num_stack=5
-    )
-
-    # Generate expert actions and observations
-    expert_obs, expert_actions = save_trajectory(env)
     
-    # Save the expert observations and actions by mpz file
-    for i, (scene_obs, scene_action) in enumerate(zip(expert_obs, expert_actions)):
-        scene_obs = scene_obs.to('cpu')
-        scene_action = scene_action.to('cpu')
-        np.savez(os.path.join(args.save_path, f"scene_{int(args.start_idx) + i}_trajectory.npz"), obs=scene_obs, actions=scene_action)
+    compress_trajectory(NUM_WORLDS, args.save_path, '/data')
+
+
+    # # Initialize configurations
+    # scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
+    #                            NUM_WORLDS, 
+    #                            start_idx=args.start_idx, 
+    #                            discipline=SelectionDiscipline.RANGE_N)
+    # env_config = EnvConfig(
+    #     dynamics_model=args.dynamics_model,
+    #     steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
+    #     accel_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
+    #     dx=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
+    #     dy=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
+    #     dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
+    # )
+
+    # # Initialize environment
+    # env = GPUDriveTorchEnv(
+    #     config=env_config,
+    #     scene_config=scene_config,
+    #     max_cont_agents=MAX_NUM_OBJECTS,
+    #     device=args.device,
+    #     action_type="continuous",
+    #     num_stack=5
+    # )
+
+    # # Generate expert actions and observations
+    # expert_obs, expert_actions = save_trajectory(env)
     
-    env.close()
-    del env
-    del env_config
-    del scene_config
+    # # Save the expert observations and actions by mpz file
+    # for i, (scene_obs, scene_action) in enumerate(zip(expert_obs, expert_actions)):
+    #     scene_obs = scene_obs.to('cpu')
+    #     scene_action = scene_action.to('cpu')
+    #     np.savez(os.path.join(args.save_path, f"scene_{int(args.start_idx) + i}_trajectory.npz"), obs=scene_obs, actions=scene_action)
+    
+    # env.close()
+    # del env
+    # del env_config
+    # del scene_config
     
