@@ -33,7 +33,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.device = device
         self.render_config = render_config
         self.num_stack = num_stack
-        
+
         # Environment parameter setup
         params = self._setup_environment_parameters()
         params.dynamicsModel = self.dynamics_model[config.dynamics_model]
@@ -294,7 +294,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.stacked_obs[..., :-obs_filtered.shape[-1]] = self.stacked_obs[..., obs_filtered.shape[-1]:]
 
         self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
-
+        self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
         return self.stacked_obs.clone()
 
     def get_controlled_agents_mask(self):
@@ -362,7 +362,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         
         if debug_world_idx is not None and debug_veh_idx is not None:
             velo2speed = torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1) / constants.MAX_SPEED
-            
+            debug_positions = positions[debug_world_idx, debug_veh_idx]
+
         return inferred_expert_actions, velo2speed, positions
 
     def normalize_and_flatten_partner_obs(self, obs):

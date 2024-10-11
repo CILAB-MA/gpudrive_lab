@@ -13,6 +13,7 @@ import os, sys, torch
 sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from datetime import datetime
+import numpy  as np
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
@@ -30,6 +31,7 @@ def parse_args():
     parser.add_argument('--model-name', '-m', type=str, default='bc_policy')
     parser.add_argument('--action-scale', '-as', type=int, default=100)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
+    parser.add_argument('--data-path', '-dp', type=str, default='/data')
     args = parser.parse_args()
     return args
 logger = logging.getLogger(__name__)
@@ -59,38 +61,16 @@ if __name__ == "__main__":
     render_config = RenderConfig()
     bc_config = BehavCloningConfig()
 
-    NUM_WORLDS = 50
-    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=128,  # Number of agents to control
-        device=args.device,
-        action_type=args.action_type,
-        num_stack=args.num_stack
-    )
-    # Generate expert actions and observations
-    (
-        expert_obs,
-        expert_actions,
-        next_expert_obs,
-        expert_dones,
-        goal_rate,
-        collision_rate
-    ) = generate_state_action_pairs(
-        env=env,
-        device='cpu',
-        action_space_type=args.action_type,  # Discretize the expert actions
-        use_action_indices=True,  # Map action values to joint action index
-        make_video=True,  # Record the trajectories as sanity check
-        render_index=[0, 0],  # start_idx, end_idx
-        debug_world_idx=None,
-        debug_veh_idx=None,
-        save_path="run_bc_from_scratch",
-    )
-    print('Generating action pairs...')
+    # Get state action pairs
+    expert_obs, expert_actions = [], []
+    for f in os.listdir(args.data_path):
+        with np.load(os.path.join(args.data_path, f)) as npz:
+            expert_obs.append(npz['obs'])
+            expert_actions.append(npz['actions'])
 
-
+    expert_obs = np.concatenate(expert_obs, axis=0)
+    expert_actions = np.concatenate(expert_actions, axis=0)
+    print(f'OBS SHAPE {expert_obs.shape} ACTIONS SHAPE {expert_actions.shape}')
     with open("private.yaml") as f:
         private_info = yaml.load(f, Loader=yaml.FullLoader)
     wandb.login(key=private_info["wandb_key"])
@@ -101,7 +81,7 @@ if __name__ == "__main__":
         'lr': bc_config.lr,
         'batch_size': bc_config.batch_size,
         'num_stack': args.num_stack,
-        'num_scene': NUM_WORLDS,
+        'num_scene': expert_actions.shape[0],
         'num_vehicle': 128
     })
 
@@ -127,7 +107,7 @@ if __name__ == "__main__":
 
     # # Build model
     bc_policy = ContFeedForwardMSE(
-        input_size=env.observation_space.shape[0],
+        input_size=expert_obs.shape[-1],
         hidden_size=bc_config.hidden_size,
         output_size=3,
     ).to(args.device)
