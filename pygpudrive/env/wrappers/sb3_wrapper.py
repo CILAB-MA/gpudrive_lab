@@ -34,6 +34,7 @@ class SB3MultiAgentEnv(VecEnv):
         scene_config,
         max_cont_agents,
         device,
+        action_type,
         render_mode="rgb_array",
     ):
         self._env = GPUDriveTorchEnv(
@@ -41,6 +42,7 @@ class SB3MultiAgentEnv(VecEnv):
             scene_config=scene_config,
             max_cont_agents=max_cont_agents,
             device=device,
+            action_type=action_type
         )
         self.config = config
         self.num_worlds = scene_config.num_scenes
@@ -48,7 +50,8 @@ class SB3MultiAgentEnv(VecEnv):
         self.num_envs = self._env.cont_agent_mask.sum().item()
         self.device = device
         self.controlled_agent_mask = self._env.cont_agent_mask.clone()
-        self.action_space = gym.spaces.Discrete(self._env.action_space.n)
+        self.action_space = self._env.action_space
+        print(f'wrapper action space {self.action_space} {action_type}')
         self.observation_space = gym.spaces.Box(
             -np.inf, np.inf, self._env.observation_space.shape, np.float32
         )
@@ -63,9 +66,7 @@ class SB3MultiAgentEnv(VecEnv):
         self.agent_step = torch.zeros(
             (self.num_worlds, self.max_agent_count)
         ).to(self.device)
-        self.actions_tensor = torch.zeros(
-            (self.num_worlds, self.max_agent_count)
-        ).to(self.device)
+        self._set_action_tensor(action_type, config.dynamics_model)
         # Storage: Fill buffer with nan values
         self.buf_rews = torch.full(
             (self.num_worlds, self.max_agent_count), fill_value=float("nan")
@@ -85,6 +86,25 @@ class SB3MultiAgentEnv(VecEnv):
             "non_veh_collision": 0,
             "goal_achieved": 0,
         }
+    def _set_action_tensor(self, action_type, dynamics_model):
+        if action_type == 'discrete':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count)
+            ).to(self.device)
+        elif action_type == 'continuous' and dynamics_model == 'bicycle':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count, 2)
+            ).to(self.device)
+        elif action_type == 'continuous' and dynamics_model == 'delta_local':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count, 3)
+            ).to(self.device)
+        elif action_type == 'multi_discrete' and dynamics_model == 'delta_local':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count, 3)
+            ).to(self.device)
+        else:
+            raise NotImplementedError(f"Set action_tensors error: ({action_type}, {dynamics_model}) pairs are not supported.")
 
     def _reset_seeds(self) -> None:
         """Reset all environments' seeds."""
@@ -151,7 +171,7 @@ class SB3MultiAgentEnv(VecEnv):
             == self.controlled_agent_mask.sum(dim=1)
         )[0]
 
-        if done_worlds.any().item():
+        if len(done_worlds) > 0:
             self._update_info_dict(info, done_worlds)
             self.num_episodes += len(done_worlds)
             self._env.sim.reset(done_worlds.tolist())            
@@ -173,7 +193,7 @@ class SB3MultiAgentEnv(VecEnv):
         self.dead_agent_mask = torch.logical_or(self.dead_agent_mask, done)
 
         # Now override the dead agent mask for the reset worlds
-        if done_worlds.any().item():
+        if len(done_worlds) > 0:
             for world_idx in done_worlds:
                 self.dead_agent_mask[
                     world_idx, :
