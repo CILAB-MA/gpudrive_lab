@@ -87,14 +87,12 @@ if __name__ == "__main__":
         collision_rate
     ) = generate_state_action_pairs(
         env=env,
-        device='cpu',
-        action_space_type=args.action_type,  # Discretize the expert actions
-        use_action_indices=True,  # Map action values to joint action index
-        make_video=True,  # Record the trajectories as sanity check
-        render_index=[0, 0],  # start_idx, end_idx
-        debug_world_idx=None,
-        debug_veh_idx=None,
-        save_path="run_bc_from_scratch",
+        use_action_indices=False,
+        make_video=True,
+        render_index=[0, 0],
+        save_path="./",
+        debug_world_idx=0,
+        debug_veh_idx=0,
     )
     print('Generating action pairs...')
 
