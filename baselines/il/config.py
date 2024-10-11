@@ -24,8 +24,8 @@ class BehavCloningConfig:
     log_interval: int = 500
 
     # Hyperparameters
-    batch_size: int = 256
-    epochs: int = 3000
+    batch_size: int = 512
+    epochs: int = 1000
     lr: float = 3e-4
     hidden_size: list = field(default_factory=lambda: [1024, 256])
     net_arch: list = field(default_factory=lambda: [64, 128])
