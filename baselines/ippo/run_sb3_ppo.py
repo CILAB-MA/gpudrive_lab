@@ -39,7 +39,7 @@ def train(exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: 
 
     # CONFIG
     env_config = EnvConfig(
-        dynamics_model="delta_local",
+        dynamics_model="classic",
         dx=torch.round(
             torch.linspace(-6.0, 6.0, 20), decimals=3
         ),
@@ -148,4 +148,4 @@ if __name__ == "__main__":
         k_unique_scenes=exp_config.k_unique_scenes,
     )
 
-    train(exp_config, scene_config, action_type="multi_discrete")
+    train(exp_config, scene_config, action_type="discrete")
