@@ -63,10 +63,9 @@ if __name__ == "__main__":
 
     # Get state action pairs
     expert_obs, expert_actions = [], []
-    for f in os.listdir(args.data_path):
-        with np.load(os.path.join(args.data_path, f)) as npz:
-            expert_obs.append(npz['obs'])
-            expert_actions.append(npz['actions'])
+    with np.load(os.path.join(args.data_path, "train_trajectories_1000.npz")) as npz:
+        expert_obs.append(npz['obs'])
+        expert_actions.append(npz['actions'])
 
     NUM_WORLDS = 50
     scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
