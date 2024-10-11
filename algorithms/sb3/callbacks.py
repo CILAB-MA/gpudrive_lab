@@ -6,7 +6,7 @@ import torch
 import wandb
 from stable_baselines3.common.callbacks import BaseCallback
 from time import perf_counter
-
+import gymnasium as gym
 EPISODE_LENGTH = 91
 
 
@@ -225,8 +225,12 @@ class MultiAgentCallback(BaseCallback):
         """Make a video and log to wandb."""
         policy = self.model
         base_env = self.locals["env"]._env
+        if isinstance(base_env.action_space, gym.spaces.Discrete):
+            action_size = (base_env.num_worlds, base_env.max_agent_count, )
+        else:
+            action_size = (base_env.num_worlds, base_env.max_agent_count, 3)
         action_tensor = torch.zeros(
-            (base_env.num_worlds, base_env.max_agent_count, 3) # todo: fix the dim
+            action_size
         )
 
         obs = base_env.reset()
