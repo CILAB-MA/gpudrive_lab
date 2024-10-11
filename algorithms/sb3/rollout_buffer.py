@@ -214,8 +214,9 @@ class MaskedRolloutBuffer(BaseBuffer):
 
             # Flatten data
             # EDIT_5: And mask out invalid samples
+            tensors_ = ["observations"] if len(self.actions.shape) == 3 else ["observations", "actions"]
             for tensor in _tensor_names:
-                if tensor in ["observations", "actions"]:
+                if tensor in tensors_:
                     self.__dict__[tensor] = self.swap_and_flatten(
                         self.__dict__[tensor]
                     )[self.valid_samples_mask.flatten(), :]
