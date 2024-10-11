@@ -54,7 +54,6 @@ def visualize_heatmap(diffs, delta):
     plt.savefig('intervention_example_with_sum.jpg', dpi=300)
     plt.show()
 
-
 def change_partner_state(obs, veh_ind, deltas, feat_size):
     '''
     obs: (num_world, num_veh, num_partner, partner_feat)
