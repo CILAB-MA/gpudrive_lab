@@ -63,10 +63,38 @@ if __name__ == "__main__":
 
     # Get state action pairs
     expert_obs, expert_actions = [], []
-    for f in os.listdir(args.data_path):
-        with np.load(os.path.join(args.data_path, f)) as npz:
-            expert_obs.append(npz['obs'])
-            expert_actions.append(npz['actions'])
+    with np.load(os.path.join(args.data_path, "train_trajectories_1000.npz")) as npz:
+        expert_obs.append(npz['obs'])
+        expert_actions.append(npz['actions'])
+
+    NUM_WORLDS = 50
+    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
+    env = GPUDriveTorchEnv(
+        config=env_config,
+        scene_config=scene_config,
+        max_cont_agents=128,  # Number of agents to control
+        device=args.device,
+        action_type=args.action_type,
+        num_stack=args.num_stack
+    )
+    # Generate expert actions and observations
+    (
+        expert_obs,
+        expert_actions,
+        next_expert_obs,
+        expert_dones,
+        goal_rate,
+        collision_rate
+    ) = generate_state_action_pairs(
+        env=env,
+        use_action_indices=False,
+        make_video=True,
+        render_index=[0, 0],
+        save_path="./",
+        debug_world_idx=0,
+        debug_veh_idx=0,
+    )
+    print('Generating action pairs...')
 
     expert_obs = np.concatenate(expert_obs, axis=0)
     expert_actions = np.concatenate(expert_actions, axis=0)
