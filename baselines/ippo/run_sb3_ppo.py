@@ -34,23 +34,8 @@ def linear_schedule(initial_value: float) -> Callable[[float], float]:
     return func
 
 
-def train(exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: str = "discrete"):
+def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: str = "discrete"):
     """Run PPO training with stable-baselines3."""
-
-    # CONFIG
-    env_config = EnvConfig(
-        dynamics_model="classic",
-        dx=torch.round(
-            torch.linspace(-6.0, 6.0, 20), decimals=3
-        ),
-        dy=torch.round(
-            torch.linspace(-6.0, 6.0, 20), decimals=3
-        ),
-        dyaw=torch.round(
-            torch.linspace(-np.pi, np.pi, 20), decimals=3
-        ),
-    )
-
     # MAKE SB3-COMPATIBLE ENVIRONMENT
     env = SB3MultiAgentEnv(
         config=env_config,
@@ -148,4 +133,4 @@ if __name__ == "__main__":
         k_unique_scenes=exp_config.k_unique_scenes,
     )
 
-    train(exp_config, scene_config, action_type="discrete")
+    train(env_config, exp_config, scene_config, action_type="discrete")
