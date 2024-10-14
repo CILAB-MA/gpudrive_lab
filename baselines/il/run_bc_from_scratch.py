@@ -67,35 +67,6 @@ if __name__ == "__main__":
         expert_obs.append(npz['obs'])
         expert_actions.append(npz['actions'])
 
-    NUM_WORLDS = 50
-    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=128,  # Number of agents to control
-        device=args.device,
-        action_type=args.action_type,
-        num_stack=args.num_stack
-    )
-    # Generate expert actions and observations
-    (
-        expert_obs,
-        expert_actions,
-        next_expert_obs,
-        expert_dones,
-        goal_rate,
-        collision_rate
-    ) = generate_state_action_pairs(
-        env=env,
-        use_action_indices=False,
-        make_video=True,
-        render_index=[0, 0],
-        save_path="./",
-        debug_world_idx=0,
-        debug_veh_idx=0,
-    )
-    print('Generating action pairs...')
-
     expert_obs = np.concatenate(expert_obs, axis=0)
     expert_actions = np.concatenate(expert_actions, axis=0)
     print(f'OBS SHAPE {expert_obs.shape} ACTIONS SHAPE {expert_actions.shape}')
@@ -147,11 +118,12 @@ if __name__ == "__main__":
 
         # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=bc_config.lr)
-
+    sample_per_epoch = 50000
     global_step = 0
     for epoch in range(bc_config.epochs):
         for i, (obs, expert_action) in enumerate(expert_data_loader):
-
+            if i * bc_config.batch_size > sample_per_epoch:
+                continue
             obs, expert_action = obs.to(args.device), expert_action.to(
                 args.device
             )
