@@ -10,6 +10,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.utils import get_schedule_fn
 from stable_baselines3.common.vec_env import VecEnv
 from torch import nn
+import gymnasium as gym
 
 # Import masked rollout buffer class
 from algorithms.sb3.rollout_buffer import MaskedRolloutBuffer
@@ -94,8 +95,9 @@ class IPPO(PPO):
 
                 # EDIT_1: Mask out invalid observations (NaN axes and/or dead agents)
                 # Create dummy actions, values and log_probs (NaN)
+                action_size =  (self.n_envs, ) if isinstance(env.action_space, gym.spaces.Discrete) else (self.n_envs, 3)
                 actions = torch.full(
-                    fill_value=float("nan"), size=(self.n_envs, 3) # todo: should change based on action space
+                    fill_value=float("nan"), size=action_size# todo: should change based on action space
                 ).to(self.device)
                 log_probs = torch.full(
                     fill_value=float("nan"),
