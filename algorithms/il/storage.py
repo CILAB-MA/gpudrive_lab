@@ -1,12 +1,20 @@
 import torch
 import numpy as np
 import os
-import pickle
 
 from pygpudrive.env.config import EnvConfig, SceneConfig, SelectionDiscipline
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
 
 def save_actions(env):
+    """
+    Save the expert actions in the environment, distinguishing them by each scene.
+    
+    Args:
+        env (GPUDriveTorchEnv): Initialized environment class.
+
+    Returns:
+        world_action_pairs: Expert actions for the controlled agents in each scene.
+    """
     obs = env.reset()
     expert_actions, _, _ = env.get_expert_actions()
 
@@ -39,52 +47,55 @@ def save_actions(env):
     return world_action_pairs
 
 def save_trajectory(env):
+    """
+    save the expert actions and observations in the environment (not distinguishing by each scene).
+    
+    Args:
+        env (GPUDriveTorchEnv): Initialized environment class.
+
+    Returns:
+        world_obs_pairs: Expert obs for the controlled agents in all scene.
+        world_action_pairs : Expert actions for the controlled agents in all scene.
+    """
     obs = env.reset()
     expert_actions, _, _ = env.get_expert_actions()
+    dead_agent_mask = ~env.cont_agent_mask.clone()
 
-    device = env.device
+    obs = obs.to('cpu')
+    expert_actions = expert_actions.to('cpu')
+    dead_agent_mask = dead_agent_mask.to('cpu')
     
-    expert_actions_lst = [[] for _ in range(expert_actions.shape[0])]
-    expert_obs_lst = [[] for _ in range(expert_actions.shape[0])]
-    
-    # Initialize dead agent mask
-    dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
+    expert_obs_lst = []
+    expert_actions_lst = []
     
     # initial obs
-    for i in range(obs.shape[0]):
-        expert_obs_lst[i].append(obs[i][~dead_agent_mask[i,:]])
+    expert_obs_lst.append(obs[~dead_agent_mask])
     
     for time_step in range(env.episode_len):
-        for i in range(expert_actions.shape[0]):
-            expert_actions_lst[i].append(
-                expert_actions[i,:,time_step,:][~dead_agent_mask[i,:]]
-            )
+        expert_actions_lst.append(
+            expert_actions[:,:,time_step,:][~dead_agent_mask]
+        )
         
         # Step the environment with inferred expert actions
         env.step_dynamics(expert_actions[:, :, time_step, :])
         
         # check dead agent
-        dones = env.get_dones().to(device)
+        dones = env.get_dones().to('cpu')
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
             break
         
-        next_obs = env.get_obs()
+        next_obs = env.get_obs().to('cpu')
 
-        for i in range(obs.shape[0]):
-            expert_obs_lst[i].append(
-                next_obs[i][~dead_agent_mask[i,:]]
-            )
-        
-    world_obs_pairs = []
-    world_action_pairs = []
+        expert_obs_lst.append(
+            next_obs[~dead_agent_mask]
+        )
     
-    for x in expert_obs_lst:
-        world_obs_pairs.append(torch.cat(x, dim=0))
-    for x in expert_actions_lst:
-        world_action_pairs.append(torch.cat(x, dim=0))
-    
+    world_obs_pairs = np.concatenate(expert_obs_lst, axis=0)
+    world_action_pairs = np.concatenate(expert_actions_lst, axis=0)
+
     return world_obs_pairs, world_action_pairs
+
 
 if __name__ == "__main__":
     import argparse
@@ -92,7 +103,7 @@ if __name__ == "__main__":
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--save-path', '-sp', type=str, default='/data/train_trajectory_npz')
-    parser.add_argument('--num_worlds', type=int, default=100)
+    parser.add_argument('--num_worlds', type=int, default=400)
     parser.add_argument('--start_idx', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     args = parser.parse_args()
@@ -129,10 +140,9 @@ if __name__ == "__main__":
     expert_obs, expert_actions = save_trajectory(env)
     
     # Save the expert observations and actions by mpz file
-    for i, (scene_obs, scene_action) in enumerate(zip(expert_obs, expert_actions)):
-        scene_obs = scene_obs.to('cpu')
-        scene_action = scene_action.to('cpu')
-        np.savez(os.path.join(args.save_path, f"scene_{int(args.start_idx) + i}_trajectory.npz"), obs=scene_obs, actions=scene_action)
+    np.savez_compressed(os.path.join(args.save_path, 
+                        f"scene_{args.start_idx + NUM_WORLDS}_trajectory.npz"), 
+                        obs=expert_obs, actions=expert_actions)
     
     env.close()
     del env
