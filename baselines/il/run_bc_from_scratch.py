@@ -32,6 +32,7 @@ def parse_args():
     parser.add_argument('--action-scale', '-as', type=int, default=100)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     parser.add_argument('--data-path', '-dp', type=str, default='/data')
+    parser.add_argument('--data-file', '-df', type=str, default='train_trajectories_1000.npz')
     args = parser.parse_args()
     return args
 logger = logging.getLogger(__name__)
@@ -63,56 +64,11 @@ if __name__ == "__main__":
 
     # Get state action pairs
     expert_obs, expert_actions = [], []
-    with np.load(os.path.join(args.data_path, "train_trajectories_1000.npz")) as npz:
+    with np.load(os.path.join(args.data_path, args.data_file)) as npz:
         expert_obs.append(npz['obs'])
         expert_actions.append(npz['actions'])
 
-    NUM_WORLDS = 50
-    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=128,  # Number of agents to control
-        device=args.device,
-        action_type=args.action_type,
-        num_stack=args.num_stack
-    )
-    # Generate expert actions and observations
-    (
-        expert_obs,
-        expert_actions,
-        next_expert_obs,
-        expert_dones,
-        goal_rate,
-        collision_rate
-    ) = generate_state_action_pairs(
-        env=env,
-        use_action_indices=False,
-        make_video=True,
-        render_index=[0, 0],
-        save_path="./",
-        debug_world_idx=0,
-        debug_veh_idx=0,
-    )
-    print('Generating action pairs...')
-
-    expert_obs = np.concatenate(expert_obs, axis=0)
-    expert_actions = np.concatenate(expert_actions, axis=0)
     print(f'OBS SHAPE {expert_obs.shape} ACTIONS SHAPE {expert_actions.shape}')
-    with open("private.yaml") as f:
-        private_info = yaml.load(f, Loader=yaml.FullLoader)
-    wandb.login(key=private_info["wandb_key"])
-    filename = datetime.now().strftime("%Y%m%d%H%M%S")
-    wandb.init(project=private_info['project'], entity=private_info['entity'],
-               name=f'{filename}')
-    wandb.config.update({
-        'lr': bc_config.lr,
-        'batch_size': bc_config.batch_size,
-        'num_stack': args.num_stack,
-        'num_scene': expert_actions.shape[0],
-        'num_vehicle': 128
-    })
-
 
     class ExpertDataset(torch.utils.data.Dataset):
         def __init__(self, obs, actions):
@@ -139,15 +95,33 @@ if __name__ == "__main__":
         hidden_size=bc_config.hidden_size,
         output_size=3,
     ).to(args.device)
-    #
-    # bc_policy = WayForward(
-    #         input_size=env.observation_space.shape[0],
-    #         hidden_size=bc_config.hidden_size[1],
-    #     ).to(args.device)
 
-        # Configure loss and optimizer
+    # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=bc_config.lr)
 
+    # Logging
+    with open("private.yaml") as f:
+        private_info = yaml.load(f, Loader=yaml.FullLoader)
+    wandb.login(key=private_info["wandb_key"])
+    currenttime = datetime.now().strftime("%Y%m%d%H%M%S")
+    run_id = f"{type(bc_policy).__name__}_{currenttime}"
+    wandb.init(
+        project=private_info['main_project'],
+        entity=private_info['entity'],
+        name=run_id,
+        id=run_id,
+        group=f"{env_config.dynamics_model}_{args.action_type}",
+        config={**bc_config.__dict__, **env_config.__dict__},
+    )
+    
+    wandb.config.update({
+        'lr': bc_config.lr,
+        'batch_size': bc_config.batch_size,
+        'num_stack': args.num_stack,
+        'num_scene': expert_actions.shape[0],
+        'num_vehicle': 128
+    })
+    
     global_step = 0
     for epoch in range(bc_config.epochs):
         for i, (obs, expert_action) in enumerate(expert_data_loader):
