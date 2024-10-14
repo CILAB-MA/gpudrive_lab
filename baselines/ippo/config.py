@@ -30,9 +30,6 @@ class ExperimentConfig:
         100  # How many trajectories we average logs over
     )
     log_freq: int = 100
-    project_name = "my_gpudrive_tests"
-    group_name = " "
-    entity = " "
     tags = ["IPPO", "LATE_FUSION", "PERM_EQ"]
     wandb_mode = "online"  # Options: online, offline, disabled
 
