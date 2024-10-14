@@ -62,10 +62,8 @@ def select_scenes(config):
     scene_paths = [
         os.path.join(os.path.abspath(config.path), selected_scene)
         for selected_scene in selected_scenes
-    ]
-
-    print(
-        f"\n--- Ratio unique scenes / number of worls = {len(np.unique(scene_paths))} / {len(scene_paths)} ---\n"
-    )
-
+    ] 
+    
+    print(f'\n--- Ratio unique scenes / number of worlds = {len(np.unique(scene_paths))} / {len(scene_paths)} ---\n')
+        
     return scene_paths
