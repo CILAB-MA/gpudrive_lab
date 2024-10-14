@@ -9,7 +9,7 @@ logging.getLogger(__name__)
 def arg_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--python_path", type=str, default="/root/anaconda3/envs/gpudrive/bin/python")
-    parser.add_argument("--store_path", type=str, default="/app/data/storage.py")
+    parser.add_argument("--store_path", type=str, default="/app/il/storage.py")
     parser.add_argument("--total_file_count", type=int, default=1000)
     parser.add_argument("--learn_file_count", type=int, default=50)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
