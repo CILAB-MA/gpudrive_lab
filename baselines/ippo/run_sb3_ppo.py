@@ -1,3 +1,4 @@
+import yaml
 import wandb
 import pyrallis
 import torch
@@ -33,23 +34,8 @@ def linear_schedule(initial_value: float) -> Callable[[float], float]:
     return func
 
 
-def train(exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: str = "discrete"):
+def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: str = "discrete"):
     """Run PPO training with stable-baselines3."""
-
-    # CONFIG
-    env_config = EnvConfig(
-        dynamics_model="classic",
-        dx=torch.round(
-            torch.linspace(-6.0, 6.0, 20), decimals=3
-        ),
-        dy=torch.round(
-            torch.linspace(-6.0, 6.0, 20), decimals=3
-        ),
-        dyaw=torch.round(
-            torch.linspace(-np.pi, np.pi, 20), decimals=3
-        ),
-    )
-
     # MAKE SB3-COMPATIBLE ENVIRONMENT
     env = SB3MultiAgentEnv(
         config=env_config,
@@ -65,14 +51,18 @@ def train(exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: 
         exp_config.num_worlds * exp_config.n_steps
     ) // exp_config.num_minibatches
 
-    # INIT WANDB
-    datetime_ = datetime.now().strftime("%m_%d_%H_%S")
-    run_id = f"gpudrive_{datetime_}"
+    # INIT WANDB    
+    datetime_ = datetime.now().strftime("%Y%m%d%H%M%S")
+    run_id = f"ppo_{datetime_}"
+    with open("private.yaml") as f:
+        private_info = yaml.load(f, Loader=yaml.FullLoader)
+    wandb.login(key=private_info["wandb_key"])
     run = wandb.init(
-        project=exp_config.project_name,
+        project=private_info['side_project'],
+        entity=private_info['entity'],
         name=run_id,
         id=run_id,
-        group=exp_config.group_name,
+        group=f"{env_config.dynamics_model}_{action_type}",
         sync_tensorboard=exp_config.sync_tensorboard,
         tags=exp_config.tags,
         mode=exp_config.wandb_mode,
@@ -122,6 +112,19 @@ def train(exp_config: ExperimentConfig, scene_config: SceneConfig, action_type: 
 
 if __name__ == "__main__":
     exp_config = pyrallis.parse(config_class=ExperimentConfig)
+    
+    env_config = EnvConfig(
+        dynamics_model="delta_local",
+        dx=torch.round(
+            torch.linspace(-6.0, 6.0, 20), decimals=3
+        ),
+        dy=torch.round(
+            torch.linspace(-6.0, 6.0, 20), decimals=3
+        ),
+        dyaw=torch.round(
+            torch.linspace(-np.pi, np.pi, 20), decimals=3
+        ),
+    )
 
     scene_config = SceneConfig(
         path=exp_config.data_dir, 
@@ -130,4 +133,4 @@ if __name__ == "__main__":
         k_unique_scenes=exp_config.k_unique_scenes,
     )
 
-    train(exp_config, scene_config, action_type="discrete")
+    train(env_config, exp_config, scene_config, action_type="discrete")
