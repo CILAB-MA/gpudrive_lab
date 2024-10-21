@@ -36,11 +36,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         # Environment parameter setup
         params = self._setup_environment_parameters()
-        params.dynamicsModel = self.dynamics_model[config.dynamics_model]
-        if config.dynamics_model == 'delta_local':
-            self.action_features = "delta_local"
-        else:
-            self.action_features = "bicycle"
             
         # Initialize simulator with parameters
         self.sim = self._initialize_simulator(params, scene_config)
@@ -124,13 +119,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Map action indices to action values if indices are provided
         if isinstance(self.action_space, Discrete):
             if use_indices:
-                actions = actions.squeeze(dim=2).to(self.device) if actions.dim() == 3 else actions.to(self.device)
+                actions = actions.squeeze(dim=2).long().to(self.device) if actions.dim() == 3 else actions.long().to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions]
             else:
                 action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
         elif isinstance(self.action_space, MultiDiscrete):
             if use_indices:
-                actions = actions.squeeze(dim=3).to(self.device) if actions.dim() == 4 else actions.to(self.device)
+                actions = actions.squeeze(dim=3).long().to(self.device) if actions.dim() == 4 else actions.long().to(self.device)
                 action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
             else:
                 action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
@@ -224,7 +219,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def _set_multi_discrete_action_space(self) -> None:
         """Configure the multi discrete action space."""
-        if self.action_features == 'delta_local':
+        if self.config.dynamics_model == 'delta_local':
             self.dx = self.config.dx.to(self.device)
             self.dy = self.config.dy.to(self.device)
             self.dyaw = self.config.dyaw.to(self.device)
@@ -266,7 +261,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def _set_continuous_action_space(self) -> None:
         """Configure the continuous action space."""
-        if self.action_features == 'delta_local':
+        if self.config.dynamics_model == 'delta_local':
             self.dx = self.config.dx.to(self.device)
             self.dy = self.config.dy.to(self.device)
             self.dyaw = self.config.dyaw.to(self.device)
@@ -454,7 +449,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 ),
                 dim=-1,
             )
-
         else:  # classic or bicycle
             inferred_expert_actions = inferred_expert_actions[..., :3]
             inferred_expert_actions[..., 0] = torch.clamp(
@@ -463,8 +457,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             inferred_expert_actions[..., 1] = torch.clamp(
                 inferred_expert_actions[..., 1], -0.3, 0.3
             )
-        velo2speed = None
         
+        velo2speed = None
+        debug_positions = None
         if debug_world_idx is not None and debug_veh_idx is not None:
             velo2speed = (
                 torch.norm(velocity[debug_world_idx, debug_veh_idx], dim=-1)
@@ -618,9 +613,9 @@ if __name__ == "__main__":
     MAX_CONTROLLED_AGENTS = 128
     NUM_WORLDS = 10
 
-    env_config = EnvConfig(dynamics_model="state")
+    env_config = EnvConfig(dynamics_model="delta_local")
     render_config = RenderConfig()
-    scene_config = SceneConfig("data/examples", NUM_WORLDS)
+    scene_config = SceneConfig("data/processed/examples", NUM_WORLDS)
 
     # MAKE ENV
     env = GPUDriveTorchEnv(
