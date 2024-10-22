@@ -27,7 +27,7 @@ def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
-    parser.add_argument('--device', '-d', type=str, default='cpu', choices=['cpu', 'cuda'],)
+    parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--model-name', '-m', type=str, default='bc_policy')
     parser.add_argument('--action-scale', '-as', type=int, default=100)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
@@ -67,7 +67,8 @@ if __name__ == "__main__":
     with np.load(os.path.join(args.data_path, args.data_file)) as npz:
         expert_obs.append(npz['obs'])
         expert_actions.append(npz['actions'])
-
+    expert_obs = np.concatenate(expert_obs)
+    expert_actions = np.concatenate(expert_actions)
     print(f'OBS SHAPE {expert_obs.shape} ACTIONS SHAPE {expert_actions.shape}')
 
     class ExpertDataset(torch.utils.data.Dataset):

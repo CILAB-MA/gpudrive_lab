@@ -12,7 +12,6 @@ from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.base_env import GPUDriveGymEnv
 from pygpudrive.env import constants
 
-
 class GPUDriveTorchEnv(GPUDriveGymEnv):
     """Torch Gym Environment that interfaces with the GPU Drive simulator."""
 
@@ -22,7 +21,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         scene_config,
         max_cont_agents,
         device="cuda",
-        action_type="discrete",
         num_stack=1,
         render_config: RenderConfig = RenderConfig(),
     ):
@@ -51,8 +49,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.observation_space = Box(
             low=-np.inf, high=np.inf, shape=(self.get_obs(reset=True).shape[-1],)
         )
-        self._setup_action_space(action_type)
-        self.action_type = action_type
         
         self.info_dim = 5  # Number of info features
         self.episode_len = self.config.episode_len
@@ -109,34 +105,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
             return weighted_rewards
 
-    def step_dynamics(self, actions, use_indices=True):
-        if actions is not None:
-            self._apply_actions(actions, use_indices)
-        self.sim.step()
-
-    def _apply_actions(self, actions, use_indices=True):
-        """Apply the actions to the simulator."""
-        # Map action indices to action values if indices are provided
-        if isinstance(self.action_space, Discrete):
-            if use_indices:
-                actions = actions.squeeze(dim=2).long().to(self.device) if actions.dim() == 3 else actions.long().to(self.device)
-                action_value_tensor = self.action_keys_tensor[actions]
-            else:
-                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
-        elif isinstance(self.action_space, MultiDiscrete):
-            if use_indices:
-                actions = actions.squeeze(dim=3).long().to(self.device) if actions.dim() == 4 else actions.long().to(self.device)
-                action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
-            else:
-                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
-        elif isinstance(self.action_space, Tuple):
-            action_value_tensor = actions.to(self.device)
-        else:
-            raise ValueError(f"Invalid action shape: {actions.shape}")
-
-        # Feed the action values to gpudrive
-        self._copy_actions_to_simulator(action_value_tensor)
-
     def _copy_actions_to_simulator(self, actions):
         """Copy the provived actions to the simulator."""
         if (
@@ -156,136 +124,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             raise ValueError(
                 f"Invalid dynamics model: {self.config.dynamics_model}"
             )
-
-    def _set_discrete_action_space(self) -> None:
-        """Configure the discrete action space based on dynamics model."""
-        products = None
-
-        if self.config.dynamics_model == "delta_local":
-            self.dx = self.config.dx.to(self.device)
-            self.dy = self.config.dy.to(self.device)
-            self.dyaw = self.config.dyaw.to(self.device)
-            products = product(self.dx, self.dy, self.dyaw)
-        elif (
-            self.config.dynamics_model == "classic"
-            or self.config.dynamics_model == "bicycle"
-        ):
-            self.steer_actions = self.config.steer_actions.to(self.device)
-            self.accel_actions = self.config.accel_actions.to(self.device)
-            self.head_actions = self.config.head_tilt_actions.to(self.device)
-            products = product(
-                self.accel_actions, self.steer_actions, self.head_actions
-            )
-        elif self.config.dynamics_model == "state":
-            self.x = self.config.x.to(self.device)
-            self.y = self.config.y.to(self.device)
-            self.yaw = self.config.yaw.to(self.device)
-            self.vx = self.config.vx.to(self.device)
-            self.vy = self.config.vy.to(self.device)
-
-        else:
-            raise ValueError(
-                f"Invalid dynamics model: {self.config.dynamics_model}"
-            )
-
-        # Create a mapping from action indices to action values
-        self.action_key_to_values = {}
-        self.values_to_action_key = {}
-        if products is not None:
-            for action_idx, (action_1, action_2, action_3) in enumerate(
-                products
-            ):
-                self.action_key_to_values[action_idx] = [
-                    action_1.item(),
-                    action_2.item(),
-                    action_3.item(),
-                ]
-                self.values_to_action_key[
-                    round(action_1.item(), 3),
-                    round(action_2.item(), 3),
-                    round(action_3.item(), 3),
-                ] = action_idx
-
-            self.action_keys_tensor = torch.tensor(
-                [
-                    self.action_key_to_values[key]
-                    for key in sorted(self.action_key_to_values.keys())
-                ]
-            ).to(self.device)
-
-            return Discrete(n=int(len(self.action_key_to_values)))
-        else:
-            return Discrete(n=1)
-
-    def _set_multi_discrete_action_space(self) -> None:
-        """Configure the multi discrete action space."""
-        if self.config.dynamics_model == 'delta_local':
-            self.dx = self.config.dx.to(self.device)
-            self.dy = self.config.dy.to(self.device)
-            self.dyaw = self.config.dyaw.to(self.device)
-            action_indices = product(range(len(self.dx)),
-                                     range(len(self.dy)),
-                                     range(len(self.dyaw)))
-            action_values = product(self.dx, self.dy, self.dyaw)
-            action_range = [len(self.dx), len(self.dy), len(self.dyaw)]
-        else:
-            self.steer_actions = self.config.steer_actions.to(self.device)
-            self.accel_actions = self.config.accel_actions.to(self.device)
-            self.head_actions = torch.tensor([0], device=self.device)
-            action_indices = product(range(len(self.accel_actions)),
-                                     range(len(self.steer_actions)),
-                                     range(len(self.head_actions)))
-            action_values = product(self.accel_actions, self.steer_actions, self.head_actions)
-            action_range = [len(self.accel_actions), len(self.steer_actions), len(self.head_actions)]
-
-        # Create a mapping from action indices to action values
-        self.action_key_to_values = {}
-        self.values_to_action_key = {}
-        self.action_keys_tensor = torch.zeros(*action_range, 3).to(self.device)
-
-        for action_idx, (action_1, action_2, action_3) in zip(action_indices, action_values):
-            action_idx = tuple(action_idx)
-            self.action_key_to_values[action_idx] = [
-                action_1.item(),
-                action_2.item(),
-                action_3.item(),
-            ]
-            self.values_to_action_key[
-                round(action_1.item(), 3),
-                round(action_2.item(), 3),
-                round(action_3.item(), 3),
-            ] = action_idx
-            self.action_keys_tensor[action_idx] = torch.tensor([action_1, action_2, action_3])
-
-        return MultiDiscrete(nvec=action_range)
-
-    def _set_continuous_action_space(self) -> None:
-        """Configure the continuous action space."""
-        if self.config.dynamics_model == 'delta_local':
-            self.dx = self.config.dx.to(self.device)
-            self.dy = self.config.dy.to(self.device)
-            self.dyaw = self.config.dyaw.to(self.device)
-            action_1 = self.dx.clone().cpu().numpy()
-            action_2 = self.dy.clone().cpu().numpy()
-            action_3 = self.dyaw.clone().cpu().numpy()
-        elif self.config.dynamics_model == "classic":
-            self.steer_actions = self.config.steer_actions.to(self.device)
-            self.accel_actions = self.config.accel_actions.to(self.device)
-            self.head_actions = torch.tensor([0], device=self.device)
-            action_1 = self.steer_actions.clone().cpu().numpy()
-            action_2 = self.accel_actions.clone().cpu().numpy()
-            action_3 = self.head_actions.clone().cpu().numpy()
-        else:
-            raise ValueError(
-                f"Continuous action space is currently not supported for dynamics_model: {self.config.dynamics_model}."
-            )
-
-        action_space = Tuple(
-            (Box(action_1.min(), action_1.max(), shape=(1,)),
-            Box(action_2.min(), action_2.max(), shape=(1,)),
-            Box(action_3.min(), action_3.max(), shape=(1,)))
-        )
-        return action_space
 
     def get_obs(self, reset=False):
         """Get observation: Combine different types of environment information into a single tensor.
@@ -616,7 +454,246 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         return obs.flatten(start_dim=2)
 
 
+class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
+    """Discrete Gym Environment that interfaces with the GPU Drive simulator."""
+
+    def __init__(
+        self,
+        config,
+        scene_config,
+        max_cont_agents,
+        device="cuda",
+        num_stack=1,
+        render_config: RenderConfig = RenderConfig(),
+    ):
+        super().__init__(
+            config=config,
+            scene_config=scene_config,
+            max_cont_agents=max_cont_agents,
+            device=device,
+            num_stack=num_stack,
+            render_config=render_config,
+        )
+
+        self.action_space = self._set_discrete_action_space()
+
+    def _set_discrete_action_space(self) -> None:
+        """Configure the discrete action space based on dynamics model."""
+        products = None
+
+        if self.config.dynamics_model == "delta_local":
+            self.dx = self.config.dx.to(self.device)
+            self.dy = self.config.dy.to(self.device)
+            self.dyaw = self.config.dyaw.to(self.device)
+            products = product(self.dx, self.dy, self.dyaw)
+        elif (
+            self.config.dynamics_model == "classic"
+            or self.config.dynamics_model == "bicycle"
+        ):
+            self.steer_actions = self.config.steer_actions.to(self.device)
+            self.accel_actions = self.config.accel_actions.to(self.device)
+            self.head_actions = self.config.head_tilt_actions.to(self.device)
+            products = product(
+                self.accel_actions, self.steer_actions, self.head_actions
+            )
+        elif self.config.dynamics_model == "state":
+            self.x = self.config.x.to(self.device)
+            self.y = self.config.y.to(self.device)
+            self.yaw = self.config.yaw.to(self.device)
+            self.vx = self.config.vx.to(self.device)
+            self.vy = self.config.vy.to(self.device)
+
+        else:
+            raise ValueError(
+                f"Invalid dynamics model: {self.config.dynamics_model}"
+            )
+
+        # Create a mapping from action indices to action values
+        self.action_key_to_values = {}
+        self.values_to_action_key = {}
+        if products is not None:
+            for action_idx, (action_1, action_2, action_3) in enumerate(
+                products
+            ):
+                self.action_key_to_values[action_idx] = [
+                    action_1.item(),
+                    action_2.item(),
+                    action_3.item(),
+                ]
+                self.values_to_action_key[
+                    round(action_1.item(), 3),
+                    round(action_2.item(), 3),
+                    round(action_3.item(), 3),
+                ] = action_idx
+
+            self.action_keys_tensor = torch.tensor(
+                [
+                    self.action_key_to_values[key]
+                    for key in sorted(self.action_key_to_values.keys())
+                ]
+            ).to(self.device)
+
+            return Discrete(n=int(len(self.action_key_to_values)))
+        else:
+            return Discrete(n=1)
+
+    def step_dynamics(self, actions, use_indices=True):
+        if actions is not None:
+            if use_indices:
+                actions = actions.squeeze(dim=2).long().to(self.device) if actions.dim() == 3 else actions.long().to(self.device)
+                action_value_tensor = self.action_keys_tensor[actions]
+            else:
+                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
+
+            # Feed the action values to gpudrive
+            self._copy_actions_to_simulator(action_value_tensor)
+
+        self.sim.step()
+
+
+class GPUDriveMultiDiscreteEnv(GPUDriveTorchEnv):
+    """Multi-Discrete Gym Environment that interfaces with the GPU Drive simulator."""
+
+    def __init__(
+        self,
+        config,
+        scene_config,
+        max_cont_agents,
+        device="cuda",
+        num_stack=1,
+        render_config: RenderConfig = RenderConfig(),
+    ):
+        super().__init__(
+            config=config,
+            scene_config=scene_config,
+            max_cont_agents=max_cont_agents,
+            device=device,
+            num_stack=num_stack,
+            render_config=render_config,
+        )
+
+        self.action_space = self._set_multi_discrete_action_space()
+
+    def _set_multi_discrete_action_space(self) -> None:
+        """Configure the multi discrete action space."""
+        if self.config.dynamics_model == 'delta_local':
+            self.dx = self.config.dx.to(self.device)
+            self.dy = self.config.dy.to(self.device)
+            self.dyaw = self.config.dyaw.to(self.device)
+            action_indices = product(range(len(self.dx)),
+                                     range(len(self.dy)),
+                                     range(len(self.dyaw)))
+            action_values = product(self.dx, self.dy, self.dyaw)
+            action_range = [len(self.dx), len(self.dy), len(self.dyaw)]
+        else:
+            self.steer_actions = self.config.steer_actions.to(self.device)
+            self.accel_actions = self.config.accel_actions.to(self.device)
+            self.head_actions = torch.tensor([0], device=self.device)
+            action_indices = product(range(len(self.accel_actions)),
+                                     range(len(self.steer_actions)),
+                                     range(len(self.head_actions)))
+            action_values = product(self.accel_actions, self.steer_actions, self.head_actions)
+            action_range = [len(self.accel_actions), len(self.steer_actions), len(self.head_actions)]
+
+        # Create a mapping from action indices to action values
+        self.action_key_to_values = {}
+        self.values_to_action_key = {}
+        self.action_keys_tensor = torch.zeros(*action_range, 3).to(self.device)
+
+        for action_idx, (action_1, action_2, action_3) in zip(action_indices, action_values):
+            action_idx = tuple(action_idx)
+            self.action_key_to_values[action_idx] = [
+                action_1.item(),
+                action_2.item(),
+                action_3.item(),
+            ]
+            self.values_to_action_key[
+                round(action_1.item(), 3),
+                round(action_2.item(), 3),
+                round(action_3.item(), 3),
+            ] = action_idx
+            self.action_keys_tensor[action_idx] = torch.tensor([action_1, action_2, action_3])
+
+        return MultiDiscrete(nvec=action_range)
+
+    def step_dynamics(self, actions, use_indices=True):
+        if actions is not None:
+            if use_indices:
+                actions = actions.squeeze(dim=3).long().to(self.device) if actions.dim() == 4 else actions.long().to(self.device)
+                action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
+            else:
+                action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
+                
+            # Feed the action values to gpudrive
+            self._copy_actions_to_simulator(action_value_tensor)
+
+        self.sim.step()
+
+
+class GPUDriveContinuousEnv(GPUDriveTorchEnv):
+    """Continuous Gym Environment that interfaces with the GPU Drive simulator"""
+    
+    def __init__(
+        self,
+        config,
+        scene_config,
+        max_cont_agents,
+        device="cuda",
+        num_stack=1,
+        render_config: RenderConfig = RenderConfig(),
+    ):
+        super().__init__(
+            config=config,
+            scene_config=scene_config,
+            max_cont_agents=max_cont_agents,
+            device=device,
+            num_stack=num_stack,
+            render_config=render_config,
+        )
+
+        self.action_space = self._set_continuous_action_space()
+
+    def _set_continuous_action_space(self) -> None:
+        """Configure the continuous action space."""
+        if self.config.dynamics_model == 'delta_local':
+            self.dx = self.config.dx.to(self.device)
+            self.dy = self.config.dy.to(self.device)
+            self.dyaw = self.config.dyaw.to(self.device)
+            action_1 = self.dx.clone().cpu().numpy()
+            action_2 = self.dy.clone().cpu().numpy()
+            action_3 = self.dyaw.clone().cpu().numpy()
+        elif self.config.dynamics_model == "classic":
+            self.steer_actions = self.config.steer_actions.to(self.device)
+            self.accel_actions = self.config.accel_actions.to(self.device)
+            self.head_actions = torch.tensor([0], device=self.device)
+            action_1 = self.steer_actions.clone().cpu().numpy()
+            action_2 = self.accel_actions.clone().cpu().numpy()
+            action_3 = self.head_actions.clone().cpu().numpy()
+        else:
+            raise ValueError(
+                f"Continuous action space is currently not supported for dynamics_model: {self.config.dynamics_model}."
+            )
+
+        action_space = Tuple(
+            (Box(action_1.min(), action_1.max(), shape=(1,)),
+            Box(action_2.min(), action_2.max(), shape=(1,)),
+            Box(action_3.min(), action_3.max(), shape=(1,)))
+        )
+        return action_space
+
+    def step_dynamics(self, actions, use_indices=None):
+        if actions is not None:
+            action_value_tensor = actions.to(self.device)
+        
+            # Feed the action values to gpudrive
+            self._copy_actions_to_simulator(action_value_tensor)
+        
+        self.sim.step()
+        
+
 if __name__ == "__main__":
+    from pygpudrive.registration import make
+    from pygpudrive.env.config import DynamicsModel, ActionSpace
     # CONFIGURE
     TOTAL_STEPS = 90
     MAX_CONTROLLED_AGENTS = 128
@@ -626,15 +703,16 @@ if __name__ == "__main__":
     render_config = RenderConfig()
     scene_config = SceneConfig("data/processed/examples", NUM_WORLDS)
 
-    # MAKE ENV
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=MAX_CONTROLLED_AGENTS,  # Number of agents to control
-        action_type="multi_discrete",
-        device="cpu",
-        render_config=render_config,
-    )
+    # MAKE ENVIRONMENT
+    kwargs = {
+        "config": env_config,
+        "scene_config": scene_config,
+        "max_cont_agents": MAX_CONTROLLED_AGENTS,
+        "device": "cuda", 
+        "render_config": render_config
+    }
+    
+    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_id=ActionSpace.CONTINUOUS, kwargs=kwargs)
     
     # RUN
     obs = env.reset()

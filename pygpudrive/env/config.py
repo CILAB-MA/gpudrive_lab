@@ -8,6 +8,18 @@ import torch
 
 import gpudrive
 
+class DynamicsModel(Enum):
+    """Enum for dynamics models."""
+    CLASSIC = 0
+    BICYCLE = 1
+    DELTA_LOCAL = 2
+    STATE = 3
+
+class ActionSpace(Enum):
+    """Enum for action spaces."""
+    DISCRETE = 0
+    MULTI_DISCRETE = 1
+    CONTINUOUS = 2
 
 @dataclass
 class EnvConfig:

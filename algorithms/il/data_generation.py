@@ -6,8 +6,7 @@ import logging
 import os
 import matplotlib.pyplot as plt
 
-from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
-from pygpudrive.env.env_torch import GPUDriveTorchEnv
+from gymnasium.spaces import Tuple, Discrete, MultiDiscrete
 
 logging.getLogger(__name__)
 
@@ -63,13 +62,12 @@ def generate_state_action_pairs(
 
     # Convert expert actions to the desired action space type
     dynamics_model = env.config.dynamics_model
-    action_type = env.action_type
     device = env.device
     
-    if action_type == 'continuous':
+    if isinstance(env.action_space, Tuple):
         logging.info("Using continuous expert actions... \n")
-    else:
-        logging.info(f"Converting expert actions into {action_type} format... \n")
+    elif isinstance(env.action_space, Discrete) or isinstance(env.action_space, MultiDiscrete):
+        logging.info(f"Converting expert actions into discretized format... \n")
         disc_expert_actions = torch.zeros_like(expert_actions)
 
         if dynamics_model == 'delta_local':
@@ -82,7 +80,7 @@ def generate_state_action_pairs(
             disc_expert_actions[:, :, :, 2], _ = map_to_closest_discrete_value(
                 grid=env.dyaw, cont_actions=expert_actions[:, :, :, 2]
             )
-        else:
+        elif dynamics_model == 'classic' or dynamics_model == 'bicycle':
             # Acceleration
             disc_expert_actions[:, :, :, 0], _ = map_to_closest_discrete_value(
                 grid=env.accel_actions, cont_actions=expert_actions[:, :, :, 0]
@@ -91,9 +89,12 @@ def generate_state_action_pairs(
             disc_expert_actions[:, :, :, 1], _ = map_to_closest_discrete_value(
                 grid=env.steer_actions, cont_actions=expert_actions[:, :, :, 1]
             )
-
+        else:
+            raise NotImplementedError(f"Unsupported dynamics model: {dynamics_model}")
         expert_actions = disc_expert_actions
-
+    else:
+        raise NotImplementedError(f"Unsupported action space: {type(env.action_space)}")
+    
     # Storage
     expert_observations_lst = []
     expert_actions_lst = []
@@ -177,7 +178,7 @@ def generate_state_action_pairs(
         else:
             for render in range(render_index[0], render_index[1]):
                 collision_status = "collided" if scene_collision[render] else "used"
-                path = os.path.join(save_path, f"world_{render}_{collision_status}_{action_type}.mp4")
+                path = os.path.join(save_path, f"{type(env).__name__}_world_{render}_{collision_status}.mp4")
                 imageio.mimwrite(path, np.array(frames[render]), fps=30)
 
     flat_expert_obs = torch.cat(expert_observations_lst, dim=0)
@@ -276,7 +277,7 @@ def generate_state_action_pairs(
             pass
 
         plt.tight_layout()
-        path = os.path.join(save_path, f"{action_type}_Action_{action_comb}_W{debug_world_idx}_V{debug_veh_idx}.jpg")
+        path = os.path.join(save_path, f"{type(env).__name__}_{action_comb}_W{debug_world_idx}_V{debug_veh_idx}.jpg")
         if not os.path.exists(save_path):
             print(f"Error: {save_path} does not exist.")
         else:
@@ -293,11 +294,14 @@ def generate_state_action_pairs(
 
 
 if __name__ == "__main__":
+    from pygpudrive.registration import make
+    from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
+    from pygpudrive.env.config import DynamicsModel, ActionSpace
     import argparse
+    
     def parse_args():
         parser = argparse.ArgumentParser('Select the dynamics model that you use')
         parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
-        parser.add_argument('--action-type', '-at', type=str, default='discrete', choices=['discrete', 'multi_discrete', 'continuous'],)
         parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
         args = parser.parse_args()
         return args
@@ -312,9 +316,7 @@ if __name__ == "__main__":
     goal_rates = []
     collision_rates = []
 
-    # Set the environment and render configurations
-    # Action space (joint discrete)
-
+    # Set configurations
     render_config = RenderConfig(draw_obj_idx=True)
     scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train/", NUM_WORLDS)
     env_config = EnvConfig(
@@ -335,16 +337,17 @@ if __name__ == "__main__":
             torch.linspace(-1.0, 1.0, 20), decimals=3
         ),
     )
+    
+    kwargs={
+        "config": env_config,
+        "scene_config": scene_config,
+        "max_cont_agents": MAX_NUM_OBJECTS,
+        "device": args.device,
+        "render_config": render_config,
+        "num_stack": 3,
+    }
 
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=MAX_NUM_OBJECTS,  # Number of agents to control
-        action_type=args.action_type,
-        device=args.device,
-        render_config=render_config,
-        num_stack=3,
-    )
+    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_id=ActionSpace.DISCRETE, kwargs=kwargs)
 
     # Generate expert actions and observations
     (

@@ -192,24 +192,6 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             self.sim, self.render_config, self.config.dist_to_goal_threshold
         )
 
-    def _setup_action_space(self, action_type):
-        """Sets up the action space based on the specified type.
-
-        Args:
-            action_type (str): Type of action space to set up.
-
-        Raises:
-            ValueError: If the specified action type is not supported.
-        """
-        if action_type == "discrete":
-            self.action_space = self._set_discrete_action_space()
-        elif action_type == "multi_discrete":
-            self.action_space = self._set_multi_discrete_action_space()
-        elif action_type == "continuous":
-            self.action_space = self._set_continuous_action_space()
-        else:
-            raise ValueError(f"Action space not supported: {action_type}")
-
     def _set_collision_behavior(self, params):
         """Defines the behavior when a collision occurs.
 

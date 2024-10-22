@@ -11,6 +11,9 @@ from stable_baselines3.common.vec_env.base_vec_env import (
 
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
 
+from pygpudrive.registration import make
+from pygpudrive.env.config import DynamicsModel, ActionSpace
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -29,13 +32,15 @@ class SB3MultiAgentEnv(VecEnv):
         max_cont_agents,
         device,
         render_mode="rgb_array",
-    ):
-        self._env = GPUDriveTorchEnv(
-            config=config,
-            scene_config=scene_config,
-            max_cont_agents=max_cont_agents,
-            device=device,
-        )
+    ):  
+        kwargs={
+            "config": config,
+            "scene_config": scene_config,
+            "max_cont_agents": max_cont_agents,
+            "device": device,
+        }
+        self._env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_id=ActionSpace.DISCRETE, kwargs=kwargs)
+
         self.config = config
         self.num_worlds = self._env.num_worlds
         self.max_agent_count = self._env.max_agent_count
