@@ -539,7 +539,9 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
     def step_dynamics(self, actions, use_indices=True):
         if actions is not None:
             if use_indices:
-                actions = actions.squeeze(dim=2).long().to(self.device) if actions.dim() == 3 else actions.long().to(self.device)
+                actions = (
+                    torch.nan_to_num(actions, nan=0).long().to(self.device)
+                )
                 action_value_tensor = self.action_keys_tensor[actions]
             else:
                 action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
@@ -618,7 +620,9 @@ class GPUDriveMultiDiscreteEnv(GPUDriveTorchEnv):
     def step_dynamics(self, actions, use_indices=True):
         if actions is not None:
             if use_indices:
-                actions = actions.squeeze(dim=3).long().to(self.device) if actions.dim() == 4 else actions.long().to(self.device)
+                actions = (
+                    torch.nan_to_num(actions, nan=0).long().to(self.device)
+                )
                 action_value_tensor = self.action_keys_tensor[actions[...,0], actions[...,1], actions[...,2]]
             else:
                 action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)

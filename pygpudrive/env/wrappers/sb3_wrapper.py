@@ -85,7 +85,24 @@ class SB3MultiAgentEnv(VecEnv):
         self._seeds = None
 
     def _set_action_tensor(self, action_type, dynamics_model):
-        pass
+        if action_type == 'discrete':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count)
+            ).to(self.device)
+        elif action_type == 'continuous' and dynamics_model == 'bicycle':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count, 2)
+            ).to(self.device)
+        elif action_type == 'continuous' and dynamics_model == 'delta_local':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count, 3)
+            ).to(self.device)
+        elif action_type == 'multi_discrete' and dynamics_model == 'delta_local':
+            self.actions_tensor = torch.zeros(
+                (self.num_worlds, self.max_agent_count, 3)
+            ).to(self.device)
+        else:
+            raise NotImplementedError(f"Set action_tensors error: ({action_type}, {dynamics_model}) pairs are not supported.")
     
     def reset(self, world_idx=None, seed=None):
         """Reset environment and return initial observations.

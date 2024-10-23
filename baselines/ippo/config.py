@@ -13,9 +13,9 @@ class ExperimentConfig:
     data_dir: str = "/data/formatted_json_v2_no_tl_train/" #todo: to be changed
 
     # NUM PARALLEL ENVIRONMENTS & DEVICE
-    num_worlds: int = 1 # Number of parallel environments
+    num_worlds: int = 50 # Number of parallel environments
     # How to select scenes from the dataset
-    selection_discipline = SelectionDiscipline.K_UNIQUE_N  # K_UNIQUE_N / PAD_N
+    selection_discipline = SelectionDiscipline.PAD_N  # K_UNIQUE_N / PAD_N
     k_unique_scenes: int = 3
     device: str = "cuda"  # or "cpu"
 
