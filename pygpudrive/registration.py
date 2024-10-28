@@ -1,11 +1,11 @@
 from pygpudrive.env.config import DynamicsModel, ActionSpace
 from pygpudrive.env.env_torch import GPUDriveDiscreteEnv, GPUDriveMultiDiscreteEnv, GPUDriveContinuousEnv
 
-def make(dynamics_id=None, action_id=None, kwargs=None) -> None:
+def make(dynamics_id=None, action_space=None, kwargs=None) -> None:
     """Creates a environment with dynamics model and action space specified."""
     match dynamics_id:
         case DynamicsModel.CLASSIC:
-            match action_id:
+            match action_space:
                 case ActionSpace.DISCRETE:
                     pass
                 case ActionSpace.MULTI_DISCRETE:
@@ -16,7 +16,7 @@ def make(dynamics_id=None, action_id=None, kwargs=None) -> None:
                     raise NotImplementedError
             pass
         case DynamicsModel.BICYCLE:
-            match action_id:
+            match action_space:
                 case ActionSpace.DISCRETE:
                     pass
                 case ActionSpace.MULTI_DISCRETE:
@@ -26,7 +26,7 @@ def make(dynamics_id=None, action_id=None, kwargs=None) -> None:
                 case _:
                     raise NotImplementedError
         case DynamicsModel.DELTA_LOCAL:
-            match action_id:
+            match action_space:
                 case ActionSpace.DISCRETE:
                     return GPUDriveDiscreteEnv(**kwargs)
                 case ActionSpace.MULTI_DISCRETE:
@@ -36,7 +36,7 @@ def make(dynamics_id=None, action_id=None, kwargs=None) -> None:
                 case _:
                     raise NotImplementedError
         case DynamicsModel.STATE:
-            match action_id:
+            match action_space:
                 case ActionSpace.DISCRETE:
                     pass
                 case ActionSpace.MULTI_DISCRETE:

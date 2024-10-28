@@ -42,7 +42,7 @@ class SB3MultiAgentEnv(VecEnv):
             "max_cont_agents": max_cont_agents,
             "device": device,
         }
-        self._env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_id=ActionSpace.DISCRETE, kwargs=kwargs)
+        self._env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.DISCRETE, kwargs=kwargs)
 
         self.config = config
         self.exp_config = exp_config

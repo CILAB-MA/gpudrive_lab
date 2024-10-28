@@ -14,7 +14,7 @@ sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from datetime import datetime
 import numpy  as np
-
+import pyrallis
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
@@ -22,17 +22,19 @@ from pygpudrive.env.wrappers.sb3_wrapper import SB3MultiAgentEnv
 from algorithms.il.data_generation import generate_state_action_pairs
 from baselines.il.config import BehavCloningConfig
 from algorithms.il.model.bc import *
-
+from baselines.ippo.config import ExperimentConfig
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--model-name', '-m', type=str, default='bc_policy')
-    parser.add_argument('--action-scale', '-as', type=int, default=100)
-    parser.add_argument('--num-stack', '-s', type=int, default=5)
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['late_fusion', 
+                                                                                      'bc'])
+    parser.add_argument('--action-scale', '-as', type=int, default=50)
+    parser.add_argument('--num-stack', '-s', type=int, default=1)
     parser.add_argument('--data-path', '-dp', type=str, default='/data')
-    parser.add_argument('--data-file', '-df', type=str, default='train_trajectories_1000.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='new_train_trajectory_1000.npz')
+    parser.add_argument('--eval-data-file', '-ed', type=str, default='eval_trajectory_200.npz')
     args = parser.parse_args()
     return args
 logger = logging.getLogger(__name__)
@@ -63,13 +65,20 @@ if __name__ == "__main__":
     bc_config = BehavCloningConfig()
 
     # Get state action pairs
-    expert_obs, expert_actions = [], []
-    with np.load(os.path.join(args.data_path, args.data_file)) as npz:
-        expert_obs.append(npz['obs'])
-        expert_actions.append(npz['actions'])
-    expert_obs = np.concatenate(expert_obs)
-    expert_actions = np.concatenate(expert_actions)
-    print(f'OBS SHAPE {expert_obs.shape} ACTIONS SHAPE {expert_actions.shape}')
+    train_expert_obs, train_expert_actions = [], []
+    eval_expert_obs, eval_expert_actions = [], []
+    
+    with np.load(os.path.join(args.data_path, args.train_data_file)) as npz:
+        train_expert_obs.append(npz['obs'])
+        train_expert_actions.append(npz['actions'])
+    with np.load(os.path.join(args.data_path, args.eval_data_file)) as npz:
+        eval_expert_obs.append(npz['obs'])
+        eval_expert_actions.append(npz['actions'])
+
+    train_expert_obs = np.concatenate(train_expert_obs)
+    train_expert_actions = np.concatenate(train_expert_actions)
+    eval_expert_obs = np.concatenate(eval_expert_obs)
+    eval_expert_actions = np.concatenate(eval_expert_actions)
 
     class ExpertDataset(torch.utils.data.Dataset):
         def __init__(self, obs, actions):
@@ -83,20 +92,31 @@ if __name__ == "__main__":
             return self.obs[idx], self.actions[idx]
 
     # Make dataloader
-    expert_dataset = ExpertDataset(expert_obs, expert_actions)
+    expert_dataset = ExpertDataset(train_expert_obs, train_expert_actions)
     expert_data_loader = DataLoader(
         expert_dataset,
         batch_size=bc_config.batch_size,
         shuffle=True,  # Break temporal structure
     )
-
-    # # Build model
-    bc_policy = ContFeedForwardMSE(
-        input_size=expert_obs.shape[-1],
-        hidden_size=bc_config.hidden_size,
-        output_size=3,
+    eval_expert_dataset = ExpertDataset(eval_expert_obs, eval_expert_actions)
+    eval_expert_data_loader = DataLoader(
+        eval_expert_dataset,
+        batch_size=bc_config.batch_size,
+        shuffle=False,  # Break temporal structure
+    )
+    # Build Model #todo: 변수명으로 모델 바꿀 수 있도록
+    
+    # bc_policy = ContFeedForwardMSE(
+    #     input_size=train_expert_obs.shape[-1],
+    #     hidden_size=bc_config.hidden_size,
+    #     output_size=3,
+    # ).to(args.device)
+    exp_config = pyrallis.parse(config_class=ExperimentConfig)
+    bc_policy = LateFusionBCNet(
+        observation_space=None,
+        exp_config=exp_config,
+        env_config=env_config
     ).to(args.device)
-
     # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=bc_config.lr)
 
@@ -113,18 +133,20 @@ if __name__ == "__main__":
         id=run_id,
         group=f"{env_config.dynamics_model}_{args.action_type}",
         config={**bc_config.__dict__, **env_config.__dict__},
+        tags=[args.model_name, args.action_type, env_config.dynamics_model]
     )
     
     wandb.config.update({
         'lr': bc_config.lr,
         'batch_size': bc_config.batch_size,
         'num_stack': args.num_stack,
-        'num_scene': expert_actions.shape[0],
+        'num_scene': train_expert_actions.shape[0],
         'num_vehicle': 128
     })
     
     global_step = 0
     for epoch in range(bc_config.epochs):
+        bc_policy.train()
         for i, (obs, expert_action) in enumerate(expert_data_loader):
 
             obs, expert_action = obs.to(args.device), expert_action.to(
@@ -136,7 +158,7 @@ if __name__ == "__main__":
             # mu, vars, mixed_weights = bc_policy(obs)
             # log_prob = bc_policy._log_prob(obs, expert_action)
             # loss = -log_prob
-            loss = F.smooth_l1_loss(pred_action, expert_action * args.action_scale)
+            loss = F.mse_loss(pred_action, expert_action * args.action_scale)
             # loss = gmm_loss(mu, vars, mixed_weights, expert_actions)
             # Backward pass
             with torch.no_grad():
@@ -152,15 +174,32 @@ if __name__ == "__main__":
 
             wandb.log(
                 {
-                    "global_step": global_step,
-                    "loss": loss.item(),
-                    "dx_loss":dx_loss,
-                    "dy_loss":dy_loss,
-                    "dyaw_loss":dyaw_loss,
+                    "train/loss": loss.item() / args.action_scale,
+                    "train/dx_loss":dx_loss,
+                    "train/dy_loss":dy_loss,
+                    "train/dyaw_loss":dyaw_loss,
                 }
             )
 
-            global_step += 1
+        bc_policy.eval()
+        for i, (obs, expert_action) in enumerate(eval_expert_data_loader):
+            obs, expert_action = obs.to(args.device), expert_action.to(
+                args.device
+            )
+            with torch.no_grad():
+                pred_action = bc_policy(obs)
+                action_loss = torch.abs(pred_action - expert_action * args.action_scale) / args.action_scale
+                dx_loss = action_loss[:, 0].mean().item()
+                dy_loss = action_loss[:, 1].mean().item()
+                dyaw_loss = action_loss[:, 2].mean().item()
+
+            wandb.log(
+                {
+                    "eval/loss": loss.item() / args.action_scale,
+                    "eval/dx_loss":dx_loss,
+                    "eval/dy_loss":dy_loss,
+                    "eval/dyaw_loss":dyaw_loss,
+                })
 
     # Save policy
     if bc_config.save_model:
