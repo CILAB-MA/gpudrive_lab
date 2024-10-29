@@ -99,12 +99,14 @@ def save_trajectory(env):
 
 if __name__ == "__main__":
     import argparse
+    from pygpudrive.registration import make
+    from pygpudrive.env.config import DynamicsModel, ActionSpace
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--save-path', '-sp', type=str, default='/data/train_trajectory_npz')
     parser.add_argument('--num_worlds', type=int, default=400)
     parser.add_argument('--start_idx', type=int, default=0)
+    parser.add_argument('--save_path', type=str, default='/data/train_trajectory_npz')
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     args = parser.parse_args()
 
@@ -127,18 +129,18 @@ if __name__ == "__main__":
     )
 
     # Initialize environment
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        scene_config=scene_config,
-        max_cont_agents=MAX_NUM_OBJECTS,
-        device=args.device,
-        action_type="continuous",
-        num_stack=5
-    )
+    kwargs={
+        "config": env_config,
+        "scene_config": scene_config,
+        "max_cont_agents": MAX_NUM_OBJECTS,
+        "device": args.device,
+        "num_stack": 5
+    }
+    
+    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
 
     # Generate expert actions and observations
     expert_obs, expert_actions = save_trajectory(env)
-    
     # Save the expert observations and actions by mpz file
     np.savez_compressed(os.path.join(args.save_path, 
                         f"scene_{args.start_idx + NUM_WORLDS}_trajectory.npz"), 

@@ -125,7 +125,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             raise ValueError(
                 f"Invalid dynamics model: {self.config.dynamics_model}"
             )
-
+    def get_ids(self):
+        return self.ego_id.clone(), self.partner_id.clone()
+    
     def get_obs(self, reset=False):
         """Get observation: Combine different types of environment information into a single tensor.
 
@@ -139,6 +141,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 self.sim.self_observation_tensor().to_torch()
             )
             # Omit vehicle ids (last feature)
+            self.ego_id = ego_states_unprocessed[:, :, -1]
             ego_states_unprocessed = ego_states_unprocessed[:, :, :-1]
 
             # Normalize
@@ -155,6 +158,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 self.sim.partner_observations_tensor().to_torch()
             )
             # Omit vehicle ids (last feature)
+            self.partner_id = partner_observations[:, :, :, -1]
             partner_observations = partner_observations[:, :, :, :-1]
             if self.config.norm_obs:  # Normalize observations and then flatten
                 partner_observations = self.normalize_and_flatten_partner_obs(
@@ -253,7 +257,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         """Get expert actions for the full trajectories across worlds."""
 
         expert_traj = self.sim.expert_trajectory_tensor().to_torch()
-
         # Global positions
         positions = expert_traj[:, :, : 2 * self.episode_len].view(
             self.num_worlds, self.max_agent_count, self.episode_len, -1
@@ -342,8 +345,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Relative position
 
         # Sort by distance
-        relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
-        sorted_indices = torch.argsort(relative_distance, dim=2)
+        # relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
+        # sorted_indices = torch.argsort(relative_distance, dim=2)
+
         # print(f'Relative Distance {relative_distance}')
         obs[:, :, :, 1] = self.normalize_tensor(
             obs[:, :, :, 1],
@@ -363,7 +367,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs[:, :, :, 4] /= constants.MAX_VEH_LEN
         obs[:, :, :, 5] /= constants.MAX_VEH_WIDTH
 
-        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
+        # obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
 
         # One-hot encode the type of the other visible objects
         one_hot_encoded_object_types = self.one_hot_encode_object_type(
@@ -698,7 +702,7 @@ if __name__ == "__main__":
     # CONFIGURE
     TOTAL_STEPS = 90
     MAX_CONTROLLED_AGENTS = 128
-    NUM_WORLDS = 10
+    NUM_WORLDS = 1
 
     env_config = EnvConfig(dynamics_model="delta_local")
     render_config = RenderConfig()
@@ -713,7 +717,7 @@ if __name__ == "__main__":
         "render_config": render_config
     }
     
-    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_id=ActionSpace.CONTINUOUS, kwargs=kwargs)
+    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
     
     # RUN
     obs = env.reset()
@@ -733,7 +737,7 @@ if __name__ == "__main__":
                 ]
             ]
         ).reshape(NUM_WORLDS, env_config.max_num_agents_in_scene, -1)
-
+        env.get_expert_actions()
         # Step the environment
         env.step_dynamics(rand_action)
 
