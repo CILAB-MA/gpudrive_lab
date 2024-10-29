@@ -155,7 +155,7 @@ class SceneConfig:
     num_scenes: int
     discipline: SelectionDiscipline = SelectionDiscipline.PAD_N
     k_unique_scenes: Optional[int] = None
-    start_idx: Optional[int] = 0
+    start_idx: Optional[int] = None
     seed: Optional[int] = None
 
 

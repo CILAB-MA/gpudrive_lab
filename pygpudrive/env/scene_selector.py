@@ -51,6 +51,10 @@ def select_scenes(config):
                 random_sample(config.k_unique_scenes)
             )
         case SelectionDiscipline.RANGE_N:
+            assert (
+                config.num_scenes == len(all_scenes) or config.start_idx is not None,
+                "RANGE_N discipline requires num_scenes to be equal to the number of scenes in the dataset",
+            )
             selected_scenes = all_scenes[config.start_idx : config.start_idx + config.num_scenes]
     if (
         not any(scene.startswith("tfrecord") for scene in selected_scenes)
