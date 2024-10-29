@@ -508,32 +508,14 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
                 f"Invalid dynamics model: {self.config.dynamics_model}"
             )
 
-        # Create a mapping from action indices to action values
-        self.action_key_to_values = {}
-        self.values_to_action_key = {}
         if products is not None:
-            for action_idx, (action_1, action_2, action_3) in enumerate(
-                products
-            ):
-                self.action_key_to_values[action_idx] = [
-                    action_1.item(),
-                    action_2.item(),
-                    action_3.item(),
-                ]
-                self.values_to_action_key[
-                    round(action_1.item(), 3),
-                    round(action_2.item(), 3),
-                    round(action_3.item(), 3),
-                ] = action_idx
+            action_keys_tensor_list = []
+            for action_1, action_2, action_3 in products:
+                action_keys_tensor_list.append([action_1.item(), action_2.item(), action_3.item()])
 
-            self.action_keys_tensor = torch.tensor(
-                [
-                    self.action_key_to_values[key]
-                    for key in sorted(self.action_key_to_values.keys())
-                ]
-            ).to(self.device)
+            self.action_keys_tensor = torch.tensor(action_keys_tensor_list).to(self.device)
 
-            return Discrete(n=int(len(self.action_key_to_values)))
+            return Discrete(n=int(len(action_keys_tensor_list)))
         else:
             return Discrete(n=1)
 
@@ -598,22 +580,10 @@ class GPUDriveMultiDiscreteEnv(GPUDriveTorchEnv):
             action_range = [len(self.accel_actions), len(self.steer_actions), len(self.head_actions)]
 
         # Create a mapping from action indices to action values
-        self.action_key_to_values = {}
-        self.values_to_action_key = {}
         self.action_keys_tensor = torch.zeros(*action_range, 3).to(self.device)
 
         for action_idx, (action_1, action_2, action_3) in zip(action_indices, action_values):
             action_idx = tuple(action_idx)
-            self.action_key_to_values[action_idx] = [
-                action_1.item(),
-                action_2.item(),
-                action_3.item(),
-            ]
-            self.values_to_action_key[
-                round(action_1.item(), 3),
-                round(action_2.item(), 3),
-                round(action_3.item(), 3),
-            ] = action_idx
             self.action_keys_tensor[action_idx] = torch.tensor([action_1, action_2, action_3])
 
         return MultiDiscrete(nvec=action_range)
@@ -716,7 +686,7 @@ if __name__ == "__main__":
         "render_config": render_config
     }
     
-    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_id=ActionSpace.CONTINUOUS, kwargs=kwargs)
+    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_id=ActionSpace.DISCRETE, kwargs=kwargs)
     
     # RUN
     obs = env.reset()
