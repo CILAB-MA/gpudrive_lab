@@ -7,8 +7,10 @@ import copy
 import gpudrive
 import imageio
 from itertools import product
+import os
+import pickle
 
-from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
+from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig, SelectionDiscipline
 from pygpudrive.env.base_env import GPUDriveGymEnv
 from pygpudrive.env import constants
 
@@ -474,6 +476,9 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
             num_stack=num_stack,
             render_config=render_config,
         )
+        
+        if self.config.effective_action_space:
+            self._set_effective_action_space()
 
         self.action_space = self._set_discrete_action_space()
 
@@ -482,10 +487,17 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
         products = None
 
         if self.config.dynamics_model == "delta_local":
-            self.dx = self.config.dx.to(self.device)
-            self.dy = self.config.dy.to(self.device)
-            self.dyaw = self.config.dyaw.to(self.device)
-            products = product(self.dx, self.dy, self.dyaw)
+            if self.config.effective_action_space:
+                self.dxs = self.config.dxs.to(self.device)
+                self.dys = self.config.dys.to(self.device)
+                self.dyaws = self.config.dyaws.to(self.device)
+                products = [product(dx, dy, dyaw) for dx, dy, dyaw in zip(self.dxs, self.dys, self.dyaws)]
+            else:
+                self.dx = self.config.dx.to(self.device)
+                self.dy = self.config.dy.to(self.device)
+                self.dyaw = self.config.dyaw.to(self.device)
+                products = product(self.dx, self.dy, self.dyaw)
+            
         elif (
             self.config.dynamics_model == "classic"
             or self.config.dynamics_model == "bicycle"
@@ -509,13 +521,19 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
             )
 
         if products is not None:
-            action_keys_tensor_list = []
-            for action_1, action_2, action_3 in products:
-                action_keys_tensor_list.append([action_1.item(), action_2.item(), action_3.item()])
+            if self.config.effective_action_space:
+                action_keys_tensor_list = []
+                for _product in products:
+                    action_keys_tensor_list.append(torch.tensor(list(_product)))
+                self.action_keys_tensor = torch.stack(action_keys_tensor_list).to(self.device)
+            else:
+                action_keys_tensor_list = []
+                for action_1, action_2, action_3 in products:
+                    action_keys_tensor_list.append([action_1.item(), action_2.item(), action_3.item()])
 
-            self.action_keys_tensor = torch.tensor(action_keys_tensor_list).to(self.device)
+                self.action_keys_tensor = torch.tensor(action_keys_tensor_list).to(self.device)
 
-            return Discrete(n=int(len(action_keys_tensor_list)))
+            return Discrete(n=len(action_keys_tensor_list[0]) if self.config.effective_action_space else len(action_keys_tensor_list))
         else:
             return Discrete(n=1)
 
@@ -525,7 +543,13 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
                 actions = (
                     torch.nan_to_num(actions, nan=0).long().to(self.device)
                 )
-                action_value_tensor = self.action_keys_tensor[actions]
+                if self.config.effective_action_space:
+                    action_value_by_scene = []
+                    for i in range(actions.shape[0]):
+                        action_value_by_scene.append(self.action_keys_tensor[i][actions[i].squeeze()])
+                    action_value_tensor = torch.stack(action_value_by_scene).to(self.device)
+                else:
+                    action_value_tensor = self.action_keys_tensor[actions]
             else:
                 action_value_tensor = torch.nan_to_num(actions, nan=0).float().to(self.device)
 
@@ -533,6 +557,61 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
             self._copy_actions_to_simulator(action_value_tensor)
 
         self.sim.step()
+
+    def _set_effective_action_space(self) -> None:
+        """Set the effective action space based on expert demonstrations."""
+        num_scenes = self.scene_config.num_scenes
+        discipline = self.scene_config.discipline
+
+        if discipline == SelectionDiscipline.RANGE_N:
+            idx = self.scene_config.start_idx
+            
+            expert_list = os.listdir(self.config.effective_scene_path)
+            expert_list = sorted(expert_list, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+            
+            dxs = []
+            dys = []
+            dyaws = []
+            
+            for file_idx in range(idx, idx + num_scenes):
+                for j, expert_file in enumerate(expert_list):
+                    first_idx = int(expert_list[j].split('_')[-1].split('.')[0])
+                    second_idx = int(expert_list[j + 1].split('_')[-1].split('.')[0])
+                    
+                    if first_idx <= file_idx < second_idx:
+                        with open(os.path.join(self.config.effective_scene_path, expert_file), 'rb') as f:
+                            expert_data = pickle.load(f)
+                            expert_actions = expert_data[file_idx - first_idx]
+                            means = expert_actions.mean(dim=0).tolist()
+                            stds = expert_actions.std(dim=0).tolist()
+                            dxs.append(torch.round(
+                                torch.linspace(
+                                    means[0] - self.config.std_factor * stds[0],
+                                    means[0] + self.config.std_factor * stds[0],
+                                    20),
+                                decimals=3))
+                            dys.append(torch.round(
+                                torch.linspace(
+                                    means[1] - self.config.std_factor * stds[1],
+                                    means[1] + self.config.std_factor * stds[1],
+                                    20),
+                                decimals=3))
+                            dyaws.append(torch.round(
+                                torch.linspace(
+                                    means[2] - self.config.std_factor * stds[2],
+                                    means[2] + self.config.std_factor * stds[2],
+                                    20),
+                                decimals=3))
+                        break
+                    
+            self.config.dxs = torch.stack(dxs)
+            self.config.dys = torch.stack(dys)
+            self.config.dyaws = torch.stack(dyaws)
+            
+        else:
+            raise ValueError(
+                f"Only support RANGE_N discipline, got {discipline}"
+            )
 
 
 class GPUDriveMultiDiscreteEnv(GPUDriveTorchEnv):
@@ -673,9 +752,15 @@ if __name__ == "__main__":
     MAX_CONTROLLED_AGENTS = 128
     NUM_WORLDS = 10
 
-    env_config = EnvConfig(dynamics_model="delta_local")
+    env_config = EnvConfig(dynamics_model="delta_local",
+                           effective_action_space=True,
+                           effective_scene_path="/data/train_actions_pickles",
+                           std_factor=1.0)
     render_config = RenderConfig()
-    scene_config = SceneConfig("data/processed/examples", NUM_WORLDS)
+    scene_config = SceneConfig("/data/formatted_json_v2_no_tl_train", 
+                               NUM_WORLDS, 
+                               start_idx=95, 
+                               discipline=SelectionDiscipline.RANGE_N)
 
     # MAKE ENVIRONMENT
     kwargs = {
