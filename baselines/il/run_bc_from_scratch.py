@@ -216,6 +216,7 @@ if __name__ == "__main__":
             expert_action[:, 0] = (expert_action[:, 0]  + 6) / 12
             expert_action[:, 1] = (expert_action[:, 1]  + 6) / 12
             expert_action[:, 2] = (expert_action[:, 2]  + np.pi) / (2 * np.pi)
+
             with torch.no_grad():
                 pred_action = bc_policy(obs)
                 action_loss = torch.abs(pred_action - expert_action * args.action_scale) / args.action_scale

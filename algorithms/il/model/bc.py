@@ -155,6 +155,7 @@ class LateFusionBCNet(LateFusionNet):
         self.dyaw_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
+
             net_arch=self.arch_shared_net,
         )
     def _unpack_obs(self, obs_flat, num_stack=1):
@@ -251,5 +252,3 @@ if __name__ == "__main__":
     for _ in range(5):
         env.step_dynamics(actions, use_indices=False)
 
-
-    
