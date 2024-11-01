@@ -42,13 +42,17 @@ class ContFeedForward(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(ContFeedForward, self).__init__()
         self.nn = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
+            nn.Linear(input_size, hidden_size[0]),
             nn.Tanh(),
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(hidden_size[0], hidden_size[0]),
+            nn.Tanh(),
+            nn.Linear(hidden_size[0], hidden_size[1]),
+            nn.Tanh(),
+            nn.Linear(hidden_size[1], hidden_size[1]),
             nn.Tanh(),
         )
         self.log_std = nn.Parameter(torch.zeros(3))
-        self.heads = nn.ModuleList([nn.Linear(hidden_size, output_size)])
+        self.heads = nn.ModuleList([nn.Linear(hidden_size[1], output_size)])
 
 
     def dist(self, obs):
@@ -67,9 +71,12 @@ class ContFeedForward(nn.Module):
 
     def _log_prob(self, obs, expert_actions):
         pred_action_dist = self.dist(obs)
-        log_prob = torch.cat([dist.log_prob(expert_actions) for dist in pred_action_dist], dim=-1).mean()
+        log_prob = torch.cat([dist.log_prob(expert_actions) for dist in pred_action_dist], dim=-1)
         return log_prob
 
+    def get_std(self):
+        return self.log_std
+    
 # Define network
 class ContFeedForwardMSE(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
@@ -84,13 +91,18 @@ class ContFeedForwardMSE(nn.Module):
             nn.Linear(hidden_size[1], hidden_size[1]),
             nn.Tanh(),
         )
-        self.heads = nn.Linear(hidden_size[1], 3)
+        self.dx_heads = nn.Linear(hidden_size[1], 1)
+        self.dy_heads = nn.Linear(hidden_size[1], 1)
+        self.dyaw_heads = nn.Linear(hidden_size[1], 1)
 
 
     def forward(self, obs, deterministic=False):
         """Generate an output from tensor input."""
         nn = self.nn(obs)
-        actions = self.heads(nn)
+        dx = self.dx_heads(nn)
+        dy = self.dy_heads(nn)
+        dyaw = self.dyaw_heads(nn)
+        actions = torch.cat([dx, dy, dyaw], dim=-1)
         return actions
 
 class LateFusionBCNet(LateFusionNet):
@@ -128,9 +140,22 @@ class LateFusionBCNet(LateFusionNet):
             net_arch=self.arch_road_graph,
         )
 
-        self.action_head = self._build_out_network(
+        self.dx_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
-            output_dim=3,
+            output_dim=1,
+            net_arch=self.arch_shared_net,
+        )
+
+        self.dy_head = self._build_out_network(
+            input_dim=self.shared_net_input_dim,
+            output_dim=1,
+            net_arch=self.arch_shared_net,
+        )
+
+        self.dyaw_head = self._build_out_network(
+            input_dim=self.shared_net_input_dim,
+            output_dim=1,
+
             net_arch=self.arch_shared_net,
         )
     def _unpack_obs(self, obs_flat, num_stack=1):
@@ -139,34 +164,35 @@ class LateFusionBCNet(LateFusionNet):
         Args:
             obs_flat (torch.Tensor): flattened observation tensor of shape (batch_size, obs_dim)
         Return:
-            ego_state, road_objects, stop_signs, road_graph (torch.Tensor).
+            ego_staye, road_objects, stop_signs, road_graph (torch.Tensor).
+            ego_stayawe, road_objects, stop_signs, road_graph (torch.Tensor).
+            ego_state, rodx, dy, dyawobjects, stop_signs, road_graph (torch.Tensor).
         """
+        ego_size = self.ego_input_dim
+        ro_size = self.ro_input_dim * self.ro_max
+        rg_size = self.rg_input_dim * self.rg_max
+        obs_flat_unstack = obs_flat.reshape(-1, num_stack,  ego_size + ro_size + rg_size)
+        ego_stack = obs_flat_unstack[..., :ego_size].view(-1, num_stack, self.ego_input_dim).reshape(-1, num_stack * self.ego_input_dim)
+        ro_stack = (
+            obs_flat_unstack[..., ego_size:ego_size + ro_size]
+            .view(-1, num_stack, self.ro_max, self.ro_input_dim)
+            .permute(0, 2, 1, 3)  # Reorder to (batch, ro_max, num_stack, ro_input_dim)
+            .reshape(-1, self.ro_max, num_stack * self.ro_input_dim)
+         )
 
-        # Unpack ego and visible state
-        ego_state = obs_flat[:, :num_stack * self.ego_input_dim]
-        vis_state = obs_flat[:, num_stack * self.ego_input_dim :]
-
-        # Visible state object order: road_objects, road_points
-        # Find the ends of each section
-        ro_end_idx = num_stack * self.ro_input_dim * self.ro_max
-        rg_end_idx = ro_end_idx + (num_stack * self.rg_input_dim * self.rg_max)
-
-        # Unflatten and reshape to (batch_size, num_objects, object_dim)
-        road_objects = (vis_state[:, :ro_end_idx]).reshape(
-            -1, self.ro_max, self.ro_input_dim * num_stack
+        # rg_stack: Original reshape, then combine num_stack and self.rg_input_dim dimensions
+        rg_stack = (
+            obs_flat_unstack[..., ego_size + ro_size: ego_size + ro_size + rg_size]
+            .view(-1, num_stack, self.rg_max, self.rg_input_dim)
+            .permute(0, 2, 1, 3)  # Reorder to (batch, rg_max, num_stack, rg_input_dim)
+            .reshape(-1, self.rg_max, num_stack * self.rg_input_dim)
         )
-        road_graph = (vis_state[:, ro_end_idx:rg_end_idx]).reshape(
-            -1,
-            self.rg_max,
-            self.rg_input_dim * num_stack,
-        )
 
-        return ego_state, road_objects, road_graph
+        return ego_stack, ro_stack, rg_stack
 
     def forward(self, obss):
         # Unpack observation
         ego_state, road_objects, road_graph = self._unpack_obs(obss, num_stack=5)
-
         # Embed features
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
@@ -181,6 +207,48 @@ class LateFusionBCNet(LateFusionNet):
             road_graph.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
-        out = self.action_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
-        return out
+        dx = self.dx_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
+        dy = self.dy_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
+        dyaw = self.dyaw_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
+        actions = torch.cat([dx, dy, dyaw], dim=-1)
+        return actions
+
+if __name__ == "__main__":
+    from pygpudrive.registration import make
+    from pygpudrive.env.config import DynamicsModel, ActionSpace
+    from baselines.ippo.config import ExperimentConfig
+    from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
+    import pyrallis
+    # CONFIGURE
+    TOTAL_STEPS = 90
+    MAX_CONTROLLED_AGENTS = 128
+    NUM_WORLDS = 1
+
+    env_config = EnvConfig(dynamics_model="delta_local")
+    render_config = RenderConfig()
+    scene_config = SceneConfig("data/processed/examples", NUM_WORLDS)
+
+    # MAKE ENVIRONMENT
+    kwargs = {
+        "config": env_config,
+        "scene_config": scene_config,
+        "max_cont_agents": MAX_CONTROLLED_AGENTS,
+        "device": "cuda", 
+        "num_stack": 5
+    }
     
+    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
+    obs = env.reset()
+    exp_config = pyrallis.parse(config_class=ExperimentConfig)
+    bc_policy = LateFusionBCNet(
+        observation_space=None,
+        exp_config=exp_config,
+        env_config=env_config
+    ).to("cuda")
+    actions = bc_policy(obs.squeeze(0))
+    dead_agent_mask = ~env.cont_agent_mask.clone()
+    actions = actions.unsqueeze(0)
+    print(actions.shape)
+    for _ in range(5):
+        env.step_dynamics(actions, use_indices=False)
+
