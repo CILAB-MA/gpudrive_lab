@@ -80,7 +80,7 @@ if __name__ == "__main__":
         # normalize
         all_actions[:, 0] = all_actions[:, 0] * 12 - 6
         all_actions[:, 1] = all_actions[:, 1] * 12 - 6
-        all_actions[:, 2] = all_actions[:, 2] * 2 * np.pi - np.pi
+        all_actions[:, 2] = all_actions[:, 2] * (2 * np.pi) - np.pi
         env.step_dynamics(all_actions)
         loss = (all_actions / args.action_scale - expert_actions[~dead_agent_mask][:, time_step, :])
         print(f'TIME {time_step} LOss: {loss}')
