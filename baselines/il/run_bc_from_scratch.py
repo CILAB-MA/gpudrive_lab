@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--model-name', '-m', type=str, default='late_fusion_l1', choices=['late_fusion_l1', 
-                                                                                      'bc_mse, bc_dist'])
+                                                                                      'bc_l1', 'bc_dist'])
     parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     parser.add_argument('--data-path', '-dp', type=str, default='/data')
@@ -196,7 +196,7 @@ if __name__ == "__main__":
         
         # Log training losses
         wandb.log(
-            {
+            {   
                 "train/loss": losses / (i + 1) / args.action_scale,
                 "train/dx_loss": dx_losses / (i + 1),
                 "train/dy_loss": dy_losses / (i + 1),
@@ -227,7 +227,7 @@ if __name__ == "__main__":
                 dy_losses += dy_loss
                 dyaw_losses += dyaw_loss
 
-            losses += loss.mean().item()
+            losses += action_loss.mean().item()
             
         # Log evaluation losses
         wandb.log(
