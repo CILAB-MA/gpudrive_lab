@@ -32,5 +32,5 @@ class BehavCloningConfig:
 
     # Save policy
     save_model: bool = True
-    model_path: str = "models/"
+    model_path: str = "/data/model"
     model_name: str = "bc_policy"

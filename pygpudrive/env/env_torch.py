@@ -217,7 +217,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.stacked_obs[..., :-obs_filtered.shape[-1]] = self.stacked_obs[..., obs_filtered.shape[-1]:]
 
         self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
-        self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
         return self.stacked_obs.clone()
 
     def get_controlled_agents_mask(self):

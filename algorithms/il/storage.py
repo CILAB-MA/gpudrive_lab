@@ -77,7 +77,7 @@ def save_trajectory(env):
         )
         
         # Step the environment with inferred expert actions
-        env.step_dynamics(expert_actions[:, :, time_step, :])
+        env.step_dynamics(expert_actions[:, :, time_step, :], use_indices=False)
         
         # check dead agent
         dones = env.get_dones().to('cpu')
