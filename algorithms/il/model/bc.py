@@ -1,6 +1,7 @@
 # Define network
 import torch.nn as nn
 import torch
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 from torch.distributions.categorical import Categorical
 from torch.distributions.normal import Normal
 import torch.nn.functional as F
@@ -155,7 +156,6 @@ class LateFusionBCNet(LateFusionNet):
         self.dyaw_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
-
             net_arch=self.arch_shared_net,
         )
     def _unpack_obs(self, obs_flat, num_stack=1):
@@ -189,7 +189,25 @@ class LateFusionBCNet(LateFusionNet):
         )
 
         return ego_stack, ro_stack, rg_stack
+    
+    def _build_out_network(
+        self, input_dim: int, output_dim: int, net_arch: List[int]
+    ):
+        """Create the output network architecture."""
+        layers = []
+        prev_dim = input_dim
+        for layer_dim in net_arch:
+            layers.append(nn.Linear(prev_dim, layer_dim))
+            layers.append(nn.LayerNorm(layer_dim))
+            layers.append(self.act_func)
+            layers.append(nn.Dropout(self.dropout))
+            prev_dim = layer_dim
 
+        # Add final layer
+        layers.append(nn.Linear(prev_dim, output_dim))
+
+        return nn.Sequential(*layers)
+    
     def forward(self, obss):
         # Unpack observation
         ego_state, road_objects, road_graph = self._unpack_obs(obss, num_stack=5)
@@ -213,6 +231,137 @@ class LateFusionBCNet(LateFusionNet):
         actions = torch.cat([dx, dy, dyaw], dim=-1)
         return actions
 
+class LateFusionAttnBCNet(LateFusionNet):
+
+    def __init__(self,  observation_space, env_config, exp_config,
+                 num_stack=5):
+        super(LateFusionAttnBCNet, self).__init__(observation_space, env_config, exp_config)
+        self.config = env_config
+        self.net_config = exp_config
+        self.ego_input_dim = constants.EGO_FEAT_DIM
+        self.ro_input_dim = constants.PARTNER_FEAT_DIM
+        self.rg_input_dim = constants.ROAD_GRAPH_FEAT_DIM
+        
+        self.ro_max = self.config.max_num_agents_in_scene-1
+        self.rg_max = self.config.roadgraph_top_k
+        self.arch_ego_state = self.net_config.ego_state_layers
+        self.arch_road_objects = self.net_config.road_object_layers
+        self.arch_road_graph = self.net_config.road_graph_layers
+        self.arch_shared_net = self.net_config.shared_layers
+        self.act_func = (
+            nn.Tanh() if self.net_config.act_func == "tanh" else nn.ReLU()
+        )
+        self.dropout = self.net_config.dropout
+
+        self.ego_state_net = self._build_network(
+            input_dim=self.ego_input_dim * num_stack,
+            net_arch=self.arch_ego_state,
+        )
+        self.road_object_net = self._build_network(
+            input_dim=self.ro_input_dim * num_stack,
+            net_arch=self.arch_road_objects,
+        )
+        self.ro_attn = nn.MultiheadAttention(self.arch_road_objects[-1], self.arch_road_objects[-1])
+        self.rg_net = self._build_network(
+            input_dim=self.rg_input_dim * num_stack,
+            net_arch=self.arch_road_graph,
+        )
+        self.rg_attn = nn.MultiheadAttention(self.arch_road_graph[-1], self.arch_road_graph[-1])
+        self.dx_head = self._build_out_network(
+            input_dim=self.shared_net_input_dim,
+            output_dim=1,
+            net_arch=self.arch_shared_net,
+        )
+
+        self.dy_head = self._build_out_network(
+            input_dim=self.shared_net_input_dim,
+            output_dim=1,
+            net_arch=self.arch_shared_net,
+        )
+
+        self.dyaw_head = self._build_out_network(
+            input_dim=self.shared_net_input_dim,
+            output_dim=1,
+            net_arch=self.arch_shared_net,
+        )
+    def _unpack_obs(self, obs_flat, num_stack=1):
+        """
+        Unpack the flattened observation into the ego state and visible state.
+        Args:
+            obs_flat (torch.Tensor): flattened observation tensor of shape (batch_size, obs_dim)
+        Return:
+            ego_staye, road_objects, stop_signs, road_graph (torch.Tensor).
+            ego_stayawe, road_objects, stop_signs, road_graph (torch.Tensor).
+            ego_state, rodx, dy, dyawobjects, stop_signs, road_graph (torch.Tensor).
+        """
+        ego_size = self.ego_input_dim
+        ro_size = self.ro_input_dim * self.ro_max
+        rg_size = self.rg_input_dim * self.rg_max
+        obs_flat_unstack = obs_flat.reshape(-1, num_stack,  ego_size + ro_size + rg_size)
+        ego_stack = obs_flat_unstack[..., :ego_size].view(-1, num_stack, self.ego_input_dim).reshape(-1, num_stack * self.ego_input_dim)
+        ro_stack = (
+            obs_flat_unstack[..., ego_size:ego_size + ro_size]
+            .view(-1, num_stack, self.ro_max, self.ro_input_dim)
+            .permute(0, 2, 1, 3)  # Reorder to (batch, ro_max, num_stack, ro_input_dim)
+            .reshape(-1, self.ro_max, num_stack * self.ro_input_dim)
+         )
+
+        # rg_stack: Original reshape, then combine num_stack and self.rg_input_dim dimensions
+        rg_stack = (
+            obs_flat_unstack[..., ego_size + ro_size: ego_size + ro_size + rg_size]
+            .view(-1, num_stack, self.rg_max, self.rg_input_dim)
+            .permute(0, 2, 1, 3)  # Reorder to (batch, rg_max, num_stack, rg_input_dim)
+            .reshape(-1, self.rg_max, num_stack * self.rg_input_dim)
+        )
+
+        return ego_stack, ro_stack, rg_stack
+    
+    def _build_out_network(
+        self, input_dim: int, output_dim: int, net_arch: List[int]
+    ):
+        """Create the output network architecture."""
+        layers = []
+        prev_dim = input_dim
+        for layer_dim in net_arch:
+            layers.append(nn.Linear(prev_dim, layer_dim))
+            layers.append(nn.LayerNorm(layer_dim))
+            layers.append(self.act_func)
+            layers.append(nn.Dropout(self.dropout))
+            prev_dim = layer_dim
+
+        # Add final layer
+        layers.append(nn.Linear(prev_dim, output_dim))
+
+        return nn.Sequential(*layers)
+    
+    def forward(self, obss, attn_weights=False):
+        # Unpack observation
+        ego_state, road_objects, road_graph = self._unpack_obs(obss, num_stack=5)
+        # Embed features
+        ego_state = self.ego_state_net(ego_state)
+        road_objects = self.road_object_net(road_objects)
+        road_objects_attn, ro_weights = self.ro_attn(road_objects, road_objects, road_objects)
+        
+        road_graph = self.rg_net(road_graph)
+        # road_graph_attn, rg_weights = self.ro_attn(road_graph, road_graph, road_graph)
+
+        # Max pooling across the object dimension
+        # (M, E) -> (1, E) (max pool across features)
+        road_objects = F.max_pool1d(
+            road_objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
+        ).squeeze(-1)
+        road_graph = F.max_pool1d(
+            road_graph.permute(0, 2, 1), kernel_size=self.rg_max
+        ).squeeze(-1)
+
+        dx = self.dx_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
+        dy = self.dy_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
+        dyaw = self.dyaw_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
+        actions = torch.cat([dx, dy, dyaw], dim=-1)
+        if attn_weights:
+            return actions, ro_weights
+        return actions
+    
 if __name__ == "__main__":
     from pygpudrive.registration import make
     from pygpudrive.env.config import DynamicsModel, ActionSpace
@@ -240,7 +389,7 @@ if __name__ == "__main__":
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
     obs = env.reset()
     exp_config = pyrallis.parse(config_class=ExperimentConfig)
-    bc_policy = LateFusionBCNet(
+    bc_policy = LateFusionAttnBCNet(
         observation_space=None,
         exp_config=exp_config,
         env_config=env_config
@@ -251,4 +400,7 @@ if __name__ == "__main__":
     print(actions.shape)
     for _ in range(5):
         env.step_dynamics(actions, use_indices=False)
+        obs = env.get_obs()
 
+
+    
