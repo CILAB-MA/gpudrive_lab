@@ -345,6 +345,7 @@ class LateFusionAttnBCNet(LateFusionNet):
         road_graph = self.rg_net(road_graph)
         road_graph_attn, rg_weights = self.ro_attn(road_graph, road_graph, road_graph)
 
+
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
         road_objects = F.max_pool1d(
