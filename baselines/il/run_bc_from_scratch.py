@@ -30,9 +30,9 @@ def parse_args():
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_l1', choices=['late_fusion_l1', 
+    parser.add_argument('--model-name', '-m', type=str, default='attn_l1', choices=['late_fusion_l1', 
                                                                                       'bc_l1', 'bc_dist'])
-    parser.add_argument('--action-scale', '-as', type=int, default=1)
+    parser.add_argument('--action-scale', '-as', type=int, default=50)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     parser.add_argument('--data-path', '-dp', type=str, default='/data')
     parser.add_argument('--train-data-file', '-td', type=str, default='new_train_trajectory_1000.npz')
@@ -123,11 +123,19 @@ if __name__ == "__main__":
             hidden_size=bc_config.hidden_size,
             output_size=3,
         ).to(args.device)
+    elif args.model_name == 'attn_l1':
+        exp_config = pyrallis.parse(config_class=ExperimentConfig)
+        bc_policy = LateFusionAttnBCNet(
+            observation_space=None,
+            exp_config=exp_config,
+            env_config=env_config
+        ).to(args.device)
     # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=bc_config.lr)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
     sample_per_epoch = 50000
-
+    dataset_len = len(expert_dataset)
+    # bc_policy = nn.DataParallel(bc_policy)
     # Logging
     with open("private.yaml") as f:
         private_info = yaml.load(f, Loader=yaml.FullLoader)
@@ -141,7 +149,7 @@ if __name__ == "__main__":
         id=run_id,
         group=f"{env_config.dynamics_model}_{args.action_type}",
         config={**bc_config.__dict__, **env_config.__dict__},
-        tags=[args.model_name, args.action_type, env_config.dynamics_model, 'NORM']
+        tags=[args.model_name, args.action_type, env_config.dynamics_model, 'SCALE', str(dataset_len)]
     )
     
     wandb.config.update({
@@ -167,10 +175,10 @@ if __name__ == "__main__":
             total_samples += batch_size
 
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
-            # Normalize
-            expert_action[:, 0] = (expert_action[:, 0] + 6) / 12
-            expert_action[:, 1] = (expert_action[:, 1] + 6) / 12
-            expert_action[:, 2] = (expert_action[:, 2] + np.pi) / 2 * np.pi
+            # # Normalize
+            # expert_action[:, 0] = (expert_action[:, 0] + 6) / 12
+            # expert_action[:, 1] = (expert_action[:, 1] + 6) / 12
+            # expert_action[:, 2] = (expert_action[:, 2] + np.pi) / (2 * np.pi)
 
             # Forward pass
             pred_actions = bc_policy(obs)
@@ -213,9 +221,9 @@ if __name__ == "__main__":
         for i, (obs, expert_action) in enumerate(eval_expert_data_loader):
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
             # Normalize
-            expert_action[:, 0] = (expert_action[:, 0]  + 6) / 12
-            expert_action[:, 1] = (expert_action[:, 1]  + 6) / 12
-            expert_action[:, 2] = (expert_action[:, 2]  + np.pi) / (2 * np.pi)
+            # expert_action[:, 0] = (expert_action[:, 0]  + 6) / 12
+            # expert_action[:, 1] = (expert_action[:, 1]  + 6) / 12
+            # expert_action[:, 2] = (expert_action[:, 2]  + np.pi) / (2 * np.pi)
 
             with torch.no_grad():
                 pred_action = bc_policy(obs)
@@ -226,8 +234,7 @@ if __name__ == "__main__":
                 dx_losses += dx_loss
                 dy_losses += dy_loss
                 dyaw_losses += dyaw_loss
-
-            losses += action_loss.mean().item()
+                losses += action_loss.mean().item()
             
         # Log evaluation losses
         wandb.log(
@@ -243,4 +250,4 @@ if __name__ == "__main__":
 if bc_config.save_model:
     if not os.path.exists(bc_config.model_path):
         os.makedirs(bc_config.model_path)
-    torch.save(bc_policy, f"{bc_config.model_path}/{args.model_name}_FIX_UNPACK.pth")
+    torch.save(bc_policy, f"{bc_config.model_path}/{args.model_name}_scale_{dataset_len}.pth")
