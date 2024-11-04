@@ -83,10 +83,6 @@ if __name__ == "__main__":
         # all_actions[...,1] = all_actions[...,1] * 12 - 6
         # all_actions[...,2] = all_actions[...,2] * (2 * np.pi) - np.pi
 
-
-
-
-        
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] / args.action_scale - expert_actions[~dead_agent_mask][:, time_step, :])
         print(f'TIME {time_step} LOss: {loss.mean(0)}')
