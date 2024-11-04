@@ -13,7 +13,7 @@ from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
 
 from baselines.il.config import BehavCloningConfig
-from baselines.il.run_bc_from_scratch import ContFeedForward, ContFeedForwardMSE
+from algorithms.il.model.bc import *
 import argparse
 from pygpudrive.registration import make
 from pygpudrive.env.config import DynamicsModel, ActionSpace
@@ -25,8 +25,8 @@ def parse_args():
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--load-dir', '-l', type=str, default='models')
     parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion')
-    parser.add_argument('--action-scale', '-as', type=int, default=1)
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_l1_scale_438763')
+    parser.add_argument('--action-scale', '-as', type=int, default=50)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     args = parser.parse_args()
     return args
@@ -69,21 +69,27 @@ if __name__ == "__main__":
     bc_policy.eval()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
+    # dead_agent_mask = dead_agent_mask.unsqueeze(-1)
     obs = env.reset()
     frames = []
     expert_actions, _, _ = env.get_expert_actions()
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
         # print(f'OBS {obs[~dead_agent_mask, :] }')
-        actions = bc_policy(obs[~dead_agent_mask, :])
-        all_actions[~dead_agent_mask] = actions / args.action_scale
+        actions = bc_policy(obs[~dead_agent_mask])
+        all_actions[~dead_agent_mask, :] = actions / args.action_scale
         # normalize
-        all_actions[:, 0] = all_actions[:, 0] * 12 - 6
-        all_actions[:, 1] = all_actions[:, 1] * 12 - 6
-        all_actions[:, 2] = all_actions[:, 2] * (2 * np.pi) - np.pi
+        # all_actions[...,0] = all_actions[...,0] * 12 - 6
+        # all_actions[...,1] = all_actions[...,1] * 12 - 6
+        # all_actions[...,2] = all_actions[...,2] * (2 * np.pi) - np.pi
+
+
+
+
+        
         env.step_dynamics(all_actions)
-        loss = (all_actions / args.action_scale - expert_actions[~dead_agent_mask][:, time_step, :])
-        print(f'TIME {time_step} LOss: {loss}')
+        loss = torch.abs(all_actions[~dead_agent_mask] / args.action_scale - expert_actions[~dead_agent_mask][:, time_step, :])
+        print(f'TIME {time_step} LOss: {loss.mean(0)}')
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()
@@ -101,7 +107,7 @@ if __name__ == "__main__":
     off_road_rate = off_road.sum().float() / alive_agent_mask.sum().float()
     veh_coll_rate = veh_collision.sum().float() / alive_agent_mask.sum().float()
     goal_rate = goal_achieved.sum().float() / alive_agent_mask.sum().float()
-    collision_rate = off_road_rate + veh_coll_rate + non_veh_coll_rate
+    collision_rate = off_road_rate + veh_coll_rate
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
 
     if args.make_video:
