@@ -343,7 +343,7 @@ class LateFusionAttnBCNet(LateFusionNet):
         road_objects_attn, ro_weights = self.ro_attn(road_objects, road_objects, road_objects)
         
         road_graph = self.rg_net(road_graph)
-        # road_graph_attn, rg_weights = self.ro_attn(road_graph, road_graph, road_graph)
+        road_graph_attn, rg_weights = self.ro_attn(road_graph, road_graph, road_graph)
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
@@ -351,7 +351,7 @@ class LateFusionAttnBCNet(LateFusionNet):
             road_objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.max_pool1d(
-            road_graph.permute(0, 2, 1), kernel_size=self.rg_max
+            road_graph_attn.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
         dx = self.dx_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
