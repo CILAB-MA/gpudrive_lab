@@ -582,26 +582,42 @@ class GPUDriveDiscreteEnv(GPUDriveTorchEnv):
                         with open(os.path.join(self.config.effective_scene_path, expert_file), 'rb') as f:
                             expert_data = pickle.load(f)
                             expert_actions = expert_data[file_idx - first_idx]
-                            means = expert_actions.mean(dim=0).tolist()
-                            stds = expert_actions.std(dim=0).tolist()
-                            dxs.append(torch.round(
-                                torch.linspace(
-                                    means[0] - self.config.std_factor * stds[0],
-                                    means[0] + self.config.std_factor * stds[0],
-                                    20),
-                                decimals=3))
-                            dys.append(torch.round(
-                                torch.linspace(
-                                    means[1] - self.config.std_factor * stds[1],
-                                    means[1] + self.config.std_factor * stds[1],
-                                    20),
-                                decimals=3))
-                            dyaws.append(torch.round(
-                                torch.linspace(
-                                    means[2] - self.config.std_factor * stds[2],
-                                    means[2] + self.config.std_factor * stds[2],
-                                    20),
-                                decimals=3))
+                            
+                            if self.config.effective_action_method == "mean_std":
+                                means = expert_actions.mean(dim=0).tolist()
+                                stds = expert_actions.std(dim=0).tolist()
+                                dxs.append(torch.round(
+                                    torch.linspace(
+                                        means[0] - self.config.std_factor * stds[0],
+                                        means[0] + self.config.std_factor * stds[0],
+                                        20),
+                                    decimals=3))
+                                dys.append(torch.round(
+                                    torch.linspace(
+                                        means[1] - self.config.std_factor * stds[1],
+                                        means[1] + self.config.std_factor * stds[1],
+                                        20),
+                                    decimals=3))
+                                dyaws.append(torch.round(
+                                    torch.linspace(
+                                        means[2] - self.config.std_factor * stds[2],
+                                        means[2] + self.config.std_factor * stds[2],
+                                        20),
+                                    decimals=3))
+                            elif self.config.effective_action_method == "min_max":
+                                mins = expert_actions.min(dim=0).values.tolist()
+                                maxs = expert_actions.max(dim=0).values.tolist()
+                                dxs.append(torch.round(
+                                    torch.linspace(mins[0], maxs[0], 20),
+                                    decimals=3))
+                                dys.append(torch.round(
+                                    torch.linspace(mins[1], maxs[1], 20),
+                                    decimals=3))
+                                dyaws.append(torch.round(
+                                    torch.linspace(mins[2], maxs[2], 20),
+                                    decimals=3))
+                            else:
+                                raise NotImplementedError(f"{self.config.effective_action_method} is not implemented.")
                         break
                     
             self.config.dxs = torch.stack(dxs)

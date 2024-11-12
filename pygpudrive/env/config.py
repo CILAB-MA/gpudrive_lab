@@ -67,6 +67,7 @@ class EnvConfig:
 
     # Set effective action space
     effective_action_space: bool = True
+    effective_action_method: str = "mean_std" # Options: "mean_std", "min_max"
     effective_scene_path: str = "/data/train_actions_pickles"
     std_factor: float = 1.0
     dxs: torch.Tensor = None

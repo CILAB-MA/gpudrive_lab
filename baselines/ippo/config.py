@@ -48,7 +48,7 @@ class ExperimentConfig:
         100  # How many trajectories we average logs over
     )
     log_freq: int = 100
-    tags = ["IPPO", "LATE_FUSION", "PERM_EQ", "DELTA", "50s128v", "std2.0"]
+    tags = ["IPPO", "LATE_FUSION", "PERM_EQ", "DELTA", "50s128v", "seed_30", "std4.0"]
     wandb_mode = "online"  # Options: online, offline, disabled
 
     # CONSTANTS
