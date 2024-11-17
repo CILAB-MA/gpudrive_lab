@@ -2,27 +2,7 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class BehavCloningConfig:
-
-    # Dataset & device
-    data_dir: str = "/data"
-    device: str = "cpu"
-
-    # Number of scenarios / worlds
-    num_worlds: int = 3
-    max_cont_agents: int = 128
-
-    # Discretize actions and use action indices
-    discretize_actions: bool = True
-    use_action_indices: bool = True
-    # Record a set of trajectories as sanity check
-    make_sanity_check_video: bool = True
-
-    # Logging
-    wandb_mode: str = "online"
-    wandb_project: str = "il"
-    log_interval: int = 500
-
+class ExperimentConfig:
     # Hyperparameters
     batch_size: int = 256
     epochs: int = 1000
@@ -30,7 +10,18 @@ class BehavCloningConfig:
     hidden_size: list = field(default_factory=lambda: [1024, 256])
     net_arch: list = field(default_factory=lambda: [64, 128])
 
-    # Save policy
-    save_model: bool = True
-    model_path: str = "/data/model"
-    model_name: str = "bc_policy"
+    # LATEFUSION NETWORK
+    ego_state_layers = [64, 32]
+    road_object_layers = [64, 64]
+    road_graph_layers = [64, 64]
+    shared_layers = [64, 64]
+    act_func = "tanh"
+    dropout = 0.0
+    last_layer_dim_pi = 64
+    last_layer_dim_vf = 64
+    
+    # GMM
+    hidden_dim: int = 128
+    action_dim: int = 3
+    n_components: int = 10
+    
