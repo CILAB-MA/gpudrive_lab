@@ -9,7 +9,7 @@ sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 import torch.nn.functional as F
 # GPUDrive
-from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
+from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig, RenderMode
 from pygpudrive.env.env_torch import GPUDriveTorchEnv
 
 from baselines.il.config import BehavCloningConfig
@@ -25,8 +25,8 @@ def parse_args():
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--load-dir', '-l', type=str, default='models')
     parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_l1_scale_438763')
-    parser.add_argument('--action-scale', '-as', type=int, default=50)
+    parser.add_argument('--model-name', '-m', type=str, default='attn_l1_twohotpositive_438763')
+    parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     args = parser.parse_args()
     return args
@@ -44,6 +44,7 @@ if __name__ == "__main__":
     # Initialize configurations
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
                                NUM_WORLDS,)
+    
     env_config = EnvConfig(
         dynamics_model=args.dynamics_model,
         steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
@@ -52,11 +53,14 @@ if __name__ == "__main__":
         dy=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
     )
-
+    render_config = RenderConfig(
+        draw_obj_idx=True
+    )
     # Initialize environment
     kwargs={
         "config": env_config,
         "scene_config": scene_config,
+        "render_config": render_config,
         "max_cont_agents": MAX_NUM_OBJECTS,
         "device": args.device,
         "num_stack": 5
@@ -76,7 +80,8 @@ if __name__ == "__main__":
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
         # print(f'OBS {obs[~dead_agent_mask, :] }')
-        actions = bc_policy(obs[~dead_agent_mask])
+        with torch.no_grad():
+            actions = bc_policy(obs[~dead_agent_mask])
         all_actions[~dead_agent_mask, :] = actions / args.action_scale
         # normalize
         # all_actions[...,0] = all_actions[...,0] * 12 - 6
@@ -93,6 +98,7 @@ if __name__ == "__main__":
         if args.make_video:
             frame = env.render(world_render_idx=0)
             frames.append(frame)
+
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
             break
