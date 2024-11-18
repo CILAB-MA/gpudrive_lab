@@ -9,13 +9,12 @@ import os, sys, torch
 sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from datetime import datetime
+from tqdm import tqdm
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig
 from baselines.il.config import ExperimentConfig
 from algorithms.il.model.bc import *
-from tqdm import tqdm
-from algorithms.il.data_generation import map_to_closest_discrete_value
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -116,6 +115,7 @@ def two_hot_loss(pred, targ, dx_bins, dy_bins, dyaw_bins):
     total_loss = (loss_dx + loss_dy + loss_dyaw) / 3
 
     return total_loss
+
 
 if __name__ == "__main__":
     args = parse_args()

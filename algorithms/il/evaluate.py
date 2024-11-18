@@ -2,21 +2,19 @@
 
 import logging, imageio
 import torch
-import torch.nn as nn
-import os, sys, torch
+import os, sys
 import numpy as np
 sys.path.append(os.getcwd())
-import wandb, yaml, argparse
-import torch.nn.functional as F
-# GPUDrive
-from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig, RenderMode
-from pygpudrive.env.env_torch import GPUDriveTorchEnv
-
-from baselines.il.config import BehavCloningConfig
-from algorithms.il.model.bc import *
 import argparse
+
+# GPUDrive
+from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
+from baselines.il.config import ExperimentConfig
+from algorithms.il.model.bc import *
 from pygpudrive.registration import make
 from pygpudrive.env.config import DynamicsModel, ActionSpace
+
+
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
@@ -25,6 +23,7 @@ def parse_args():
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--load-dir', '-l', type=str, default='models')
     parser.add_argument('--make-video', '-mv', action='store_true')
+    parser.add_argument('--model-path', '-mp', type=str, default='models')
     parser.add_argument('--model-name', '-m', type=str, default='attn_l1_twohotpositive_438763')
     parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
@@ -33,6 +32,7 @@ def parse_args():
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -65,32 +65,24 @@ if __name__ == "__main__":
         "device": args.device,
         "num_stack": 5
     }
-    bc_config = BehavCloningConfig()
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
 
-    # torch.serialization.add_safe_globals([ContFeedForwardMSE])
-    bc_policy = torch.load(f"{bc_config.model_path}/{args.model_name}.pth").to(args.device)
+    bc_policy = torch.load(f"{args.model_path}/{args.model_name}.pth").to(args.device)
     bc_policy.eval()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
-    # dead_agent_mask = dead_agent_mask.unsqueeze(-1)
+
     obs = env.reset()
     frames = []
     expert_actions, _, _ = env.get_expert_actions()
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
-        # print(f'OBS {obs[~dead_agent_mask, :] }')
         with torch.no_grad():
             actions = bc_policy(obs[~dead_agent_mask])
-        all_actions[~dead_agent_mask, :] = actions / args.action_scale
-        # normalize
-        # all_actions[...,0] = all_actions[...,0] * 12 - 6
-        # all_actions[...,1] = all_actions[...,1] * 12 - 6
-        # all_actions[...,2] = all_actions[...,2] * (2 * np.pi) - np.pi
-
+        all_actions[~dead_agent_mask, :] = actions
 
         env.step_dynamics(all_actions)
-        loss = torch.abs(all_actions[~dead_agent_mask] / args.action_scale - expert_actions[~dead_agent_mask][:, time_step, :])
+        loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
         print(f'TIME {time_step} LOss: {loss.mean(0)}')
         obs = env.get_obs()
         dones = env.get_dones()
