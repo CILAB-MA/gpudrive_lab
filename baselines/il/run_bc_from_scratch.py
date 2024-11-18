@@ -25,7 +25,6 @@ def parse_args():
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
-    parser.add_argument('--action-scale', '-as', type=int, default=50)
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/models')
@@ -261,21 +260,21 @@ if __name__ == "__main__":
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
 
             # Forward pass
-            pred_actions = bc_policy(obs)
-            loss = two_hot_loss(pred_actions, expert_action, 
-                                dx_bins=env_config.dx,
-                                dy_bins=env_config.dy,
-                                dyaw_bins=env_config.dyaw)
+            # pred_actions = bc_policy(obs)
+            # loss = two_hot_loss(pred_actions, expert_action, 
+            #                     dx_bins=env_config.dx,
+            #                     dy_bins=env_config.dy,
+            #                     dyaw_bins=env_config.dyaw)
             # loss = F.smooth_l1_loss(pred_actions, expert_action)
+            loss = bc_policy.compute_loss(obs, expert_action)
             
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
-            loss.backward()
             optimizer.step()  # Update model parameters
 
             with torch.no_grad():
-                pred_action = bc_policy(obs)
+                pred_action = bc_policy.sample(obs)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
@@ -312,7 +311,7 @@ if __name__ == "__main__":
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
 
             with torch.no_grad():
-                pred_action = bc_policy(obs)
+                pred_action = bc_policy.sample(obs)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
