@@ -25,14 +25,15 @@ from baselines.il.config import BehavCloningConfig
 from algorithms.il.model.bc import *
 from baselines.ippo.config import ExperimentConfig
 from tqdm import tqdm
+from algorithms.il.data_generation import map_to_closest_discrete_value
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--model-name', '-m', type=str, default='attn_l1', choices=['late_fusion_l1', 
-                                                                                      'bc_l1', 'bc_dist'])
-    parser.add_argument('--action-scale', '-as', type=int, default=50)
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_l1', choices=['late_fusion_l1', 
+                                                                                      'bc_l1', 'bc_dist', 'attn_l1'])
+    parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     parser.add_argument('--data-path', '-dp', type=str, default='/data')
     parser.add_argument('--train-data-file', '-td', type=str, default='new_train_trajectory_1000.npz')
@@ -41,6 +42,45 @@ def parse_args():
     return args
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+def two_hot_encoding(value, bins):
+    idx_upper = torch.searchsorted(bins, value, right=True).clamp(max=len(bins) - 1)
+    idx_lower = torch.clamp(idx_upper - 1, min=0)
+    
+    lower_weight = (value - bins[idx_lower]) / (bins[idx_upper] - bins[idx_lower])
+    upper_weight =  (bins[idx_upper] - value) / (bins[idx_upper] - bins[idx_lower])
+    batch_indices = torch.arange(len(value), device=value.device)
+    two_hot = torch.zeros(len(value), len(bins), device=value.device)
+    two_hot[batch_indices, idx_lower] = lower_weight
+    two_hot[batch_indices, idx_upper] = upper_weight
+    
+    return two_hot
+
+def two_hot_loss(pred, targ, dx_bins, dy_bins, dyaw_bins):
+    '''
+    pred: real value of model output
+    targ: real value of label
+    dx_bins: 
+    '''
+    pred_dist = torch.zeros(len(pred), len(dx_bins), 3,  device=pred.device)
+    targ_dist = torch.zeros(len(targ), len(dx_bins), 3, device=pred.device)
+    pred_dist[..., 0] = two_hot_encoding(bins=dx_bins, value=pred[:, 0] )
+    pred_dist[..., 1] = two_hot_encoding(bins=dy_bins, value=pred[:, 1] )
+    pred_dist[..., 2] = two_hot_encoding(bins=dyaw_bins, value=pred[:, 2] )
+
+    targ_dist[..., 0] = two_hot_encoding(bins=dx_bins, value=targ[:, 0] )
+    targ_dist[...,1] = two_hot_encoding(bins=dy_bins, value=targ[:, 1] )
+    targ_dist[...,2] = two_hot_encoding(bins=dyaw_bins, value=targ[:, 2] )
+    epsilon = 1e-8
+    log_targ_dist = torch.log(targ_dist + epsilon)
+
+    loss_dx = (pred_dist[..., 0] * log_targ_dist[..., 0]).sum(dim=-1).mean()
+    loss_dy = (pred_dist[..., 1] * log_targ_dist[..., 1]).sum(dim=-1).mean()
+    loss_dyaw = (pred_dist[..., 2] * log_targ_dist[..., 2]).sum(dim=-1).mean()
+
+    total_loss = (loss_dx + loss_dy + loss_dyaw) / 3
+
+    return total_loss
 
 if __name__ == "__main__":
     args = parse_args()
@@ -55,13 +95,13 @@ if __name__ == "__main__":
         ),
         dx=torch.round(
             torch.linspace(-6.0, 6.0, 100), decimals=3
-        ),
+        ).to(args.device),
         dy=torch.round(
             torch.linspace(-6.0, 6.0, 100), decimals=3
-        ),
+        ).to(args.device),
         dyaw=torch.round(
-            torch.linspace(-3.14, 3.14, 300), decimals=3
-        ),
+            torch.linspace(-np.pi, np.pi, 100), decimals=3
+        ).to(args.device),
     )
     # Get state action pairs
     train_expert_obs, train_expert_actions = [], []
@@ -182,17 +222,20 @@ if __name__ == "__main__":
 
             # Forward pass
             pred_actions = bc_policy(obs)
-            loss = F.smooth_l1_loss(pred_actions, expert_action * args.action_scale)
+            loss = two_hot_loss(pred_actions, expert_action, 
+                                dx_bins=env_config.dx,
+                                dy_bins=env_config.dy,
+                                dyaw_bins=env_config.dyaw)
+            # loss = F.smooth_l1_loss(pred_actions, expert_action)
             
             # Backward pass
             optimizer.zero_grad()
-            loss.mean().backward()
+            loss.backward()
             optimizer.step()  # Update model parameters
-            scheduler.step()
 
             with torch.no_grad():
                 pred_action = bc_policy(obs)
-                action_loss = torch.abs(pred_action - expert_action * args.action_scale) / args.action_scale
+                action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
                 dyaw_loss = action_loss[:, 2].mean().item()
@@ -201,11 +244,11 @@ if __name__ == "__main__":
                 dyaw_losses += dyaw_loss
                 
             losses += loss.mean().item()
-        
+        scheduler.step()
         # Log training losses
         wandb.log(
             {   
-                "train/loss": losses / (i + 1) / args.action_scale,
+                "train/loss": losses / (i + 1),
                 "train/dx_loss": dx_losses / (i + 1),
                 "train/dy_loss": dy_losses / (i + 1),
                 "train/dyaw_loss": dyaw_losses / (i + 1),
@@ -214,11 +257,16 @@ if __name__ == "__main__":
 
         # Evaluation loop
         bc_policy.eval()
+        total_samples = 0  # Initialize sample counter
         losses = 0
         dx_losses = 0
         dy_losses = 0
         dyaw_losses = 0
         for i, (obs, expert_action) in enumerate(eval_expert_data_loader):
+            batch_size = obs.size(0)
+            if total_samples + batch_size > 10000:  # Check if adding this batch exceeds 50,000
+                break
+            total_samples += batch_size
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
             # Normalize
             # expert_action[:, 0] = (expert_action[:, 0]  + 6) / 12
@@ -227,7 +275,7 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 pred_action = bc_policy(obs)
-                action_loss = torch.abs(pred_action - expert_action * args.action_scale) / args.action_scale
+                action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
                 dyaw_loss = action_loss[:, 2].mean().item()
@@ -239,7 +287,7 @@ if __name__ == "__main__":
         # Log evaluation losses
         wandb.log(
             {
-                "eval/loss": losses / (i + 1) / args.action_scale,
+                "eval/loss": losses / (i + 1) ,
                 "eval/dx_loss": dx_losses / (i + 1),
                 "eval/dy_loss": dy_losses / (i + 1),
                 "eval/dyaw_loss": dyaw_losses / (i + 1),
@@ -250,4 +298,4 @@ if __name__ == "__main__":
 if bc_config.save_model:
     if not os.path.exists(bc_config.model_path):
         os.makedirs(bc_config.model_path)
-    torch.save(bc_policy, f"{bc_config.model_path}/{args.model_name}_scale_{dataset_len}.pth")
+    torch.save(bc_policy, f"{bc_config.model_path}/{args.model_name}_twohotpositive_{dataset_len}.pth")

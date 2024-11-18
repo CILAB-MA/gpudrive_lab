@@ -7,6 +7,8 @@ from torch.distributions.normal import Normal
 import torch.nn.functional as F
 from pygpudrive.env import constants
 from networks.perm_eq_late_fusion import LateFusionNet
+from algorithms.il.model.wayformer import MultiHeadAttention, Residual
+
 class FeedForward(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(FeedForward, self).__init__()
@@ -261,12 +263,20 @@ class LateFusionAttnBCNet(LateFusionNet):
             input_dim=self.ro_input_dim * num_stack,
             net_arch=self.arch_road_objects,
         )
-        self.ro_attn = nn.MultiheadAttention(self.arch_road_objects[-1], self.arch_road_objects[-1])
+        self.ro_attn = MultiHeadAttention(
+            num_heads=4,
+            num_q_input_channels=self.arch_road_objects[-1],
+            num_kv_input_channels=self.arch_road_objects[-1],
+            )
         self.rg_net = self._build_network(
             input_dim=self.rg_input_dim * num_stack,
             net_arch=self.arch_road_graph,
         )
-        self.rg_attn = nn.MultiheadAttention(self.arch_road_graph[-1], self.arch_road_graph[-1])
+        self.rg_attn = MultiHeadAttention(
+            num_heads=4,
+            num_q_input_channels=self.arch_road_graph[-1],
+            num_kv_input_channels=self.arch_road_graph[-1],
+            )
         self.dx_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
@@ -340,18 +350,18 @@ class LateFusionAttnBCNet(LateFusionNet):
         # Embed features
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
-        road_objects_attn, ro_weights = self.ro_attn(road_objects, road_objects, road_objects)
+        road_objects_attn = self.ro_attn(road_objects, road_objects)
         
         road_graph = self.rg_net(road_graph)
-        road_graph_attn, rg_weights = self.ro_attn(road_graph, road_graph, road_graph)
+        road_graph_attn = self.ro_attn(road_graph, road_graph)
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
         road_objects = F.max_pool1d(
-            road_objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
+            road_objects_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.max_pool1d(
-            road_graph_attn.permute(0, 2, 1), kernel_size=self.rg_max
+            road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
         dx = self.dx_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
