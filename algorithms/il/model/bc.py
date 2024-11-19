@@ -2,12 +2,17 @@
 import torch.nn as nn
 import torch
 from typing import Callable, Dict, List, Optional, Tuple, Type, Union
+import torch.distributions as dist
 from torch.distributions.categorical import Categorical
 from torch.distributions.normal import Normal
 import torch.nn.functional as F
+
 from pygpudrive.env import constants
 from networks.perm_eq_late_fusion import LateFusionNet
 from algorithms.il.model.wayformer import MultiHeadAttention, Residual
+
+from algorithms.il.model.gmm import GMM
+
 
 class FeedForward(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
@@ -40,7 +45,6 @@ class FeedForward(nn.Module):
         log_prob = pred_action_dist[0].log_prob(expert_actions).mean()
         return log_prob
 
-# Define network
 class ContFeedForward(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(ContFeedForward, self).__init__()
@@ -80,7 +84,6 @@ class ContFeedForward(nn.Module):
     def get_std(self):
         return self.log_std
     
-# Define network
 class ContFeedForwardMSE(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(ContFeedForwardMSE, self).__init__()
@@ -109,27 +112,10 @@ class ContFeedForwardMSE(nn.Module):
         return actions
 
 class LateFusionBCNet(LateFusionNet):
-
-    def __init__(self,  observation_space, env_config, exp_config,
-                 num_stack=5):
+    def __init__(self,  observation_space, env_config, exp_config, num_stack=5):
         super(LateFusionBCNet, self).__init__(observation_space, env_config, exp_config)
-        self.config = env_config
-        self.net_config = exp_config
-        self.ego_input_dim = constants.EGO_FEAT_DIM
-        self.ro_input_dim = constants.PARTNER_FEAT_DIM
-        self.rg_input_dim = constants.ROAD_GRAPH_FEAT_DIM
         
-        self.ro_max = self.config.max_num_agents_in_scene-1
-        self.rg_max = self.config.roadgraph_top_k
-        self.arch_ego_state = self.net_config.ego_state_layers
-        self.arch_road_objects = self.net_config.road_object_layers
-        self.arch_road_graph = self.net_config.road_graph_layers
-        self.arch_shared_net = self.net_config.shared_layers
-        self.act_func = (
-            nn.Tanh() if self.net_config.act_func == "tanh" else nn.ReLU()
-        )
-        self.dropout = self.net_config.dropout
-
+        # Scene encoder
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
             net_arch=self.arch_ego_state,
@@ -143,23 +129,23 @@ class LateFusionBCNet(LateFusionNet):
             net_arch=self.arch_road_graph,
         )
 
+        # Action head
         self.dx_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
             net_arch=self.arch_shared_net,
         )
-
         self.dy_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
             net_arch=self.arch_shared_net,
         )
-
         self.dyaw_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
             net_arch=self.arch_shared_net,
         )
+        
     def _unpack_obs(self, obs_flat, num_stack=1):
         """
         Unpack the flattened observation into the ego state and visible state.
@@ -213,6 +199,7 @@ class LateFusionBCNet(LateFusionNet):
     def forward(self, obss):
         # Unpack observation
         ego_state, road_objects, road_graph = self._unpack_obs(obss, num_stack=5)
+        
         # Embed features
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
@@ -227,14 +214,16 @@ class LateFusionBCNet(LateFusionNet):
             road_graph.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
-        dx = self.dx_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
-        dy = self.dy_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
-        dyaw = self.dyaw_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
+        embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
+
+        dx = self.dx_head(embedding_vector)
+        dy = self.dy_head(embedding_vector)
+        dyaw = self.dyaw_head(embedding_vector)
         actions = torch.cat([dx, dy, dyaw], dim=-1)
+        
         return actions
 
 class LateFusionAttnBCNet(LateFusionNet):
-
     def __init__(self,  observation_space, env_config, exp_config,
                  num_stack=5):
         super(LateFusionAttnBCNet, self).__init__(observation_space, env_config, exp_config)
@@ -294,6 +283,7 @@ class LateFusionAttnBCNet(LateFusionNet):
             output_dim=1,
             net_arch=self.arch_shared_net,
         )
+    
     def _unpack_obs(self, obs_flat, num_stack=1):
         """
         Unpack the flattened observation into the ego state and visible state.
@@ -371,6 +361,134 @@ class LateFusionAttnBCNet(LateFusionNet):
         if attn_weights:
             return actions, ro_weights
         return actions
+
+class LateFusionGmmBCNet(LateFusionNet):
+    def __init__(self,  observation_space, env_config, exp_config, num_stack=5):
+        super().__init__(observation_space, env_config, exp_config)
+
+        # Scene encoder
+        self.ego_state_net = self._build_network(
+            input_dim=self.ego_input_dim * num_stack,
+            net_arch=self.arch_ego_state,
+        )
+        self.road_object_net = self._build_network(
+            input_dim=self.ro_input_dim * num_stack,
+            net_arch=self.arch_road_objects,
+        )
+        self.rg_net = self._build_network(
+            input_dim=self.rg_input_dim * num_stack,
+            net_arch=self.arch_road_graph,
+        )
+
+        self.gmm = GMM(
+            input_dim=self.shared_net_input_dim,
+            hidden_dim=self.net_config.hidden_dim,
+            action_dim=self.net_config.action_dim,
+            n_components=self.net_config.n_components
+        )
+    
+    def _unpack_obs(self, obs_flat, num_stack=1):
+        """
+        Unpack the flattened observation into the ego state and visible state.
+        Args:
+            obs_flat (torch.Tensor): flattened observation tensor of shape (batch_size, obs_dim)
+        Return:
+            ego_staye, road_objects, stop_signs, road_graph (torch.Tensor).
+            ego_stayawe, road_objects, stop_signs, road_graph (torch.Tensor).
+            ego_state, rodx, dy, dyawobjects, stop_signs, road_graph (torch.Tensor).
+        """
+        ego_size = self.ego_input_dim
+        ro_size = self.ro_input_dim * self.ro_max
+        rg_size = self.rg_input_dim * self.rg_max
+        obs_flat_unstack = obs_flat.reshape(-1, num_stack,  ego_size + ro_size + rg_size)
+        ego_stack = obs_flat_unstack[..., :ego_size].view(-1, num_stack, self.ego_input_dim).reshape(-1, num_stack * self.ego_input_dim)
+        ro_stack = (
+            obs_flat_unstack[..., ego_size:ego_size + ro_size]
+            .view(-1, num_stack, self.ro_max, self.ro_input_dim)
+            .permute(0, 2, 1, 3)  # Reorder to (batch, ro_max, num_stack, ro_input_dim)
+            .reshape(-1, self.ro_max, num_stack * self.ro_input_dim)
+         )
+
+        # rg_stack: Original reshape, then combine num_stack and self.rg_input_dim dimensions
+        rg_stack = (
+            obs_flat_unstack[..., ego_size + ro_size: ego_size + ro_size + rg_size]
+            .view(-1, num_stack, self.rg_max, self.rg_input_dim)
+            .permute(0, 2, 1, 3)  # Reorder to (batch, rg_max, num_stack, rg_input_dim)
+            .reshape(-1, self.rg_max, num_stack * self.rg_input_dim)
+        )
+
+        return ego_stack, ro_stack, rg_stack
+    
+    def _build_out_network(
+        self, input_dim: int, output_dim: int, net_arch: List[int]
+    ):
+        """Create the output network architecture."""
+        layers = []
+        prev_dim = input_dim
+        for layer_dim in net_arch:
+            layers.append(nn.Linear(prev_dim, layer_dim))
+            layers.append(nn.LayerNorm(layer_dim))
+            layers.append(self.act_func)
+            layers.append(nn.Dropout(self.dropout))
+            prev_dim = layer_dim
+
+        # Add final layer
+        layers.append(nn.Linear(prev_dim, output_dim))
+
+        return nn.Sequential(*layers)
+    
+    def forward(self, obss):
+        # Unpack observation
+        ego_state, road_objects, road_graph = self._unpack_obs(obss, num_stack=5)
+        
+        # Embed features
+        ego_state = self.ego_state_net(ego_state)
+        road_objects = self.road_object_net(road_objects)
+        road_graph = self.rg_net(road_graph)
+
+        # Max pooling across the object dimension
+        # (M, E) -> (1, E) (max pool across features)
+        road_objects = F.max_pool1d(
+            road_objects.permute(0, 2, 1), kernel_size=self.ro_max
+        ).squeeze(-1)
+        road_graph = F.max_pool1d(
+            road_graph.permute(0, 2, 1), kernel_size=self.rg_max
+        ).squeeze(-1)
+
+        embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
+
+        means, covariances, weights = self.gmm(embedding_vector)
+        return means, covariances, weights
+
+    def compute_loss(self, obs, expert_actions):
+        means, covariances, weights = self.forward(obs)
+       
+        log_probs = []
+
+        for i in range(self.gmm.n_components):
+            mean = means[:, i, :]
+            cov_diag = covariances[:, i, :]
+            gaussian = dist.MultivariateNormal(mean, torch.diag_embed(cov_diag))
+            log_probs.append(gaussian.log_prob(expert_actions))
+
+        log_probs = torch.stack(log_probs, dim=1)
+        weighted_log_probs = log_probs + torch.log(weights + 1e-8)
+        loss = -torch.logsumexp(weighted_log_probs, dim=1)
+        return loss.mean()
+    
+    def sample(self, obs):
+        means, covariances, weights = self.forward(obs)
+        
+        # Sample component indices based on weights
+        component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
+        
+        sampled_means = means[torch.arange(obs.size(0)), component_indices]
+        sampled_covariances = covariances[torch.arange(obs.size(0)), component_indices]
+        
+        # Sample actions from the chosen component's Gaussian
+        actions = dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
+        return actions
+
     
 if __name__ == "__main__":
     from pygpudrive.registration import make
