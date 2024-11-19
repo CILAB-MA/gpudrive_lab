@@ -27,13 +27,14 @@ def parse_args():
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     
     # MODEL
-    parser.add_argument('--model-path', '-mp', type=str, default='/models')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm', choices=['late_fusion_l1', 'bc_l1', 'bc_dist', 'late_fusion_gmm'])
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
+    parser.add_argument('--model-name', '-m', type=str, default='wayformer', choices=['late_fusion_l1', 'bc_l1', 'bc_dist',
+                                                                                             'attn_l1','late_fusion_gmm', 'wayformer'])
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data')
-    parser.add_argument('--train-data-file', '-td', type=str, default='new_train_trajectory_1000.npz')
-    parser.add_argument('--eval-data-file', '-ed', type=str, default='eval_trajectory_200.npz')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/train_trajectory_by_veh')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_seq_trajectory_50.npz')
+    parser.add_argument('--eval-data-file', '-ed', type=str, default='eval_seq_trajectory_50.npz')
     args = parser.parse_args()
     return args
 
@@ -139,41 +140,47 @@ if __name__ == "__main__":
     )
     
     # Get state action pairs
-    train_expert_obs, train_expert_actions = [], []
-    eval_expert_obs, eval_expert_actions = [], []
+    train_expert_obs, train_expert_actions, train_expert_masks = [], [], []
+    eval_expert_obs, eval_expert_actions, eval_expert_masks = [], [], []
     
     with np.load(os.path.join(args.data_path, args.train_data_file)) as npz:
         train_expert_obs.append(npz['obs'])
         train_expert_actions.append(npz['actions'])
+        train_expert_masks.append(npz['dead_mask'])
     with np.load(os.path.join(args.data_path, args.eval_data_file)) as npz:
         eval_expert_obs.append(npz['obs'])
         eval_expert_actions.append(npz['actions'])
+        eval_expert_masks.append(npz['dead_mask'])
 
     train_expert_obs = np.concatenate(train_expert_obs)
     train_expert_actions = np.concatenate(train_expert_actions)
+    train_expert_masks = np.concatenate(train_expert_masks)
+
     eval_expert_obs = np.concatenate(eval_expert_obs)
     eval_expert_actions = np.concatenate(eval_expert_actions)
+    eval_expert_masks = np.concatenate(eval_expert_masks)
 
 
     class ExpertDataset(torch.utils.data.Dataset):
-        def __init__(self, obs, actions):
+        def __init__(self, obs, actions, masks=None):
             self.obs = obs
             self.actions = actions
+            self.masks = masks
 
         def __len__(self):
             return len(self.obs)
 
         def __getitem__(self, idx):
-            return self.obs[idx], self.actions[idx]
+            return self.obs[idx], self.actions[idx], self.masks[idx]
 
     # Make dataloader
-    expert_dataset = ExpertDataset(train_expert_obs, train_expert_actions)
+    expert_dataset = ExpertDataset(train_expert_obs, train_expert_actions, train_expert_masks)
     expert_data_loader = DataLoader(
         expert_dataset,
         batch_size=exp_config.batch_size,
         shuffle=True,  # Break temporal structure
     )
-    eval_expert_dataset = ExpertDataset(eval_expert_obs, eval_expert_actions)
+    eval_expert_dataset = ExpertDataset(eval_expert_obs, eval_expert_actions, eval_expert_masks)
     eval_expert_data_loader = DataLoader(
         eval_expert_dataset,
         batch_size=exp_config.batch_size,
@@ -207,6 +214,12 @@ if __name__ == "__main__":
         ).to(args.device)
     elif args.model_name == 'late_fusion_gmm':
         bc_policy = LateFusionGmmBCNet(
+            observation_space=train_expert_obs.shape[-1],
+            exp_config=exp_config,
+            env_config=env_config
+        ).to(args.device)
+    elif args.model_name == 'wayformer':
+        bc_policy = WayformerEncoder(
             observation_space=train_expert_obs.shape[-1],
             exp_config=exp_config,
             env_config=env_config
@@ -251,16 +264,16 @@ if __name__ == "__main__":
         dx_losses = 0
         dy_losses = 0
         dyaw_losses = 0
-        for i, (obs, expert_action) in enumerate(expert_data_loader):
+        for i, (obs, expert_action, mask) in enumerate(expert_data_loader):
             batch_size = obs.size(0)
             if total_samples + batch_size > 50000:  # Check if adding this batch exceeds 50,000
                 break
             total_samples += batch_size
 
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
-
+            dead_mask = mask.to(args.device)
             # Forward pass
-            # pred_actions = bc_policy(obs)
+            pred_actions = bc_policy(obs, ~dead_mask)
             # loss = two_hot_loss(pred_actions, expert_action, 
             #                     dx_bins=env_config.dx,
             #                     dy_bins=env_config.dy,
@@ -275,6 +288,7 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 pred_action = bc_policy.sample(obs)
+                # pred_action = bc_policy(obs)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
@@ -312,6 +326,7 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 pred_action = bc_policy.sample(obs)
+                # pred_action = bc_policy(obs)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
@@ -334,4 +349,4 @@ if __name__ == "__main__":
     # Save policy
     if not os.path.exists(args.model_path):
         os.makedirs(args.model_path)
-    torch.save(bc_policy, f"{args.model_path}/{args.model_name}_scale_{dataset_len}.pth")
+    torch.save(bc_policy, f"{args.model_path}/{args.model_name}_avg_pool_{dataset_len}.pth")

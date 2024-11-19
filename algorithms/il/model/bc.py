@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from pygpudrive.env import constants
 from networks.perm_eq_late_fusion import LateFusionNet
-from algorithms.il.model.wayformer import MultiHeadAttention, Residual
+from algorithms.il.model.wayformer import MultiHeadAttention, Residual, PerceiverEncoder, MLP
 
 from algorithms.il.model.gmm import GMM
 
@@ -347,10 +347,10 @@ class LateFusionAttnBCNet(LateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-        road_objects = F.max_pool1d(
+        road_objects = F.avg_pool1d(
             road_objects_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
-        road_graph = F.max_pool1d(
+        road_graph = F.avg_pool1d(
             road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
@@ -358,8 +358,6 @@ class LateFusionAttnBCNet(LateFusionNet):
         dy = self.dy_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
         dyaw = self.dyaw_head(torch.cat((ego_state, road_objects, road_graph), dim=1))
         actions = torch.cat([dx, dy, dyaw], dim=-1)
-        if attn_weights:
-            return actions, ro_weights
         return actions
 
 class LateFusionGmmBCNet(LateFusionNet):
@@ -488,7 +486,112 @@ class LateFusionGmmBCNet(LateFusionNet):
         # Sample actions from the chosen component's Gaussian
         actions = dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
         return actions
+    
+class WayformerEncoder(LateFusionBCNet):
+    def __init__(self,  observation_space, env_config, exp_config,
+                 num_stack=1):
+        super(WayformerEncoder, self).__init__(observation_space, env_config, exp_config)
 
+         # Scene encoder
+        self.ego_state_net = self._build_network(
+            input_dim=self.ego_input_dim * num_stack,
+            net_arch=self.arch_ego_state,
+        )
+        self.road_object_net = self._build_network(
+            input_dim=self.ro_input_dim * num_stack,
+            net_arch=self.arch_road_objects,
+        )
+        self.rg_net = self._build_network(
+            input_dim=self.rg_input_dim * num_stack,
+            net_arch=self.arch_road_graph,
+        )
+        
+        self.encoder = PerceiverEncoder(64, 64)
+        self.agents_positional_embedding = nn.parameter.Parameter(
+            torch.zeros((1, 1, (self.ro_max + 1), 64)),
+            requires_grad=True
+        )
+
+        self.temporal_positional_embedding = nn.parameter.Parameter(
+            torch.zeros((1, 91, 1, 64)),
+            requires_grad=True
+        )
+        self.gmm = GMM(
+            input_dim=64,
+            hidden_dim=self.net_config.hidden_dim,
+            action_dim=self.net_config.action_dim,
+            n_components=self.net_config.n_components
+        )
+    
+    def _unpack_obs(self, obs_flat, timestep=91):
+        ego_size = self.ego_input_dim
+        ro_size = self.ro_input_dim * self.ro_max
+        rg_size = self.rg_input_dim * self.rg_max
+        obs_flat_unstack = obs_flat.reshape(-1, timestep,  ego_size + ro_size + rg_size)
+        ego_stack = obs_flat_unstack[..., :ego_size].view(-1, timestep, self.ego_input_dim).reshape(-1, self.ego_input_dim)
+        ro_stack = (
+            obs_flat_unstack[..., ego_size:ego_size + ro_size]
+            .view(-1, timestep, self.ro_max, self.ro_input_dim)
+            .reshape(-1, self.ro_max, self.ro_input_dim)
+         )
+
+        # rg_stack: Original reshape, then combine num_stack and self.rg_input_dim dimensions
+        rg_stack = (
+            obs_flat_unstack[..., ego_size + ro_size: ego_size + ro_size + rg_size]
+            .view(-1, timestep, self.rg_max, self.rg_input_dim)
+            .reshape(-1, self.rg_max, self.rg_input_dim)
+        )
+
+        return ego_stack, ro_stack, rg_stack
+    
+    def forward(self, obss, mask):
+        # Unpack observation
+        ego_state, road_objects, road_graph = self._unpack_obs(obss)
+        batch_size = obss.shape[0]
+        # Embed features
+        ego_state = self.ego_state_net(ego_state)
+        road_objects = self.road_object_net(road_objects)
+        road_graph = self.rg_net(road_graph)
+
+        ego_state = ego_state.reshape(batch_size, -1, 64)
+        road_objects = road_objects.reshape(batch_size, -1, 64)
+        road_graph = road_graph.reshape(batch_size, -1, 64)
+
+        embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
+        
+        context = self.encoder(embedding_vector) 
+        context = context.reshape(batch_size, -1)
+        means, covariances, weights = self.gmm(context)
+        return means, covariances, weights
+
+    def compute_loss(self, obs, expert_actions):
+        means, covariances, weights = self.forward(obs)
+       
+        log_probs = []
+
+        for i in range(self.gmm.n_components):
+            mean = means[:, i, :]
+            cov_diag = covariances[:, i, :]
+            gaussian = dist.MultivariateNormal(mean, torch.diag_embed(cov_diag))
+            log_probs.append(gaussian.log_prob(expert_actions))
+
+        log_probs = torch.stack(log_probs, dim=1)
+        weighted_log_probs = log_probs + torch.log(weights + 1e-8)
+        loss = -torch.logsumexp(weighted_log_probs, dim=1)
+        return loss.mean()
+    
+    def sample(self, obs):
+        means, covariances, weights = self.forward(obs)
+        
+        # Sample component indices based on weights
+        component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
+        
+        sampled_means = means[torch.arange(obs.size(0)), component_indices]
+        sampled_covariances = covariances[torch.arange(obs.size(0)), component_indices]
+        
+        # Sample actions from the chosen component's Gaussian
+        actions = dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
+        return actions
     
 if __name__ == "__main__":
     from pygpudrive.registration import make
@@ -529,6 +632,3 @@ if __name__ == "__main__":
     for _ in range(5):
         env.step_dynamics(actions, use_indices=False)
         obs = env.get_obs()
-
-
-    
