@@ -4,14 +4,14 @@ from dataclasses import dataclass, field
 @dataclass
 class ExperimentConfig:
     # Hyperparameters
-    batch_size: int = 256
+    batch_size: int = 64
     epochs: int = 1000
     lr: float = 5e-4
     hidden_size: list = field(default_factory=lambda: [1024, 256])
     net_arch: list = field(default_factory=lambda: [64, 128])
 
     # LATEFUSION NETWORK
-    ego_state_layers = [64, 32]
+    ego_state_layers = [64, 64]
     road_object_layers = [64, 64]
     road_graph_layers = [64, 64]
     shared_layers = [64, 64]
