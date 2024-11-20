@@ -345,6 +345,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         # Sort by distance
         relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
+        relative_distance[obs.sum(-1) == 0] = 99999
+        self.partner_mask = (obs.sum(-1) == 0)
         sorted_indices = torch.argsort(relative_distance, dim=2)
 
         # print(f'Relative Distance {relative_distance}')
@@ -436,7 +438,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             constants.MIN_RG_COORD,
             constants.MAX_RG_COORD,
         )
+        self.road_mask = (obs.sum(-1) == 0)
         relative_distance = torch.sqrt(obs[:, :, :, 0] ** 2 + obs[:, :, :, 1] ** 2)
+        relative_distance[obs.sum(-1) == 0] = 99999
         sorted_indices = torch.argsort(relative_distance, dim=2)
         # Road line segment length
         obs[:, :, :, 2] /= constants.MAX_ROAD_LINE_SEGMENT_LEN
