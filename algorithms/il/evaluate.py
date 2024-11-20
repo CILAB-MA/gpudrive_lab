@@ -9,24 +9,23 @@ import argparse
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
-from baselines.il.config import ExperimentConfig
+from pygpudrive.env.config import DynamicsModel, ActionSpace
 from algorithms.il.model.bc import *
 from pygpudrive.registration import make
-from pygpudrive.env.config import DynamicsModel, ActionSpace
+
 
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
-    parser.add_argument('--dynamics-model', '-dm', type=str, default='delta_local', choices=['delta_local', 'bicycle', 'classic'],)
-    parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
+    # ENV
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--load-dir', '-l', type=str, default='models')
-    parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument('--model-path', '-mp', type=str, default='models')
-    parser.add_argument('--model-name', '-m', type=str, default='attn_l1_twohotpositive_438763')
-    parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
+    # EXPERIMENT
+    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
+    parser.add_argument('--model-path', '-mp', type=str, default='models')
+    parser.add_argument('--model-name', '-m', type=str, default='wayformer_late_fusion_gmm_lr_0.0005')
+    parser.add_argument('--make-video', '-mv', action='store_true')
+
     args = parser.parse_args()
     return args
 
@@ -36,7 +35,7 @@ logger.setLevel(logging.INFO)
 
 if __name__ == "__main__":
     args = parse_args()
-    # Configurations
+    
     # Configurations
     NUM_WORLDS = 50
     MAX_NUM_OBJECTS = 1
@@ -63,7 +62,7 @@ if __name__ == "__main__":
         "render_config": render_config,
         "max_cont_agents": MAX_NUM_OBJECTS,
         "device": args.device,
-        "num_stack": 5
+        "num_stack": args.num_stack
     }
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
 
