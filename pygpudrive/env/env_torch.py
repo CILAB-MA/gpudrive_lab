@@ -344,8 +344,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Relative position
 
         # Sort by distance
-        # relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
-        # sorted_indices = torch.argsort(relative_distance, dim=2)
+        relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
+        sorted_indices = torch.argsort(relative_distance, dim=2)
 
         # print(f'Relative Distance {relative_distance}')
         obs[:, :, :, 1] = self.normalize_tensor(
@@ -366,13 +366,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs[:, :, :, 4] /= constants.MAX_VEH_LEN
         obs[:, :, :, 5] /= constants.MAX_VEH_WIDTH
 
-        # obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
-
         # One-hot encode the type of the other visible objects
         one_hot_encoded_object_types = self.one_hot_encode_object_type(
             obs[:, :, :, 6]
         )
-
+        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         # Concat the one-hot encoding with the rest of the features
         obs = torch.concat(
             (obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1
@@ -438,7 +436,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             constants.MIN_RG_COORD,
             constants.MAX_RG_COORD,
         )
-
+        relative_distance = torch.sqrt(obs[:, :, :, 0] ** 2 + obs[:, :, :, 1] ** 2)
+        sorted_indices = torch.argsort(relative_distance, dim=2)
         # Road line segment length
         obs[:, :, :, 2] /= constants.MAX_ROAD_LINE_SEGMENT_LEN
 
@@ -448,10 +447,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         # Road point orientation
         obs[:, :, :, 5] /= constants.MAX_ORIENTATION_RAD
-
+        
         # Road types: one-hot encode them
         one_hot_road_types = self.one_hot_encode_roadpoints(obs[:, :, :, 6])
 
+        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         # Concatenate the one-hot encoding with the rest of the features
         obs = torch.cat((obs[:, :, :, :6], one_hot_road_types), dim=-1)
 
