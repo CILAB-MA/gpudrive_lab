@@ -370,11 +370,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         one_hot_encoded_object_types = self.one_hot_encode_object_type(
             obs[:, :, :, 6]
         )
-        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         # Concat the one-hot encoding with the rest of the features
         obs = torch.concat(
             (obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1
         )
+        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
@@ -451,10 +451,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Road types: one-hot encode them
         one_hot_road_types = self.one_hot_encode_roadpoints(obs[:, :, :, 6])
 
-        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         # Concatenate the one-hot encoding with the rest of the features
         obs = torch.cat((obs[:, :, :, :6], one_hot_road_types), dim=-1)
-
+        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         return obs.flatten(start_dim=2)
 
 
