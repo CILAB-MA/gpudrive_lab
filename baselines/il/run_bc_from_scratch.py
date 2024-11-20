@@ -28,8 +28,9 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='wayformer', choices=['late_fusion_l1', 'bc_l1', 'bc_dist',
-                                                                                             'attn_l1','late_fusion_gmm', 'wayformer'])
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_attn_gmm', choices=['bc_l1', 'bc_dist',
+                                                                                      'late_fusion_l1', 'late_fusion_attn_l1',
+                                                                                      'late_fusion_gmm', 'late_fusion_attn_gmm', 'wayformer'])
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/train_trajectory_by_veh')
@@ -194,19 +195,19 @@ if __name__ == "__main__":
             hidden_size=exp_config.hidden_size,
             output_size=3,
         ).to(args.device)
-    elif args.model_name == 'late_fusion_l1':
-        bc_policy = LateFusionBCNet(
-            observation_space=None,
-            exp_config=exp_config,
-            env_config=env_config
-        ).to(args.device)
     elif args.model_name == 'bc_dist':
         bc_policy = ContFeedForward(
             input_size=train_expert_obs.shape[-1],
             hidden_size=exp_config.hidden_size,
             output_size=3,
         ).to(args.device)
-    elif args.model_name == 'attn_l1':
+    elif args.model_name == 'late_fusion_l1':
+        bc_policy = LateFusionBCNet(
+            observation_space=None,
+            exp_config=exp_config,
+            env_config=env_config
+        ).to(args.device)
+    elif args.model_name == 'late_fusion_attn_l1':
         bc_policy = LateFusionAttnBCNet(
             observation_space=None,
             exp_config=exp_config,
@@ -214,6 +215,12 @@ if __name__ == "__main__":
         ).to(args.device)
     elif args.model_name == 'late_fusion_gmm':
         bc_policy = LateFusionGmmBCNet(
+            observation_space=train_expert_obs.shape[-1],
+            exp_config=exp_config,
+            env_config=env_config
+        ).to(args.device)
+    elif args.model_name == 'late_fusion_attn_gmm':
+        bc_policy = LateFusionAttnGmmBCNet(
             observation_space=train_expert_obs.shape[-1],
             exp_config=exp_config,
             env_config=env_config

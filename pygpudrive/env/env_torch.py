@@ -3,11 +3,10 @@
 from gymnasium.spaces import Box, Tuple, Discrete, MultiDiscrete
 import numpy as np
 import torch
-import copy
-import gpudrive
 import imageio
 from itertools import product
 
+import gpudrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.base_env import GPUDriveGymEnv
 from pygpudrive.env import constants
@@ -125,6 +124,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             raise ValueError(
                 f"Invalid dynamics model: {self.config.dynamics_model}"
             )
+    
     def get_ids(self):
         return self.ego_id.clone(), self.partner_id.clone()
     
@@ -225,6 +225,14 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             axis=2
         )
 
+    def get_partner_mask(self):
+        """Get the mask for partner observations."""
+        return self.partner_mask
+    
+    def get_road_mask(self):
+        """Get the mask for road observations."""
+        return self.road_mask
+    
     def normalize_ego_state(self, state):
         """Normalize ego state features."""
 
@@ -341,15 +349,12 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Speed
         obs[:, :, :, 0] /= constants.MAX_SPEED
 
-        # Relative position
-
         # Sort by distance
         relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
         relative_distance[obs.sum(-1) == 0] = 99999
-        self.partner_mask = (obs.sum(-1) == 0)
         sorted_indices = torch.argsort(relative_distance, dim=2)
 
-        # print(f'Relative Distance {relative_distance}')
+        # Relative position
         obs[:, :, :, 1] = self.normalize_tensor(
             obs[:, :, :, 1],
             constants.MIN_REL_AGENT_POS,
@@ -373,10 +378,12 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             obs[:, :, :, 6]
         )
         # Concat the one-hot encoding with the rest of the features
-        obs = torch.concat(
-            (obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1
-        )
+        obs = torch.concat((obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1)
         obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
+        
+        # Get Mask for sorted partner agents
+        self.partner_mask = (obs.sum(-1) == 0)
+        
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
@@ -425,6 +432,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def normalize_and_flatten_map_obs(self, obs):
         """Normalize map observation features."""
+        # Sort by distance
+        relative_distance = torch.sqrt(obs[:, :, :, 0] ** 2 + obs[:, :, :, 1] ** 2)
+        relative_distance[obs.sum(-1) == 0] = 99999
+        sorted_indices = torch.argsort(relative_distance, dim=2)
 
         # Road point coordinates
         obs[:, :, :, 0] = self.normalize_tensor(
@@ -432,16 +443,12 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             constants.MIN_RG_COORD,
             constants.MAX_RG_COORD,
         )
-
         obs[:, :, :, 1] = self.normalize_tensor(
             obs[:, :, :, 1],
             constants.MIN_RG_COORD,
             constants.MAX_RG_COORD,
         )
-        self.road_mask = (obs.sum(-1) == 0)
-        relative_distance = torch.sqrt(obs[:, :, :, 0] ** 2 + obs[:, :, :, 1] ** 2)
-        relative_distance[obs.sum(-1) == 0] = 99999
-        sorted_indices = torch.argsort(relative_distance, dim=2)
+        
         # Road line segment length
         obs[:, :, :, 2] /= constants.MAX_ROAD_LINE_SEGMENT_LEN
 
@@ -458,6 +465,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Concatenate the one-hot encoding with the rest of the features
         obs = torch.cat((obs[:, :, :, :6], one_hot_road_types), dim=-1)
         obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
+        
+        # Get Mask for sorted road points
+        self.road_mask = (obs.sum(-1) == 0)
+        
         return obs.flatten(start_dim=2)
 
 
