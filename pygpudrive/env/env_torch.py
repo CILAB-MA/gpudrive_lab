@@ -227,11 +227,11 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def get_partner_mask(self):
         """Get the mask for partner observations."""
-        return self.partner_mask
+        return self.partner_mask.clone()
     
     def get_road_mask(self):
         """Get the mask for road observations."""
-        return self.road_mask
+        return self.road_mask.clone()
     
     def normalize_ego_state(self, state):
         """Normalize ego state features."""
@@ -382,7 +382,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         
         # Get Mask for sorted partner agents
-        self.partner_mask = (obs.sum(-1) == 0)
+        #TODO: obs.sum(-1) == 0 is not a good mask
+        self.partner_mask = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))
         
         return obs.flatten(start_dim=2)
 
@@ -467,7 +468,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
         
         # Get Mask for sorted road points
-        self.road_mask = (obs.sum(-1) == 0)
+        #TODO: obs.sum(-1) == 0 is not a good mask
+        self.road_mask = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))
         
         return obs.flatten(start_dim=2)
 
