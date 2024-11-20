@@ -54,7 +54,7 @@ def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: Sce
 
     # INIT WANDB    
     datetime_ = datetime.now().strftime("%Y%m%d%H%M%S")
-    run_id = f"ppo_{datetime_}"
+    run_id = f"delta_50_scenes_effective_std_4"
     with open("private.yaml") as f:
         private_info = yaml.load(f, Loader=yaml.FullLoader)
     wandb.login(key=private_info["wandb_key"])
@@ -62,8 +62,8 @@ def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: Sce
         project=private_info['side_project'],
         entity=private_info['entity'],
         name=run_id,
-        id=run_id,
-        group=f"{env_config.dynamics_model}_{action_type}",
+        # group=f"{env_config.dynamics_model}_{action_type}",
+        group="effective_std_4",
         sync_tensorboard=exp_config.sync_tensorboard,
         tags=exp_config.tags,
         mode=exp_config.wandb_mode,
@@ -125,12 +125,17 @@ if __name__ == "__main__":
         dyaw=torch.round(
             torch.linspace(-np.pi, np.pi, 20), decimals=3
         ),
+        effective_action_space=True,
+        effective_action_method="mean_std",
+        effective_scene_path="/data/train_actions_pickles",
+        std_factor=4.0,
     )
 
     scene_config = SceneConfig(
         path=exp_config.data_dir,
         num_scenes=exp_config.num_worlds,
         discipline=exp_config.selection_discipline,
+        start_idx=exp_config.start_idx,
         k_unique_scenes=exp_config.k_unique_scenes,
     )
 

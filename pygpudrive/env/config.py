@@ -65,6 +65,15 @@ class EnvConfig:
         "classic"  # Options: "classic", "bicycle", "delta_local", or "state"
     )
 
+    # Set effective action space
+    effective_action_space: bool = True
+    effective_action_method: str = "mean_std" # Options: "mean_std", "min_max"
+    effective_scene_path: str = "/data/train_actions_pickles"
+    std_factor: float = 1.0
+    dxs: torch.Tensor = None
+    dys: torch.Tensor = None
+    dyaws: torch.Tensor = None
+
     # Action space settings (if discretized)
     # Classic or Invertible Bicycle dynamics model
     steer_actions: torch.Tensor = torch.round(
@@ -155,7 +164,7 @@ class SceneConfig:
     num_scenes: int
     discipline: SelectionDiscipline = SelectionDiscipline.PAD_N
     k_unique_scenes: Optional[int] = None
-    start_idx: Optional[int] = 0
+    start_idx: Optional[int] = None
     seed: Optional[int] = None
 
 

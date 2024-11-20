@@ -15,7 +15,8 @@ class ExperimentConfig:
     # NUM PARALLEL ENVIRONMENTS & DEVICE
     num_worlds: int = 50 # Number of parallel environments
     # How to select scenes from the dataset
-    selection_discipline = SelectionDiscipline.PAD_N  # K_UNIQUE_N / PAD_N
+    selection_discipline = SelectionDiscipline.RANGE_N  # K_UNIQUE_N / PAD_N
+    start_idx: int = 0  # Start index for selecting scenes
     k_unique_scenes: int = 3
     device: str = "cuda"  # or "cpu"
 
@@ -27,7 +28,7 @@ class ExperimentConfig:
     off_road_weight: float = 0.0
 
     # RESAMPLE TRAFFIC SCENARIOS
-    resample_scenarios: bool = True
+    resample_scenarios: bool = False
     resample_criterion: str = "global_step"  # Options: "global_step"
     resample_freq: int = 1e6  # Resample every k steps (recommended to be a multiple of num_worlds * n_steps)
     resample_mode: str = "random"  # Options: "random"
@@ -47,7 +48,7 @@ class ExperimentConfig:
         100  # How many trajectories we average logs over
     )
     log_freq: int = 100
-    tags = ["IPPO", "LATE_FUSION", "PERM_EQ"]
+    tags = ["IPPO", "LATE_FUSION", "PERM_EQ", "DELTA", "50s128v", "seed_30", "std4.0"]
     wandb_mode = "online"  # Options: online, offline, disabled
 
     # CONSTANTS
