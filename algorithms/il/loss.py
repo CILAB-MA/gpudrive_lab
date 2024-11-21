@@ -1,5 +1,5 @@
 import torch
-
+from torch.distributions import dist
 
 def two_hot_encoding(value, bins):
     idx_upper = torch.searchsorted(bins, value, right=True).clamp(max=len(bins) - 1)
@@ -40,12 +40,12 @@ def two_hot_loss(pred, targ, dx_bins, dy_bins, dyaw_bins):
 
     return total_loss
 
-def gmm_loss(self, obs, expert_actions):
-        # todo: move gmm loss to here
-        # means, covariances, weights = self.forward(obs)
+def gmm_loss(pred_actions, expert_actions):
+        means, covariances, weights, components = pred_actions
+        
         log_probs = []
 
-        for i in range(self.gmm.n_components):
+        for i in range(components):
             mean = means[:, i, :]
             cov_diag = covariances[:, i, :]
             gaussian = dist.MultivariateNormal(mean, torch.diag_embed(cov_diag))

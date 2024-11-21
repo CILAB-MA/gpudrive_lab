@@ -79,19 +79,3 @@ class GMM(nn.Module):
         log_probs = torch.stack(log_probs, dim=1)
         weighted_log_probs = log_probs + torch.log(weights + 1e-8)
         return torch.logsumexp(weighted_log_probs, dim=1)
-    
-    
-if __name__ == "__main__":    
-    model = GMM(128, 128, 3, 10)
-    embedding_vector = torch.randn(256, 128)
-    actions = torch.randn(256, 3).clamp(-1, 1)
-
-    range_dx = (-6, 6)
-    range_dy = (-6, 6)
-    range_dyaw = (-3.14, 3.14)
-
-    actions[:, 0] = (actions[:, 0] + 1) * 0.5 * (range_dx[1] - range_dx[0]) + range_dx[0]
-    actions[:, 1] = (actions[:, 1] + 1) * 0.5 * (range_dy[1] - range_dy[0]) + range_dy[0]
-    actions[:, 2] = (actions[:, 2] + 1) * 0.5 * (range_dyaw[1] - range_dyaw[0]) + range_dyaw[0]
-    log_prob = model.log_prob(embedding_vector, actions)
-    print(log_prob)

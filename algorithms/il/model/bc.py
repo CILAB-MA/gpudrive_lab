@@ -1,17 +1,15 @@
 # Define network
-import torch.nn as nn
 import torch
-from typing import Callable, Dict, List, Optional, Tuple, Type, Union
+import torch.nn as nn
 import torch.distributions as dist
 from torch.distributions.categorical import Categorical
 from torch.distributions.normal import Normal
 import torch.nn.functional as F
+from typing import List
 
-from pygpudrive.env import constants
 from networks.perm_eq_late_fusion import LateFusionNet
-from algorithms.il.model.wayformer import MultiHeadAttention, Residual, PerceiverEncoder, MLP
-
-from algorithms.il.model.gmm import GMM
+from algorithms.il.model.bc_utils.wayformer import MultiHeadAttention, PerceiverEncoder
+from algorithms.il.model.bc_utils.gmm import GMM
 
 
 class FeedForward(nn.Module):
@@ -112,8 +110,9 @@ class ContFeedForwardMSE(nn.Module):
         return actions
 
 class LateFusionBCNet(LateFusionNet):
-    def __init__(self,  observation_space, env_config, exp_config, num_stack=5):
-        super(LateFusionBCNet, self).__init__(observation_space, env_config, exp_config)
+    def __init__(self, env_config, net_config, head):
+        super(LateFusionBCNet, self).__init__(None, env_config, net_config)
+        num_stack = env_config.num_stack
         
         # Scene encoder
         self.ego_state_net = self._build_network(
@@ -124,27 +123,14 @@ class LateFusionBCNet(LateFusionNet):
             input_dim=self.ro_input_dim * num_stack,
             net_arch=self.arch_road_objects,
         )
-        self.rg_net = self._build_network(
+        self.road_graph_net = self._build_network(
             input_dim=self.rg_input_dim * num_stack,
             net_arch=self.arch_road_graph,
         )
 
         # Action head
-        self.dx_head = self._build_out_network(
-            input_dim=self.shared_net_input_dim,
-            output_dim=1,
-            net_arch=self.arch_shared_net,
-        )
-        self.dy_head = self._build_out_network(
-            input_dim=self.shared_net_input_dim,
-            output_dim=1,
-            net_arch=self.arch_shared_net,
-        )
-        self.dyaw_head = self._build_out_network(
-            input_dim=self.shared_net_input_dim,
-            output_dim=1,
-            net_arch=self.arch_shared_net,
-        )
+        self.head = head
+
         
     def _unpack_obs(self, obs_flat, num_stack=1):
         """
@@ -166,7 +152,7 @@ class LateFusionBCNet(LateFusionNet):
             .view(-1, num_stack, self.ro_max, self.ro_input_dim)
             .permute(0, 2, 1, 3)  # Reorder to (batch, ro_max, num_stack, ro_input_dim)
             .reshape(-1, self.ro_max, num_stack * self.ro_input_dim)
-         )
+        )
 
         # rg_stack: Original reshape, then combine num_stack and self.rg_input_dim dimensions
         rg_stack = (
@@ -203,7 +189,7 @@ class LateFusionBCNet(LateFusionNet):
         # Embed features
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
-        road_graph = self.rg_net(road_graph)
+        road_graph = self.road_graph_net(road_graph)
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
@@ -216,34 +202,15 @@ class LateFusionBCNet(LateFusionNet):
 
         embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
 
-        dx = self.dx_head(embedding_vector)
-        dy = self.dy_head(embedding_vector)
-        dyaw = self.dyaw_head(embedding_vector)
-        actions = torch.cat([dx, dy, dyaw], dim=-1)
+        actions = self.head(embedding_vector)
         
         return actions
 
 class LateFusionAttnBCNet(LateFusionNet):
-    def __init__(self,  observation_space, env_config, exp_config,
-                 num_stack=5):
+    def __init__(self,  observation_space, env_config, exp_config, num_stack=5):
         super(LateFusionAttnBCNet, self).__init__(observation_space, env_config, exp_config)
-        self.config = env_config
-        self.net_config = exp_config
-        self.ego_input_dim = constants.EGO_FEAT_DIM
-        self.ro_input_dim = constants.PARTNER_FEAT_DIM
-        self.rg_input_dim = constants.ROAD_GRAPH_FEAT_DIM
         
-        self.ro_max = self.config.max_num_agents_in_scene-1
-        self.rg_max = self.config.roadgraph_top_k
-        self.arch_ego_state = self.net_config.ego_state_layers
-        self.arch_road_objects = self.net_config.road_object_layers
-        self.arch_road_graph = self.net_config.road_graph_layers
-        self.arch_shared_net = self.net_config.shared_layers
-        self.act_func = (
-            nn.Tanh() if self.net_config.act_func == "tanh" else nn.ReLU()
-        )
-        self.dropout = self.net_config.dropout
-
+        # Scene encoder
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
             net_arch=self.arch_ego_state,
@@ -252,32 +219,34 @@ class LateFusionAttnBCNet(LateFusionNet):
             input_dim=self.ro_input_dim * num_stack,
             net_arch=self.arch_road_objects,
         )
+        self.road_graph_net = self._build_network(
+            input_dim=self.rg_input_dim * num_stack,
+            net_arch=self.arch_road_graph,
+        )
+        
+        # Attention
         self.ro_attn = MultiHeadAttention(
             num_heads=4,
             num_q_input_channels=self.arch_road_objects[-1],
             num_kv_input_channels=self.arch_road_objects[-1],
-            )
-        self.rg_net = self._build_network(
-            input_dim=self.rg_input_dim * num_stack,
-            net_arch=self.arch_road_graph,
         )
         self.rg_attn = MultiHeadAttention(
             num_heads=4,
             num_q_input_channels=self.arch_road_graph[-1],
             num_kv_input_channels=self.arch_road_graph[-1],
-            )
+        )
+        
+        # Action head
         self.dx_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
             net_arch=self.arch_shared_net,
         )
-
         self.dy_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
             net_arch=self.arch_shared_net,
         )
-
         self.dyaw_head = self._build_out_network(
             input_dim=self.shared_net_input_dim,
             output_dim=1,
@@ -342,7 +311,7 @@ class LateFusionAttnBCNet(LateFusionNet):
         road_objects = self.road_object_net(road_objects)
         road_objects_attn = self.ro_attn(road_objects, road_objects)
         
-        road_graph = self.rg_net(road_graph)
+        road_graph = self.road_graph_net(road_graph)
         road_graph_attn = self.ro_attn(road_graph, road_graph)
 
         # Max pooling across the object dimension
@@ -373,11 +342,12 @@ class LateFusionGmmBCNet(LateFusionNet):
             input_dim=self.ro_input_dim * num_stack,
             net_arch=self.arch_road_objects,
         )
-        self.rg_net = self._build_network(
+        self.road_graph_net = self._build_network(
             input_dim=self.rg_input_dim * num_stack,
             net_arch=self.arch_road_graph,
         )
 
+        # Action head
         self.gmm = GMM(
             input_dim=self.shared_net_input_dim,
             hidden_dim=self.net_config.hidden_dim,
@@ -442,7 +412,7 @@ class LateFusionGmmBCNet(LateFusionNet):
         # Embed features
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
-        road_graph = self.rg_net(road_graph)
+        road_graph = self.road_graph_net(road_graph)
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
@@ -456,23 +426,8 @@ class LateFusionGmmBCNet(LateFusionNet):
         embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
 
         means, covariances, weights = self.gmm(embedding_vector)
-        return means, covariances, weights
-
-    def compute_loss(self, obs, expert_actions):
-        means, covariances, weights = self.forward(obs)
-       
-        log_probs = []
-
-        for i in range(self.gmm.n_components):
-            mean = means[:, i, :]
-            cov_diag = covariances[:, i, :]
-            gaussian = dist.MultivariateNormal(mean, torch.diag_embed(cov_diag))
-            log_probs.append(gaussian.log_prob(expert_actions))
-
-        log_probs = torch.stack(log_probs, dim=1)
-        weighted_log_probs = log_probs + torch.log(weights + 1e-8)
-        loss = -torch.logsumexp(weighted_log_probs, dim=1)
-        return loss.mean()
+        n_components = self.net_config.n_components
+        return means, covariances, weights, n_components
     
     def sample(self, obs):
         means, covariances, weights = self.forward(obs)
@@ -490,7 +445,7 @@ class LateFusionGmmBCNet(LateFusionNet):
 class LateFusionAttnGmmBCNet(LateFusionNet):
     def __init__(self,  observation_space, env_config, exp_config, num_stack=5):
         super().__init__(observation_space, env_config, exp_config)
-
+        
         # Scene encoder
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
@@ -500,7 +455,7 @@ class LateFusionAttnGmmBCNet(LateFusionNet):
             input_dim=self.ro_input_dim * num_stack,
             net_arch=self.arch_road_objects,
         )
-        self.rg_net = self._build_network(
+        self.road_graph_net = self._build_network(
             input_dim=self.rg_input_dim * num_stack,
             net_arch=self.arch_road_graph,
         )
@@ -585,7 +540,7 @@ class LateFusionAttnGmmBCNet(LateFusionNet):
         road_objects = self.road_object_net(road_objects)
         road_objects_attn = self.ro_attn(road_objects, road_objects)
         
-        road_graph = self.rg_net(road_graph)
+        road_graph = self.road_graph_net(road_graph)
         road_graph_attn = self.rg_attn(road_graph, road_graph)
 
         # Average pooling across the object dimension
@@ -600,23 +555,9 @@ class LateFusionAttnGmmBCNet(LateFusionNet):
         embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
 
         means, covariances, weights = self.gmm(embedding_vector)
-        return means, covariances, weights
-
-    def compute_loss(self, obs, expert_actions):
-        means, covariances, weights = self.forward(obs)
-       
-        log_probs = []
-
-        for i in range(self.gmm.n_components):
-            mean = means[:, i, :]
-            cov_diag = covariances[:, i, :]
-            gaussian = dist.MultivariateNormal(mean, torch.diag_embed(cov_diag))
-            log_probs.append(gaussian.log_prob(expert_actions))
-
-        log_probs = torch.stack(log_probs, dim=1)
-        weighted_log_probs = log_probs + torch.log(weights + 1e-8)
-        loss = -torch.logsumexp(weighted_log_probs, dim=1)
-        return loss.mean()
+        n_components = self.net_config.n_components
+        
+        return means, covariances, weights, n_components
     
     def sample(self, obs):
         means, covariances, weights = self.forward(obs)
@@ -645,7 +586,7 @@ class WayformerEncoder(LateFusionBCNet):
             input_dim=self.ro_input_dim * num_stack,
             net_arch=self.arch_road_objects,
         )
-        self.rg_net = self._build_network(
+        self.road_graph_net = self._build_network(
             input_dim=self.rg_input_dim * num_stack,
             net_arch=self.arch_road_graph,
         )
@@ -695,7 +636,7 @@ class WayformerEncoder(LateFusionBCNet):
         # Embed features
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
-        road_graph = self.rg_net(road_graph)
+        road_graph = self.road_graph_net(road_graph)
 
         ego_state = ego_state.reshape(batch_size, -1, 64)
         road_objects = road_objects.reshape(batch_size, -1, 64)
@@ -736,7 +677,8 @@ class WayformerEncoder(LateFusionBCNet):
         # Sample actions from the chosen component's Gaussian
         actions = dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
         return actions
-    
+
+
 if __name__ == "__main__":
     from pygpudrive.registration import make
     from pygpudrive.env.config import DynamicsModel, ActionSpace

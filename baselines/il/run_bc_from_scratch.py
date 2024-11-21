@@ -13,7 +13,8 @@ from tqdm import tqdm
 # GPUDrive
 from pygpudrive.env.config import EnvConfig
 from baselines.il.config import ExperimentConfig
-from algorithms.il import MODELS, LOSS
+from algorithms.il import MODELS, HEADS, LOSS
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -111,7 +112,7 @@ if __name__ == "__main__":
     )
     
     # Build Model # todo: integrate args
-    bc_policy = MODELS[args.model_name]()
+    bc_policy = MODELS[args.model_name](env_config, exp_config).to(args.device)
     
     # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=exp_config.lr)
@@ -158,7 +159,7 @@ if __name__ == "__main__":
             # Forward pass
             expert_action *= args.action_scale
             pred_actions = bc_policy(obs, ~dead_mask)
-            loss = LOSS[args.loss_name]() # todo: integrate args name here
+            loss = LOSS[args.loss_name](pred_actions, expert_action)
             
             # Backward pass
             optimizer.zero_grad()
