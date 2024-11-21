@@ -1,6 +1,7 @@
+import torch.nn.functional as F
+
 from algorithms.il.model.bc import *
 from algorithms.il.loss import *
-import torch.nn.functional as F
 
 MODELS = dict(bc=ContFeedForward, late_fusion=LateFusionBCNet,
               attention=LateFusionAttnBCNet, wayformer=None)

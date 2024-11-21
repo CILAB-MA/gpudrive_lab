@@ -10,6 +10,7 @@ class ExperimentConfig:
     hidden_size: list = field(default_factory=lambda: [1024, 256])
     net_arch: list = field(default_factory=lambda: [64, 128])
     sample_per_epoch: int = 50000
+    
     # LATEFUSION NETWORK
     ego_state_layers = [64, 64]
     road_object_layers = [64, 64]
