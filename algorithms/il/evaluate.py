@@ -23,6 +23,7 @@ def parse_args():
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--model-path', '-mp', type=str, default='models')
+    parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--model-name', '-m', type=str, default='wayformer_late_fusion_gmm_lr_0.0005')
     parser.add_argument('--make-video', '-mv', action='store_true')
 
@@ -78,7 +79,7 @@ if __name__ == "__main__":
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
         with torch.no_grad():
             actions = bc_policy(obs[~dead_agent_mask])
-        all_actions[~dead_agent_mask, :] = actions
+        all_actions[~dead_agent_mask, :] = actions / args.action_scale
 
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])

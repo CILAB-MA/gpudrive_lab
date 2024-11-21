@@ -11,7 +11,20 @@ from networks.perm_eq_late_fusion import LateFusionNet
 from algorithms.il.model.bc_utils.wayformer import MultiHeadAttention, PerceiverEncoder
 from algorithms.il.model.bc_utils.gmm import GMM
 
+class ContHead(nn.Module):
 
+    def __init__(self, hidden_size):
+        self.dx_head = nn.Linear(hidden_size, 1)
+        self.dy_head = nn.Linear(hidden_size, 1)
+        self.dyaw_head = nn.Linear(hidden_size, 1)
+
+    def forward(self, x):
+        dx = self.dx_head(x)
+        dy = self.dy_head(x)
+        dyaw = self.dyaw_head(x)
+        actions = torch.cat([dx, dy, dyaw], dim=-1)
+        return actions
+    
 class FeedForward(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(FeedForward, self).__init__()
@@ -44,69 +57,31 @@ class FeedForward(nn.Module):
         return log_prob
 
 class ContFeedForward(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, observation_space, env_config, exp_config, num_stack=5,
+                 loss='l1'):
         super(ContFeedForward, self).__init__()
         self.nn = nn.Sequential(
-            nn.Linear(input_size, hidden_size[0]),
+            nn.Linear(input_size, exp_config.hidden_size[0]),
             nn.Tanh(),
-            nn.Linear(hidden_size[0], hidden_size[0]),
+            nn.Linear(exp_config.hidden_size[0], exp_config.hidden_size[0]),
             nn.Tanh(),
-            nn.Linear(hidden_size[0], hidden_size[1]),
+            nn.Linear(exp_config.hidden_size[0], exp_config.hidden_size[1]),
             nn.Tanh(),
-            nn.Linear(hidden_size[1], hidden_size[1]),
+            nn.Linear(exp_config.hidden_size[1], exp_config.hidden_size[1]),
             nn.Tanh(),
         )
-        self.log_std = nn.Parameter(torch.zeros(3))
-        self.heads = nn.ModuleList([nn.Linear(hidden_size[1], output_size)])
-
-
-    def dist(self, obs):
-        """Generate action distribution."""
-        x_out = self.nn(obs.float())
-        return [Normal(head(x_out), torch.exp(std)) for head, std in zip(self.heads, self.log_std)]
+        self.loss_func = loss
+        if loss in ['l1', 'mse', 'twohot']: # make head module
+            self.head = ContHead()
+        elif loss == 'gmm':
+            self.head = GMM()
+        elif loss == 'dist':
+            self.head = DistHead()
 
     def forward(self, obs, deterministic=False):
         """Generate an output from tensor input."""
-        action_dist = self.dist(obs)
-        if deterministic:
-            actions_idx = torch.cat([dist.mean for dist in action_dist], dim=-1)
-        else:
-            actions_idx = torch.cat([dist.sample() for dist in action_dist], dim=-1)
-        return actions_idx
-
-    def _log_prob(self, obs, expert_actions):
-        pred_action_dist = self.dist(obs)
-        log_prob = torch.cat([dist.log_prob(expert_actions) for dist in pred_action_dist], dim=-1)
-        return log_prob
-
-    def get_std(self):
-        return self.log_std
-    
-class ContFeedForwardMSE(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(ContFeedForwardMSE, self).__init__()
-        self.nn = nn.Sequential(
-            nn.Linear(input_size, hidden_size[0]),
-            nn.Tanh(),
-            nn.Linear(hidden_size[0], hidden_size[0]),
-            nn.Tanh(),
-            nn.Linear(hidden_size[0], hidden_size[1]),
-            nn.Tanh(),
-            nn.Linear(hidden_size[1], hidden_size[1]),
-            nn.Tanh(),
-        )
-        self.dx_heads = nn.Linear(hidden_size[1], 1)
-        self.dy_heads = nn.Linear(hidden_size[1], 1)
-        self.dyaw_heads = nn.Linear(hidden_size[1], 1)
-
-
-    def forward(self, obs, deterministic=False):
-        """Generate an output from tensor input."""
-        nn = self.nn(obs)
-        dx = self.dx_heads(nn)
-        dy = self.dy_heads(nn)
-        dyaw = self.dyaw_heads(nn)
-        actions = torch.cat([dx, dy, dyaw], dim=-1)
+        out = self.nn(obs)
+        actions = self.head(obs, deterministic)
         return actions
 
 class LateFusionBCNet(LateFusionNet):
