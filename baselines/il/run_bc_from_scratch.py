@@ -156,6 +156,7 @@ if __name__ == "__main__":
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
             dead_mask = mask.to(args.device)
             # Forward pass
+            expert_action *= args.action_scale
             pred_actions = bc_policy(obs, ~dead_mask)
             loss = LOSS[args.loss_name]() # todo: integrate args name here
             
