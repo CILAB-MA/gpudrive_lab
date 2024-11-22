@@ -1,5 +1,5 @@
 import torch
-from torch.distributions import dist
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 def two_hot_encoding(value, bins):
     idx_upper = torch.searchsorted(bins, value, right=True).clamp(max=len(bins) - 1)
@@ -48,7 +48,7 @@ def gmm_loss(pred_actions, expert_actions):
         for i in range(components):
             mean = means[:, i, :]
             cov_diag = covariances[:, i, :]
-            gaussian = dist.MultivariateNormal(mean, torch.diag_embed(cov_diag))
+            gaussian = MultivariateNormal(mean, torch.diag_embed(cov_diag))
             log_probs.append(gaussian.log_prob(expert_actions))
 
         log_probs = torch.stack(log_probs, dim=1)

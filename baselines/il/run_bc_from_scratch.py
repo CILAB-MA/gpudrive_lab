@@ -13,7 +13,7 @@ from tqdm import tqdm
 # GPUDrive
 from pygpudrive.env.config import EnvConfig
 from baselines.il.config import ExperimentConfig
-from algorithms.il import MODELS, HEADS, LOSS
+from algorithms.il import MODELS, LOSS
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,14 +27,15 @@ def parse_args():
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
     parser.add_argument('--model-name', '-m', type=str, default='bc', choices=['bc', 'late_fusion', 'attention', 'wayformer'])
-    parser.add_argument('--loss-name', '-l', type=str, default='l1', choices=['l1', 'gmm', 'two-hot', 'dist'])
+    parser.add_argument('--loss-name', '-l', type=str, default='l1', choices=['l1', 'gmm', 'twohot', 'dist'])
     parser.add_argument('--action-scale', '-as', type=int, default=1)
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/train_trajectory_by_veh')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_seq_trajectory_50.npz')
-    parser.add_argument('--eval-data-file', '-ed', type=str, default='eval_seq_trajectory_50.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_sorted_trajectory_1000.npz')
+    parser.add_argument('--eval-data-file', '-ed', type=str, default='eval_sorted_trajectory_200.npz')
     args = parser.parse_args()
+    
     return args
 
 class ExpertDataset(torch.utils.data.Dataset):
@@ -112,7 +113,8 @@ if __name__ == "__main__":
     )
     
     # Build Model # todo: integrate args
-    bc_policy = MODELS[args.model_name](env_config, exp_config).to(args.device)
+    bc_policy = MODELS[args.model_name](env_config.observation_space,
+                                        env_config, exp_config).to(args.device)
     
     # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=exp_config.lr)

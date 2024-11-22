@@ -12,71 +12,56 @@ from algorithms.il.model.bc_utils.wayformer import MultiHeadAttention, Perceiver
 from algorithms.il.model.bc_utils.gmm import GMM
 
 class ContHead(nn.Module):
+    def __init__(self, hidden_size, net_arch):
+        self.dx_head = self._build_out_network(hidden_size, 1, net_arch)
+        self.dy_head = self._build_out_network(hidden_size, 1, net_arch)
+        self.dyaw_head = self._build_out_network(hidden_size, 1, net_arch)
 
-    def __init__(self, hidden_size):
-        self.dx_head = nn.Linear(hidden_size, 1)
-        self.dy_head = nn.Linear(hidden_size, 1)
-        self.dyaw_head = nn.Linear(hidden_size, 1)
+    def _build_out_network(
+        self, input_dim: int, output_dim: int, net_arch: List[int]
+    ):
+        """Create the output network architecture."""
+        layers = []
+        prev_dim = input_dim
+        for layer_dim in net_arch:
+            layers.append(nn.Linear(prev_dim, layer_dim))
+            layers.append(nn.LayerNorm(layer_dim))
+            layers.append(self.act_func)
+            layers.append(nn.Dropout(self.dropout))
+            prev_dim = layer_dim
 
-    def forward(self, x):
+        # Add final layer
+        layers.append(nn.Linear(prev_dim, output_dim))
+
+        return nn.Sequential(*layers)
+    
+    def forward(self, x, deterministic=None):
         dx = self.dx_head(x)
         dy = self.dy_head(x)
         dyaw = self.dyaw_head(x)
         actions = torch.cat([dx, dy, dyaw], dim=-1)
         return actions
     
-class FeedForward(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(FeedForward, self).__init__()
-        self.nn = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.Tanh(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.Tanh(),
-        )
-        self.heads = nn.ModuleList([nn.Linear(hidden_size, output_size)])
-
-    def dist(self, obs):
-        """Generate action distribution."""
-        x_out = self.nn(obs.float())
-        return [Categorical(logits=head(x_out)) for head in self.heads]
-
-    def forward(self, obs, deterministic=False):
-        """Generate an output from tensor input."""
-        action_dist = self.dist(obs)
-
-        if deterministic:
-            actions_idx = action_dist[0].logits.argmax(axis=-1)
-        else:
-            actions_idx = action_dist.sample()
-        return actions_idx
-
-    def _log_prob(self, obs, expert_actions):
-        pred_action_dist = self.dist(obs)
-        log_prob = pred_action_dist[0].log_prob(expert_actions).mean()
-        return log_prob
-
-class ContFeedForward(nn.Module):
+class ContFeedForward(LateFusionNet):
     def __init__(self, observation_space, env_config, exp_config, num_stack=5,
                  loss='l1'):
         super(ContFeedForward, self).__init__()
-        self.nn = nn.Sequential(
-            nn.Linear(input_size, exp_config.hidden_size[0]),
-            nn.Tanh(),
-            nn.Linear(exp_config.hidden_size[0], exp_config.hidden_size[0]),
-            nn.Tanh(),
-            nn.Linear(exp_config.hidden_size[0], exp_config.hidden_size[1]),
-            nn.Tanh(),
-            nn.Linear(exp_config.hidden_size[1], exp_config.hidden_size[1]),
-            nn.Tanh(),
+
+        self.nn = self._build_network(
+            input_dim=(self.ego_input_dim + self.ro_input_dim + self.rg_input_dim) * num_stack,
+            net_arch=exp_config.hidden_size,
         )
+
         self.loss_func = loss
+        self.arch_shared_net[0] = exp_config.hidden_size[-1]
         if loss in ['l1', 'mse', 'twohot']: # make head module
-            self.head = ContHead()
+            self.head = ContHead(exp_config.hidden_size[-1], self.arch_shared_net)
         elif loss == 'gmm':
-            self.head = GMM()
+            pass
         elif loss == 'dist':
-            self.head = DistHead()
+            pass
+        else:
+            raise ValueError(f"Loss name {loss} is not supported")
 
     def forward(self, obs, deterministic=False):
         """Generate an output from tensor input."""
