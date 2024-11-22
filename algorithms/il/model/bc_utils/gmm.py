@@ -23,7 +23,7 @@ class GMM(nn.Module):
         self.n_components = n_components
         self.action_dim = action_dim
 
-    def forward(self, x):
+    def get_gmm_params(self, x):
         """
         Get the parameters of the Gaussian Mixture Model
         """
@@ -46,12 +46,11 @@ class GMM(nn.Module):
         
         return means, covariances, weights, self.n_components
 
-    def sample(self, x):
+    def forward(self, x):
         """
         Sample actions from the Gaussian Mixture Model
         """
-        means, covariances, weights = self.get_gmm_params(x)
-        
+        means, covariances, weights, components = self.get_gmm_params(x)
         # Sample component indices based on weights
         component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
         

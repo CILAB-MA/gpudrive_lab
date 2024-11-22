@@ -13,7 +13,7 @@ from tqdm import tqdm
 # GPUDrive
 from pygpudrive.env.config import EnvConfig
 from baselines.il.config import ExperimentConfig
-from algorithms.il import MODELS, LOSS
+from algorithms.il import MODELS, GET_LOSS
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -166,8 +166,7 @@ if __name__ == "__main__":
             
             # Forward pass
             expert_action *= args.action_scale
-            pred_actions = bc_policy(obs, ~dead_mask) if dead_mask else bc_policy(obs)
-            loss = LOSS[args.loss_name](pred_actions, expert_action)
+            loss = GET_LOSS[args.loss_name](bc_policy, obs, expert_action, dead_mask)
             
             # Backward pass
             optimizer.zero_grad()

@@ -40,18 +40,16 @@ def two_hot_loss(pred, targ, dx_bins, dy_bins, dyaw_bins):
 
     return total_loss
 
-def gmm_loss(pred_actions, expert_actions):
-        means, covariances, weights, components = pred_actions
-        
-        log_probs = []
+def gmm_loss(means, covariances, weights, components, expert_actions):        
+    log_probs = []
 
-        for i in range(components):
-            mean = means[:, i, :]
-            cov_diag = covariances[:, i, :]
-            gaussian = MultivariateNormal(mean, torch.diag_embed(cov_diag))
-            log_probs.append(gaussian.log_prob(expert_actions))
+    for i in range(components):
+        mean = means[:, i, :]
+        cov_diag = covariances[:, i, :]
+        gaussian = MultivariateNormal(mean, torch.diag_embed(cov_diag))
+        log_probs.append(gaussian.log_prob(expert_actions))
 
-        log_probs = torch.stack(log_probs, dim=1)
-        weighted_log_probs = log_probs + torch.log(weights + 1e-8)
-        loss = -torch.logsumexp(weighted_log_probs, dim=1)
-        return loss.mean()
+    log_probs = torch.stack(log_probs, dim=1)
+    weighted_log_probs = log_probs + torch.log(weights + 1e-8)
+    loss = -torch.logsumexp(weighted_log_probs, dim=1)
+    return loss.mean()
