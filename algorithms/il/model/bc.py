@@ -43,9 +43,9 @@ class ContHead(nn.Module):
         return actions
     
 class ContFeedForward(LateFusionNet):
-    def __init__(self,  env_config, exp_config, loss='l1'):
+    def __init__(self,  env_config, exp_config, loss='l1', num_stack=5):
         super(ContFeedForward, self).__init__(None, env_config, exp_config)
-        num_stack = env_config.num_stack
+        self.num_stack = num_stack
 
         self.nn = self._build_network(
             input_dim=(self.ego_input_dim + self.ro_input_dim + self.rg_input_dim) * num_stack,
@@ -79,9 +79,9 @@ class ContFeedForward(LateFusionNet):
         return actions
 
 class LateFusionBCNet(LateFusionNet):
-    def __init__(self, env_config, exp_config, loss='l1'):
+    def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
         super(LateFusionBCNet, self).__init__(None, env_config, exp_config)
-        num_stack = env_config.num_stack
+        self.num_stack = num_stack
         
         # Scene encoder
         self.ego_state_net = self._build_network(
@@ -191,9 +191,9 @@ class LateFusionBCNet(LateFusionNet):
         return actions
 
 class LateFusionAttnBCNet(LateFusionNet):
-    def __init__(self, env_config, exp_config, loss='l1'):
+    def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
         super(LateFusionAttnBCNet, self).__init__(None, env_config, exp_config)
-        num_stack = env_config.num_stack
+        self.num_stack = num_stack
         
         # Scene encoder
         self.ego_state_net = self._build_network(
@@ -318,9 +318,9 @@ class LateFusionAttnBCNet(LateFusionNet):
         return actions
 
 class WayformerEncoder(LateFusionBCNet):
-    def __init__(self, env_config, exp_config, loss='l1'):
-        super(WayformerEncoder, self).__init__(None, env_config, exp_config)
-        num_stack = env_config.num_stack
+    def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
+        super(WayformerEncoder, self).__init__(None, env_config, exp_config, num_stack)
+        self.num_stack = num_stack
         
          # Scene encoder
         self.ego_state_net = self._build_network(

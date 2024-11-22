@@ -23,7 +23,7 @@ class GMM(nn.Module):
         self.n_components = n_components
         self.action_dim = action_dim
 
-    def get_gmm_params(self, x):
+    def forward(self, x):
         """
         Get the parameters of the Gaussian Mixture Model
         """
@@ -44,11 +44,11 @@ class GMM(nn.Module):
         covariances = torch.exp(covariances)
         weights = torch.softmax(weights, dim=1)
         
-        return means, covariances, weights
+        return means, covariances, weights, self.n_components
 
-    def forward(self, x):
+    def sample(self, x):
         """
-        Forward pass of the model
+        Sample actions from the Gaussian Mixture Model
         """
         means, covariances, weights = self.get_gmm_params(x)
         
