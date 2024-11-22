@@ -112,9 +112,8 @@ if __name__ == "__main__":
         shuffle=False,  # Break temporal structure
     )
     
-    # Build Model # todo: integrate args
-    bc_policy = MODELS[args.model_name](env_config.observation_space,
-                                        env_config, exp_config).to(args.device)
+    # Build Model
+    bc_policy = MODELS[args.model_name](env_config, exp_config, args.loss_name).to(args.device)
     
     # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=exp_config.lr)
@@ -145,7 +144,7 @@ if __name__ == "__main__":
     global_step = 0
     for epoch in tqdm(range(exp_config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
-        total_samples = 0  # Initialize sample counter
+        total_samples = 0
         losses = 0
         dx_losses = 0
         dy_losses = 0
@@ -158,6 +157,7 @@ if __name__ == "__main__":
 
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
             dead_mask = mask.to(args.device)
+            
             # Forward pass
             expert_action *= args.action_scale
             pred_actions = bc_policy(obs, ~dead_mask)

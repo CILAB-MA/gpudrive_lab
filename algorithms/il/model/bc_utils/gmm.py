@@ -16,17 +16,16 @@ class GMM(nn.Module):
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
                 nn.Linear(hidden_dim, hidden_dim)
-            ) for _ in range(3)
+            ) for _ in range(4)
         ])
         
         self.head = nn.Linear(hidden_dim, n_components * (2 * action_dim + 1))
-
         self.n_components = n_components
         self.action_dim = action_dim
 
-    def forward(self, x):
+    def get_gmm_params(self, x):
         """
-        Forward pass of the model
+        Get the parameters of the Gaussian Mixture Model
         """
         x = self.input_layer(x)
         
@@ -47,11 +46,11 @@ class GMM(nn.Module):
         
         return means, covariances, weights
 
-    def sample(self, x):
+    def forward(self, x):
         """
-        Sample an action based on the GMM parameters given embedding vector x
+        Forward pass of the model
         """
-        means, covariances, weights = self.forward(x)
+        means, covariances, weights = self.get_gmm_params(x)
         
         # Sample component indices based on weights
         component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
@@ -63,19 +62,3 @@ class GMM(nn.Module):
         actions = dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
         return actions
 
-    def log_prob(self, x, actions):
-        """
-        Compute the log probability of actions given embedding vector x
-        """
-        means, covariances, weights = self.forward(x)
-        log_probs = []
-
-        for i in range(self.n_components):
-            mean = means[:, i, :]
-            cov_diag = covariances[:, i, :]
-            gaussian = dist.MultivariateNormal(mean, torch.diag_embed(cov_diag))
-            log_probs.append(gaussian.log_prob(actions))
-
-        log_probs = torch.stack(log_probs, dim=1)
-        weighted_log_probs = log_probs + torch.log(weights + 1e-8)
-        return torch.logsumexp(weighted_log_probs, dim=1)
