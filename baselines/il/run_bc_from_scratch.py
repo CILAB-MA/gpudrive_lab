@@ -13,7 +13,7 @@ from tqdm import tqdm
 # GPUDrive
 from pygpudrive.env.config import EnvConfig
 from baselines.il.config import ExperimentConfig
-from algorithms.il import MODELS, GET_LOSS
+from algorithms.il import MODELS, LOSS
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,7 +27,7 @@ def parse_args():
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
     parser.add_argument('--model-name', '-m', type=str, default='bc', choices=['bc', 'late_fusion', 'attention', 'wayformer'])
-    parser.add_argument('--loss-name', '-l', type=str, default='l1', choices=['l1', 'gmm', 'twohot', 'dist'])
+    parser.add_argument('--loss-name', '-l', type=str, default='l1', choices=['l1', 'mse', 'twohot', 'gmm'])
     parser.add_argument('--action-scale', '-as', type=int, default=1)
     
     # DATA
@@ -109,13 +109,13 @@ if __name__ == "__main__":
     expert_data_loader = DataLoader(
         expert_dataset,
         batch_size=exp_config.batch_size,
-        shuffle=True,  # Break temporal structure
+        shuffle=True,
     )
     eval_expert_dataset = ExpertDataset(eval_expert_obs, eval_expert_actions, eval_expert_masks)
     eval_expert_data_loader = DataLoader(
         eval_expert_dataset,
         batch_size=exp_config.batch_size,
-        shuffle=False,  # Break temporal structure
+        shuffle=False,
     )
     
     # Build Model
@@ -166,7 +166,7 @@ if __name__ == "__main__":
             
             # Forward pass
             expert_action *= args.action_scale
-            loss = GET_LOSS[args.loss_name](bc_policy, obs, expert_action, dead_mask)
+            loss = LOSS[args.loss_name](bc_policy, obs, expert_action, dead_mask)
             
             # Backward pass
             optimizer.zero_grad()
@@ -174,7 +174,7 @@ if __name__ == "__main__":
             optimizer.step()  # Update model parameters
 
             with torch.no_grad():
-                pred_action = bc_policy(obs)
+                pred_actions = bc_policy(obs) if not dead_mask else bc_policy(obs, ~dead_mask)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
@@ -212,10 +212,7 @@ if __name__ == "__main__":
             dead_mask = mask.to(args.device) if mask else None
 
             with torch.no_grad():
-                if dead_mask:
-                    pred_actions = bc_policy(obs, ~dead_mask)
-                else:
-                    pred_action = bc_policy(obs)
+                pred_actions = bc_policy(obs) if not dead_mask else bc_policy(obs, ~dead_mask)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()

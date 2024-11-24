@@ -1,25 +1,46 @@
 import torch
+import torch.nn.functional as F
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-def two_hot_encoding(value, bins):
-    idx_upper = torch.searchsorted(bins, value, right=True).clamp(max=len(bins) - 1)
-    idx_lower = torch.clamp(idx_upper - 1, min=0)
-    
-    lower_weight = (value - bins[idx_lower]) / (bins[idx_upper] - bins[idx_lower])
-    upper_weight =  (bins[idx_upper] - value) / (bins[idx_upper] - bins[idx_lower])
-    batch_indices = torch.arange(len(value), device=value.device)
-    two_hot = torch.zeros(len(value), len(bins), device=value.device)
-    two_hot[batch_indices, idx_lower] = lower_weight
-    two_hot[batch_indices, idx_upper] = upper_weight
-    
-    return two_hot
+def l1_loss(model, obs, expert_actions, dead_mask):
+    '''
+    compute the l1 loss between the predicted and expert actions
+    '''
+    pred_actions = model(obs) if not dead_mask else model(obs, ~dead_mask)
+    loss = F.smooth_l1_loss(pred_actions, expert_actions)
+    return loss
 
-def two_hot_loss(pred, targ, dx_bins, dy_bins, dyaw_bins):
+def mse_loss(model, obs, expert_actions, dead_mask):
     '''
-    pred: real value of model output
-    targ: real value of label
-    dx_bins: 
+    Compute the mean squared error loss between the predicted and expert actions
     '''
+    pred_actions = model(obs) if not dead_mask else model(obs, ~dead_mask)
+    loss = F.mse_loss(pred_actions, expert_actions)
+    return loss
+
+def two_hot_loss(model, obs, expert_actions, dead_mask):
+    '''
+    Compute the two hot loss between the predicted and expert actions
+    '''
+    def two_hot_encoding(value, bins):
+        idx_upper = torch.searchsorted(bins, value, right=True).clamp(max=len(bins) - 1)
+        idx_lower = torch.clamp(idx_upper - 1, min=0)
+        
+        lower_weight = (value - bins[idx_lower]) / (bins[idx_upper] - bins[idx_lower])
+        upper_weight =  (bins[idx_upper] - value) / (bins[idx_upper] - bins[idx_lower])
+        batch_indices = torch.arange(len(value), device=value.device)
+        two_hot = torch.zeros(len(value), len(bins), device=value.device)
+        two_hot[batch_indices, idx_lower] = lower_weight
+        two_hot[batch_indices, idx_upper] = upper_weight
+        
+        return two_hot
+    
+    pred = model(obs) if not dead_mask else model(obs, ~dead_mask)
+    targ = expert_actions
+    dx_bins = model.config.dx
+    dy_bins = model.config.dy
+    dyaw_bins = model.config.dyaw
+    
     pred_dist = torch.zeros(len(pred), len(dx_bins), 3,  device=pred.device)
     targ_dist = torch.zeros(len(targ), len(dx_bins), 3, device=pred.device)
     pred_dist[..., 0] = two_hot_encoding(bins=dx_bins, value=pred[:, 0] )
@@ -40,7 +61,13 @@ def two_hot_loss(pred, targ, dx_bins, dy_bins, dyaw_bins):
 
     return total_loss
 
-def gmm_loss(means, covariances, weights, components, expert_actions):        
+def gmm_loss(model, obs, expert_actions, dead_mask):
+    '''
+    compute the gmm loss between the predicted and expert actions
+    '''
+    embedding_vector = model.get_embedded_obs(obs) if not dead_mask else model.get_embedded_obs(obs, dead_mask)
+    means, covariances, weights, components = model.head.get_gmm_params(embedding_vector)
+    
     log_probs = []
 
     for i in range(components):

@@ -82,8 +82,6 @@ class ContFeedForward(LateFusionNet):
         actions = self.head(out, deterministic)
         return actions
 
-
-
 class LateFusionBCNet(LateFusionNet):
     def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
         super(LateFusionBCNet, self).__init__(None, env_config, exp_config)
@@ -175,7 +173,7 @@ class LateFusionBCNet(LateFusionNet):
 
     def get_embedded_obs(self, obs):
         """Get the embedded observation."""
-        ego_state, road_objects, road_graph = self._unpack_obs(obs)
+        ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=5)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
@@ -401,7 +399,8 @@ class WayformerEncoder(LateFusionBCNet):
 
         return ego_stack, ro_stack, rg_stack
     
-    def get_embedded_obs(self, obs):
+    def get_embedded_obs(self, obs, mask):
+        # TODO: Implement function using mask
         # Unpack observation
         ego_state, road_objects, road_graph = self._unpack_obs(obs)
         batch_size = obs.shape[0]
@@ -422,7 +421,7 @@ class WayformerEncoder(LateFusionBCNet):
         return context    
 
     def forward(self, obss, mask):
-        context = self.get_embedded_obs(obss)
+        context = self.get_embedded_obs(obss, mask)
         actions = self.head(context)
         
         return actions
