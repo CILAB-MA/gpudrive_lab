@@ -47,14 +47,20 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.actions = actions
         self.masks = masks
 
+        if self.masks is not None:
+            valid_indices = self.masks.flatten() == 0
+            self.obs = self.obs.reshape(-1, self.obs.shape[-1])[valid_indices]
+            self.actions = self.actions.reshape(-1, self.actions.shape[-1])[valid_indices]
+
+
     def __len__(self):
         return len(self.obs)
 
     def __getitem__(self, idx):
         if self.masks:
-            return self.obs[idx], self.actions[idx], self.masks[idx]
+            return self.obs[idx], self.actions[idx]
         else:
-            return self.obs[idx], self.actions[idx], []
+            return self.obs[idx], self.actions[idx]
 
 if __name__ == "__main__":
     args = parse_args()
@@ -133,8 +139,8 @@ if __name__ == "__main__":
     run_id = f"{type(bc_policy).__name__}_{args.exp_name}"
     model_save_path = f"{args.model_path}/{args.model_name}_{args.exp_name}.pth"
     wandb.init(
-        project=private_info['my_project'],
-        entity=private_info['my_entity'],
+        project=private_info['main_project'],
+        entity=private_info['entity'],
         name=run_id,
         id=run_id,
         group=f"{args.model_name}",
@@ -155,18 +161,17 @@ if __name__ == "__main__":
         dx_losses = 0
         dy_losses = 0
         dyaw_losses = 0
-        for i, (obs, expert_action, mask) in enumerate(expert_data_loader):
+        for i, (obs, expert_action) in enumerate(expert_data_loader):
             batch_size = obs.size(0)
             if total_samples + batch_size > exp_config.sample_per_epoch:  # Check if adding this batch exceeds 50,000
                 break
             total_samples += batch_size
 
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
-            dead_mask = mask.to(args.device) if mask else None
             
             # Forward pass
             expert_action *= args.action_scale
-            loss = LOSS[args.loss_name](bc_policy, obs, expert_action, dead_mask)
+            loss = LOSS[args.loss_name](bc_policy, obs, expert_action)
             
             # Backward pass
             optimizer.zero_grad()
@@ -175,7 +180,7 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 pred_actions = bc_policy(obs) if not dead_mask else bc_policy(obs, ~dead_mask)
-                action_loss = torch.abs(pred_action - expert_action)
+                action_loss = torch.abs(pred_actions - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
                 dyaw_loss = action_loss[:, 2].mean().item()
@@ -209,11 +214,10 @@ if __name__ == "__main__":
                 break
             total_samples += batch_size
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
-            dead_mask = mask.to(args.device) if mask else None
 
             with torch.no_grad():
-                pred_actions = bc_policy(obs) if not dead_mask else bc_policy(obs, ~dead_mask)
-                action_loss = torch.abs(pred_action - expert_action)
+                pred_actions = bc_policy(obs)
+                action_loss = torch.abs(pred_actions - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
                 dyaw_loss = action_loss[:, 2].mean().item()

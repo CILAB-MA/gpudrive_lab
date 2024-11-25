@@ -13,6 +13,7 @@ from algorithms.il.model.bc_utils.gmm import GMM
 
 class ContHead(nn.Module):
     def __init__(self, hidden_size, net_arch):
+        super(ContHead, self).__init__()
         self.dx_head = self._build_out_network(hidden_size, 1, net_arch)
         self.dy_head = self._build_out_network(hidden_size, 1, net_arch)
         self.dyaw_head = self._build_out_network(hidden_size, 1, net_arch)
@@ -26,8 +27,8 @@ class ContHead(nn.Module):
         for layer_dim in net_arch:
             layers.append(nn.Linear(prev_dim, layer_dim))
             layers.append(nn.LayerNorm(layer_dim))
-            layers.append(self.act_func)
-            layers.append(nn.Dropout(self.dropout))
+            layers.append(nn.Tanh())
+            layers.append(nn.Dropout(0.0))
             prev_dim = layer_dim
 
         # Add final layer
