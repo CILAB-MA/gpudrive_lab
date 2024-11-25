@@ -91,9 +91,6 @@ def save_trajectory(env, save_path, save_index=0):
     expert_obs_lst = []
     expert_actions_lst = []
     
-    # initial obs
-    expert_obs_lst.append(obs[~dead_agent_mask])
-    
     for time_step in tqdm(range(env.episode_len)):
         expert_obs_lst.append(obs[~dead_agent_mask])
         expert_actions_lst.append(expert_actions[:,:,time_step,:][~dead_agent_mask])
@@ -238,6 +235,7 @@ if __name__ == "__main__":
     from pygpudrive.env.config import DynamicsModel, ActionSpace
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_worlds', type=int, default=200)
+    parser.add_argument('--num_stack', type=int, default=5)
     parser.add_argument('--save_path', type=str, default='/data/train_trajectory_by_veh')
     parser.add_argument('--save_index', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
@@ -250,6 +248,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
+    print()
+    print("num_worlds : ", args.num_worlds)
+    print("num_stack : ", args.num_stack)
+    print("save_path : ", args.save_path)
+    print("save_index : ", args.save_index)
+    print("dataset : ", args.dataset)
+    print("function : ", args.function)
     
     # Initialize configurations
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
@@ -271,7 +276,7 @@ if __name__ == "__main__":
         "scene_config": scene_config,
         "max_cont_agents": 128,
         "device": 'cuda',
-        "num_stack": 5
+        "num_stack": args.num_stack
     }
     
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
