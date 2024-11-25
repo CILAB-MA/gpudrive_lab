@@ -9,6 +9,7 @@ import os, sys, torch
 sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from tqdm import tqdm
+from datetime import datetime
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig
@@ -57,7 +58,6 @@ class ExpertDataset(torch.utils.data.Dataset):
         return len(self.obs)
 
     def __getitem__(self, idx):
-        print(idx, len(self.obs))
         return self.obs[idx], self.actions[idx]
 
 if __name__ == "__main__":
@@ -140,7 +140,7 @@ if __name__ == "__main__":
         project=private_info['main_project'],
         entity=private_info['entity'],
         name=run_id,
-        id=run_id,
+        id=run_id + "_" + datetime.now().strftime("%Y%m%d%H%M%S"),
         group=f"{args.model_name}",
         config={**exp_config.__dict__, **env_config.__dict__},
         tags=[args.model_name, args.loss_name, args.exp_name, str(dataset_len)]
@@ -177,7 +177,7 @@ if __name__ == "__main__":
             optimizer.step()  # Update model parameters
 
             with torch.no_grad():
-                pred_actions = bc_policy(obs) if not dead_mask else bc_policy(obs, ~dead_mask)
+                pred_actions = bc_policy(obs)
                 action_loss = torch.abs(pred_actions - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
