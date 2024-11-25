@@ -27,13 +27,16 @@ def parse_args():
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
     parser.add_argument('--model-name', '-m', type=str, default='bc', choices=['bc', 'late_fusion', 'attention', 'wayformer'])
-    parser.add_argument('--loss-name', '-l', type=str, default='l1', choices=['l1', 'gmm', 'twohot', 'dist'])
+    parser.add_argument('--loss-name', '-l', type=str, default='l1', choices=['l1', 'mse', 'twohot', 'gmm'])
     parser.add_argument('--action-scale', '-as', type=int, default=1)
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/train_trajectory_by_veh')
     parser.add_argument('--train-data-file', '-td', type=str, default='train_sorted_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='eval_sorted_trajectory_200.npz')
+    
+    # EXPERIMENT
+    parser.add_argument('--exp-name', '-en', type=str, default='exp_description')
     args = parser.parse_args()
     
     return args
@@ -48,7 +51,10 @@ class ExpertDataset(torch.utils.data.Dataset):
         return len(self.obs)
 
     def __getitem__(self, idx):
-        return self.obs[idx], self.actions[idx], self.masks[idx]
+        if self.masks:
+            return self.obs[idx], self.actions[idx], self.masks[idx]
+        else:
+            return self.obs[idx], self.actions[idx], []
 
 if __name__ == "__main__":
     args = parse_args()
@@ -92,29 +98,28 @@ if __name__ == "__main__":
 
     train_expert_obs = np.concatenate(train_expert_obs)
     train_expert_actions = np.concatenate(train_expert_actions)
-    train_expert_masks = np.concatenate(train_expert_masks)
+    train_expert_masks = np.concatenate(train_expert_masks) if len(train_expert_masks) > 0 else None
 
     eval_expert_obs = np.concatenate(eval_expert_obs)
     eval_expert_actions = np.concatenate(eval_expert_actions)
-    eval_expert_masks = np.concatenate(eval_expert_masks)
+    eval_expert_masks = np.concatenate(eval_expert_masks) if (len(eval_expert_masks) > 0) else None
 
     # Make dataloader
     expert_dataset = ExpertDataset(train_expert_obs, train_expert_actions, train_expert_masks)
     expert_data_loader = DataLoader(
         expert_dataset,
         batch_size=exp_config.batch_size,
-        shuffle=True,  # Break temporal structure
+        shuffle=True,
     )
     eval_expert_dataset = ExpertDataset(eval_expert_obs, eval_expert_actions, eval_expert_masks)
     eval_expert_data_loader = DataLoader(
         eval_expert_dataset,
         batch_size=exp_config.batch_size,
-        shuffle=False,  # Break temporal structure
+        shuffle=False,
     )
     
-    # Build Model # todo: integrate args
-    bc_policy = MODELS[args.model_name](env_config.observation_space,
-                                        env_config, exp_config).to(args.device)
+    # Build Model
+    bc_policy = MODELS[args.model_name](env_config, exp_config, args.loss_name, args.num_stack).to(args.device)
     
     # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=exp_config.lr)
@@ -128,8 +133,8 @@ if __name__ == "__main__":
     run_id = f"{type(bc_policy).__name__}_{args.exp_name}"
     model_save_path = f"{args.model_path}/{args.model_name}_{args.exp_name}.pth"
     wandb.init(
-        project=private_info['main_project'],
-        entity=private_info['entity'],
+        project=private_info['my_project'],
+        entity=private_info['my_entity'],
         name=run_id,
         id=run_id,
         group=f"{args.model_name}",
@@ -145,7 +150,7 @@ if __name__ == "__main__":
     global_step = 0
     for epoch in tqdm(range(exp_config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
-        total_samples = 0  # Initialize sample counter
+        total_samples = 0
         losses = 0
         dx_losses = 0
         dy_losses = 0
@@ -157,11 +162,11 @@ if __name__ == "__main__":
             total_samples += batch_size
 
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
-            dead_mask = mask.to(args.device)
+            dead_mask = mask.to(args.device) if mask else None
+            
             # Forward pass
             expert_action *= args.action_scale
-            pred_actions = bc_policy(obs, ~dead_mask)
-            loss = LOSS[args.loss_name](pred_actions, expert_action)
+            loss = LOSS[args.loss_name](bc_policy, obs, expert_action, dead_mask)
             
             # Backward pass
             optimizer.zero_grad()
@@ -169,7 +174,7 @@ if __name__ == "__main__":
             optimizer.step()  # Update model parameters
 
             with torch.no_grad():
-                pred_action = bc_policy(obs)
+                pred_actions = bc_policy(obs) if not dead_mask else bc_policy(obs, ~dead_mask)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
@@ -204,9 +209,10 @@ if __name__ == "__main__":
                 break
             total_samples += batch_size
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
+            dead_mask = mask.to(args.device) if mask else None
 
             with torch.no_grad():
-                pred_action = bc_policy(obs)
+                pred_actions = bc_policy(obs) if not dead_mask else bc_policy(obs, ~dead_mask)
                 action_loss = torch.abs(pred_action - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
