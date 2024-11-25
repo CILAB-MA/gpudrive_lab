@@ -49,7 +49,7 @@ class ContFeedForward(LateFusionNet):
         self.num_stack = num_stack
 
         self.nn = self._build_network(
-            input_dim=(self.ego_input_dim + self.ro_input_dim + self.rg_input_dim) * num_stack,
+            input_dim=(self.ego_input_dim + self.ro_input_dim * self.ro_max + self.rg_input_dim * self.rg_max) * num_stack,
             net_arch=exp_config.feedforward.hidden_size,
         )
 
