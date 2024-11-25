@@ -2,23 +2,23 @@ import torch
 import torch.nn.functional as F
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-def l1_loss(model, obs, expert_actions, dead_mask):
+def l1_loss(model, obs, expert_actions):
     '''
     compute the l1 loss between the predicted and expert actions
     '''
-    pred_actions = model(obs) if not dead_mask else model(obs, ~dead_mask)
+    pred_actions = model(obs)
     loss = F.smooth_l1_loss(pred_actions, expert_actions)
     return loss
 
-def mse_loss(model, obs, expert_actions, dead_mask):
+def mse_loss(model, obs, expert_actions):
     '''
     Compute the mean squared error loss between the predicted and expert actions
     '''
-    pred_actions = model(obs) if not dead_mask else model(obs, ~dead_mask)
+    pred_actions = model(obs)
     loss = F.mse_loss(pred_actions, expert_actions)
     return loss
 
-def two_hot_loss(model, obs, expert_actions, dead_mask):
+def two_hot_loss(model, obs, expert_actions):
     '''
     Compute the two hot loss between the predicted and expert actions
     '''
@@ -35,7 +35,7 @@ def two_hot_loss(model, obs, expert_actions, dead_mask):
         
         return two_hot
     
-    pred = model(obs) if not dead_mask else model(obs, ~dead_mask)
+    pred = model(obs)
     targ = expert_actions
     dx_bins = model.config.dx
     dy_bins = model.config.dy
@@ -61,11 +61,11 @@ def two_hot_loss(model, obs, expert_actions, dead_mask):
 
     return total_loss
 
-def gmm_loss(model, obs, expert_actions, dead_mask):
+def gmm_loss(model, obs, expert_actions):
     '''
     compute the gmm loss between the predicted and expert actions
     '''
-    embedding_vector = model.get_embedded_obs(obs) if not dead_mask else model.get_embedded_obs(obs, dead_mask)
+    embedding_vector = model.get_embedded_obs(obs)
     means, covariances, weights, components = model.head.get_gmm_params(embedding_vector)
     
     log_probs = []

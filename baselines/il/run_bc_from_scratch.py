@@ -57,10 +57,8 @@ class ExpertDataset(torch.utils.data.Dataset):
         return len(self.obs)
 
     def __getitem__(self, idx):
-        if self.masks:
-            return self.obs[idx], self.actions[idx]
-        else:
-            return self.obs[idx], self.actions[idx]
+        print(idx, len(self.obs))
+        return self.obs[idx], self.actions[idx]
 
 if __name__ == "__main__":
     args = parse_args()
