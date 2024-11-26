@@ -176,7 +176,7 @@ if __name__ == "__main__":
             optimizer.step()  # Update model parameters
 
             with torch.no_grad():
-                pred_actions = bc_policy(obs)
+                pred_actions = bc_policy(obs, deterministic=True)
                 action_loss = torch.abs(pred_actions - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
@@ -212,7 +212,7 @@ if __name__ == "__main__":
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
 
             with torch.no_grad():
-                pred_actions = bc_policy(obs)
+                pred_actions = bc_policy(obs, deterministic=True)
                 action_loss = torch.abs(pred_actions - expert_action)
                 dx_loss = action_loss[:, 0].mean().item()
                 dy_loss = action_loss[:, 1].mean().item()
