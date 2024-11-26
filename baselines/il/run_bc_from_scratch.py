@@ -139,7 +139,7 @@ if __name__ == "__main__":
         project=private_info['main_project'],
         entity=private_info['entity'],
         name=run_id,
-        id=run_id + "_" + datetime.now().strftime("%Y%m%d%H%M%S"),
+        id=run_id + "_" + datetime.now().strftime("%m%d%H%M"),
         group=f"{args.model_name}",
         config={**exp_config.__dict__, **env_config.__dict__},
         tags=[args.model_name, args.loss_name, args.exp_name, str(dataset_len)]
@@ -235,4 +235,4 @@ if __name__ == "__main__":
     # Save policy
     if not os.path.exists(args.model_path):
         os.makedirs(args.model_path)
-    torch.save(bc_policy, f"{args.model_path}/{args.model_name}_{args.exp_name}.pth")
+    torch.save(bc_policy, f"{args.model_path}/{args.model_name}_{args.exp_name}_{datetime.now().strftime("%m%d%H%M")}.pth")
