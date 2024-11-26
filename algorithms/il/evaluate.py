@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument('--model-path', '-mp', type=str, default='models')
     parser.add_argument('--model-name', '-m', type=str, default='wayformer_late_fusion_gmm_lr_0.0005')
     parser.add_argument('--make-video', '-mv', action='store_true')
+    parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
 
     args = parser.parse_args()
     return args
@@ -110,4 +111,4 @@ if __name__ == "__main__":
     if args.make_video:
         time = datetime.now().strftime("%Y%m%d%H%M")
         for world_render_idx in range(NUM_WORLDS):
-            imageio.mimwrite(f'/videos/{args.model_name}_world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
+            imageio.mimwrite(f'{args.video_path}/{args.model_name}_world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
