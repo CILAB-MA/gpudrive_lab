@@ -80,7 +80,7 @@ if __name__ == "__main__":
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
         with torch.no_grad():
-            actions = bc_policy(obs[~dead_agent_mask])
+            actions = bc_policy(obs[~dead_agent_mask], deterministic=True)
         all_actions[~dead_agent_mask, :] = actions / args.action_scale
 
         env.step_dynamics(all_actions)

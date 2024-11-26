@@ -51,12 +51,12 @@ class GMM(nn.Module):
         Sample actions from the Gaussian Mixture Model
         """
         means, covariances, weights, components = self.get_gmm_params(x)
-        # Sample component indices based on weights
-        component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
+
+        component_indices = torch.argmax(weights, dim=1) if deterministic else torch.multinomial(weights, num_samples=1).squeeze(1)
         
         sampled_means = means[torch.arange(x.size(0)), component_indices]
         sampled_covariances = covariances[torch.arange(x.size(0)), component_indices]
         
-        # Sample actions from the chosen component's Gaussian
-        actions = dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
+        actions = sampled_means if deterministic else dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
+
         return actions
