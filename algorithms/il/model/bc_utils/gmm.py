@@ -46,7 +46,7 @@ class GMM(nn.Module):
         
         return means, covariances, weights, self.n_components
 
-    def forward(self, x):
+    def forward(self, x, deterministic=None):
         """
         Sample actions from the Gaussian Mixture Model
         """
@@ -60,4 +60,3 @@ class GMM(nn.Module):
         # Sample actions from the chosen component's Gaussian
         actions = dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
         return actions
-
