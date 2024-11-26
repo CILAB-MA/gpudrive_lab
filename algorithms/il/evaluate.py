@@ -6,6 +6,7 @@ import os, sys
 import numpy as np
 sys.path.append(os.getcwd())
 import argparse
+from datetime import datetime
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
@@ -22,8 +23,8 @@ def parse_args():
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='models')
     parser.add_argument('--action-scale', '-as', type=int, default=1)
+    parser.add_argument('--model-path', '-mp', type=str, default='models')
     parser.add_argument('--model-name', '-m', type=str, default='wayformer_late_fusion_gmm_lr_0.0005')
     parser.add_argument('--make-video', '-mv', action='store_true')
 
@@ -46,7 +47,7 @@ if __name__ == "__main__":
                                NUM_WORLDS,)
     
     env_config = EnvConfig(
-        dynamics_model=args.dynamics_model,
+        dynamics_model="delta_local",
         steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
         accel_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
         dx=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
@@ -73,7 +74,7 @@ if __name__ == "__main__":
     dead_agent_mask = ~env.cont_agent_mask.clone()
 
     obs = env.reset()
-    frames = []
+    frames = [[] for _ in range(NUM_WORLDS)]
     expert_actions, _, _ = env.get_expert_actions()
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
@@ -88,8 +89,9 @@ if __name__ == "__main__":
         dones = env.get_dones()
         infos = env.get_infos()
         if args.make_video:
-            frame = env.render(world_render_idx=0)
-            frames.append(frame)
+            for world_render_idx in range(NUM_WORLDS):
+                frame = env.render(world_render_idx=world_render_idx)
+                frames[world_render_idx].append(frame)
 
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
@@ -106,4 +108,6 @@ if __name__ == "__main__":
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
 
     if args.make_video:
-        imageio.mimwrite(f'models/{args.model_name}.mp4', np.array(frames), fps=30)
+        time = datetime.now().strftime("%Y%m%d%H%M")
+        for world_render_idx in range(NUM_WORLDS):
+            imageio.mimwrite(f'/videos/{args.model_name}_world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
