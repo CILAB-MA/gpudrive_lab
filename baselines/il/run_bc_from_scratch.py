@@ -127,7 +127,6 @@ if __name__ == "__main__":
     
     # Configure loss and optimizer
     optimizer = Adam(bc_policy.parameters(), lr=exp_config.lr)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
     dataset_len = len(expert_dataset)
 
     # Logging
@@ -187,7 +186,6 @@ if __name__ == "__main__":
                 dyaw_losses += dyaw_loss
                 
             losses += loss.mean().item()
-        scheduler.step()
         # Log training losses
         wandb.log(
             {   
