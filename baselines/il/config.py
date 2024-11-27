@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 @dataclass
 class ExperimentConfig:
     # Hyperparameters
-    batch_size: int = 64
+    batch_size: int = 256
     epochs: int = 1000
     lr: float = 5e-4
     sample_per_epoch: int = 50000

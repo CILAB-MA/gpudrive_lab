@@ -20,12 +20,12 @@ def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     # ENV
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--num-stack', '-s', type=int, default=5)
+    parser.add_argument('--num-stack', '-s', type=int, default=1)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--action-scale', '-as', type=int, default=1)
-    parser.add_argument('--model-path', '-mp', type=str, default='models')
-    parser.add_argument('--model-name', '-m', type=str, default='wayformer_late_fusion_gmm_lr_0.0005')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
+    parser.add_argument('--model-name', '-m', type=str, default='bc_mse_stack1_11270134')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
 
@@ -83,6 +83,7 @@ if __name__ == "__main__":
             actions = bc_policy(obs[~dead_agent_mask], deterministic=True)
         all_actions[~dead_agent_mask, :] = actions / args.action_scale
 
+        # env.step_dynamics(expert_actions[:, :, time_step, :])
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
         print(f'TIME {time_step} LOss: {loss.mean(0)}')
@@ -111,4 +112,5 @@ if __name__ == "__main__":
     if args.make_video:
         time = datetime.now().strftime("%Y%m%d%H%M")
         for world_render_idx in range(NUM_WORLDS):
-            imageio.mimwrite(f'{args.video_path}/{args.model_name}_world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
+            video_path = os.path.join(args.video_path, args.dataset)
+            imageio.mimwrite(f'{video_path}/{args.model_name}/world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)

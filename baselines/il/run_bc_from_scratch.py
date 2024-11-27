@@ -235,4 +235,4 @@ if __name__ == "__main__":
     # Save policy
     if not os.path.exists(args.model_path):
         os.makedirs(args.model_path)
-    torch.save(bc_policy, f"{args.model_path}/{args.model_name}_{args.exp_name}_{datetime.now().strftime("%m%d%H%M")}.pth")
+    torch.save(bc_policy, f"{args.model_path}/{args.model_name}_{args.loss_name}_{args.exp_name}.pth")
