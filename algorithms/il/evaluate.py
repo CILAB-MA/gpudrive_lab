@@ -40,7 +40,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Configurations
-    NUM_WORLDS = 50
+    NUM_WORLDS = 1
     MAX_NUM_OBJECTS = 1
 
     # Initialize configurations
@@ -83,10 +83,12 @@ if __name__ == "__main__":
             actions = bc_policy(obs[~dead_agent_mask], deterministic=True)
         all_actions[~dead_agent_mask, :] = actions / args.action_scale
 
-        # env.step_dynamics(expert_actions[:, :, time_step, :])
-        env.step_dynamics(all_actions)
+        env.step_dynamics(expert_actions[:, :, time_step, :])
+        # env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
-        print(f'TIME {time_step} LOss: {loss.mean(0)}')
+        
+        # print(f'TIME {time_step} LOss: {loss.mean(0)}')
+        print(obs[~dead_agent_mask][0][:6])
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()
@@ -112,5 +114,7 @@ if __name__ == "__main__":
     if args.make_video:
         time = datetime.now().strftime("%Y%m%d%H%M")
         for world_render_idx in range(NUM_WORLDS):
-            video_path = os.path.join(args.video_path, args.dataset)
-            imageio.mimwrite(f'{video_path}/{args.model_name}/world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
+            video_path = os.path.join(args.video_path, args.dataset, args.model_name)
+            if not os.path.exists(video_path):
+                os.makedirs(video_path)
+            imageio.mimwrite(f'{video_path}/world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)

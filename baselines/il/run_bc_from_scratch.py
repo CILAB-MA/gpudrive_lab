@@ -206,7 +206,7 @@ if __name__ == "__main__":
         dyaw_losses = 0
         for i, (obs, expert_action) in enumerate(eval_expert_data_loader):
             batch_size = obs.size(0)
-            if total_samples + batch_size > int(exp_config.sample_per_epoch):  # Check if adding this batch exceeds 50,000
+            if total_samples + batch_size > int(exp_config.sample_per_epoch / 5):  # Check if adding this batch exceeds 50,000
                 break
             total_samples += batch_size
             obs, expert_action = obs.to(args.device), expert_action.to(args.device)
