@@ -44,35 +44,39 @@ class ContHead(nn.Module):
         return actions
     
 class DistHead(nn.Module):
-    def __init__(self, hidden_size, net_arch):
+    def __init__(self, input_dim, hidden_dim=128, action_dim=3):
         super(ContHead, self).__init__()
-        self.means = self._build_out_network(hidden_size, 3, net_arch)
-        self.stds = self._build_out_network(hidden_size, 3, net_arch)
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU()
+        )
         
-    def _build_out_network(
-        self, input_dim: int, output_dim: int, net_arch: List[int]
-    ):
-        """Create the output network architecture."""
-        layers = []
-        prev_dim = input_dim
-        for layer_dim in net_arch:
-            layers.append(nn.Linear(prev_dim, layer_dim))
-            layers.append(nn.LayerNorm(layer_dim))
-            layers.append(nn.Tanh())
-            layers.append(nn.Dropout(0.0))
-            prev_dim = layer_dim
-
-        # Add final layer
-        layers.append(nn.Linear(prev_dim, output_dim))
-
-        return nn.Sequential(*layers)
+        self.residual_block = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim)
+            ) for _ in range(4)
+        ])
+        
+        self.head = nn.Linear(hidden_dim, action_dim*2)
+        self.action_dim = action_dim
     
     def get_dist_params(self, x):
         """
         Get the means, stds of the Dist Head
         """
-        means = self.means(x)
-        stds = self.stds(x)
+        x = self.input_layer(x)
+        
+        for layer in self.residual_block:
+            residual = x
+            x = layer(x)
+            x += residual
+        
+        params = self.head(x)
+        
+        means = params[:, :self.action_dim]
+        stds = params[:, self.action_dim:]
         
         means = torch.tanh(means)
         stds = torch.exp(stds)
