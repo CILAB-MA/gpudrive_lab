@@ -59,8 +59,8 @@ class DistHead(nn.Module):
             ) for _ in range(4)
         ])
         
-        self.head = nn.Linear(hidden_dim, action_dim*2)
-        self.action_dim = action_dim
+        self.mean = nn.Linear(hidden_dim, action_dim)
+        self.log_std = nn.Parameter(torch.ones(action_dim) * -3, requires_grad=True)
     
     def get_dist_params(self, x):
         """
@@ -73,44 +73,29 @@ class DistHead(nn.Module):
             x = layer(x)
             x += residual
         
-        params = self.head(x)
+        mean = self.mean(x)
+        log_std = self.log_std
         
-        means = params[:, :self.action_dim]
-        stds = params[:, self.action_dim:]
-        
-        means = torch.tanh(means)
-        stds = torch.exp(stds)
-        
-        return means, stds
+        return mean, log_std
         
     def forward(self, x, deterministic=None):
-        means, stds = self.get_dist_params(x)
-
+        means, log_std = self.get_dist_params(x)
+        stds = log_std.exp()
+        
         if deterministic:
             actions = means
         else:
             dist = torch.distributions.Normal(means, stds)
             actions = dist.rsample()
 
-        return actions
+        squashed_actions = torch.tanh(actions)
 
-    def _build_out_network(
-        self, input_dim: int, output_dim: int, net_arch: List[int]
-    ):
-        """Create the output network architecture."""
-        layers = []
-        prev_dim = input_dim
-        for layer_dim in net_arch:
-            layers.append(nn.Linear(prev_dim, layer_dim))
-            layers.append(nn.LayerNorm(layer_dim))
-            layers.append(nn.Tanh())
-            layers.append(nn.Dropout(0.0))
-            prev_dim = layer_dim
+        lower_bounds = torch.tensor([-6.0, -6.0, -3.14], device=x.device)
+        upper_bounds = torch.tensor([6.0, 6.0, 3.14], device=x.device)
 
-        # Add final layer
-        layers.append(nn.Linear(prev_dim, output_dim))
+        scaled_actions = 0.5 * (upper_bounds - lower_bounds) * (squashed_actions + 1) + lower_bounds
 
-        return nn.Sequential(*layers)
+        return scaled_actions
 
 class ContFeedForward(LateFusionNet):
     def __init__(self,  env_config, exp_config, loss='l1', num_stack=5):

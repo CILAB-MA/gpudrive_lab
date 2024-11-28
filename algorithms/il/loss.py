@@ -64,7 +64,8 @@ def two_hot_loss(model, obs, expert_actions):
 
 def nll_loss(model, obs, expert_actions):
     embedding_vector = model.get_embedded_obs(obs)
-    means, stds = model.head.get_dist_params(embedding_vector)
+    means, log_std = model.head.get_dist_params(embedding_vector)
+    stds = log_std.exp()
 
     gaussian = Normal(means, stds)
     log_probs = gaussian.log_prob(expert_actions)
