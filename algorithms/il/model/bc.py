@@ -137,6 +137,12 @@ class ContFeedForward(LateFusionNet):
                 hidden_size=exp_config.feedforward.hidden_size[-1],
                 net_arch=self.arch_shared_net
             )
+        elif loss == 'nll':
+            self.head = DistHead(
+                input_dim=exp_config.feedforward.hidden_size[-1],
+                hidden_dim=exp_config.gmm.hidden_dim,
+                action_dim=exp_config.gmm.action_dim,
+            )
         elif loss == 'gmm':
             self.head = GMM(
                 input_dim=exp_config.feedforward.hidden_size[-1],
@@ -144,8 +150,6 @@ class ContFeedForward(LateFusionNet):
                 action_dim=exp_config.gmm.action_dim,
                 n_components=exp_config.gmm.n_components
             )
-        elif loss == 'dist':
-            pass
         else:
             raise ValueError(f"Loss name {loss} is not supported")
 
@@ -188,8 +192,9 @@ class LateFusionBCNet(LateFusionNet):
             )
         elif loss == 'nll':
             self.head = DistHead(
-                hidden_size=self.shared_net_input_dim,
-                net_arch=self.arch_shared_net
+                input_dim=exp_config.feedforward.hidden_size[-1],
+                hidden_dim=exp_config.gmm.hidden_dim,
+                action_dim=exp_config.gmm.action_dim,
             )
         elif loss == 'gmm':
             self.head = GMM(
@@ -318,8 +323,9 @@ class LateFusionAttnBCNet(LateFusionNet):
             )
         elif loss == 'nll':
             self.head = DistHead(
-                hidden_size=self.shared_net_input_dim,
-                net_arch=self.arch_shared_net
+                input_dim=exp_config.feedforward.hidden_size[-1],
+                hidden_dim=exp_config.gmm.hidden_dim,
+                action_dim=exp_config.gmm.action_dim,
             )
         elif loss == 'gmm':
             self.head = GMM(
@@ -451,8 +457,9 @@ class WayformerEncoder(LateFusionBCNet):
             )
         elif loss == 'nll':
             self.head = DistHead(
-                hidden_size=self.shared_net_input_dim,
-                net_arch=self.arch_shared_net
+                input_dim=exp_config.feedforward.hidden_size[-1],
+                hidden_dim=exp_config.gmm.hidden_dim,
+                action_dim=exp_config.gmm.action_dim,
             )
         elif loss == 'gmm':
             self.head = GMM(
