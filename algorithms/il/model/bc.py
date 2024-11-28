@@ -111,14 +111,7 @@ class DistHead(nn.Module):
         layers.append(nn.Linear(prev_dim, output_dim))
 
         return nn.Sequential(*layers)
-    
-    def forward(self, x, deterministic=None):
-        dx = self.dx_head(x)
-        dy = self.dy_head(x)
-        dyaw = self.dyaw_head(x)
-        actions = torch.cat([dx, dy, dyaw], dim=-1)
-        return actions
-    
+
 class ContFeedForward(LateFusionNet):
     def __init__(self,  env_config, exp_config, loss='l1', num_stack=5):
         super(ContFeedForward, self).__init__(None, env_config, exp_config)
