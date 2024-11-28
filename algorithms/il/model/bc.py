@@ -45,7 +45,7 @@ class ContHead(nn.Module):
     
 class DistHead(nn.Module):
     def __init__(self, input_dim, hidden_dim=128, action_dim=3):
-        super(ContHead, self).__init__()
+        super(DistHead, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU()
