@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from torch.distributions import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 def l1_loss(model, obs, expert_actions):
@@ -60,6 +61,17 @@ def two_hot_loss(model, obs, expert_actions):
     total_loss = (loss_dx + loss_dy + loss_dyaw) / 3
 
     return total_loss
+
+def nll_loss(model, obs, expert_actions):
+    embedding_vector = model.get_embedded_obs(obs)
+    means, stds = model.head.get_dist_params(embedding_vector)
+
+    gaussian = Normal(means, stds)
+    log_probs = gaussian.log_prob(expert_actions)
+
+    loss = -log_probs.sum(dim=-1)
+
+    return loss.mean()
 
 def gmm_loss(model, obs, expert_actions):
     '''
