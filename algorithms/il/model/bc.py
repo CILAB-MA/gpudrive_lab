@@ -43,6 +43,82 @@ class ContHead(nn.Module):
         actions = torch.cat([dx, dy, dyaw], dim=-1)
         return actions
     
+class DistHead(nn.Module):
+    def __init__(self, input_dim, hidden_dim=128, action_dim=3):
+        super(ContHead, self).__init__()
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU()
+        )
+        
+        self.residual_block = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim)
+            ) for _ in range(4)
+        ])
+        
+        self.head = nn.Linear(hidden_dim, action_dim*2)
+        self.action_dim = action_dim
+    
+    def get_dist_params(self, x):
+        """
+        Get the means, stds of the Dist Head
+        """
+        x = self.input_layer(x)
+        
+        for layer in self.residual_block:
+            residual = x
+            x = layer(x)
+            x += residual
+        
+        params = self.head(x)
+        
+        means = params[:, :self.action_dim]
+        stds = params[:, self.action_dim:]
+        
+        means = torch.tanh(means)
+        stds = torch.exp(stds)
+        
+        return means, stds
+        
+    def forward(self, x, deterministic=None):
+        means, stds = self.get_dist_params(x)
+
+        if deterministic:
+            actions = means
+        else:
+            dist = torch.distributions.Normal(means, stds)
+            actions = dist.rsample()
+
+        return actions
+
+    def _build_out_network(
+        self, input_dim: int, output_dim: int, net_arch: List[int]
+    ):
+        """Create the output network architecture."""
+        layers = []
+        prev_dim = input_dim
+        for layer_dim in net_arch:
+            layers.append(nn.Linear(prev_dim, layer_dim))
+            layers.append(nn.LayerNorm(layer_dim))
+            layers.append(nn.Tanh())
+            layers.append(nn.Dropout(0.0))
+            prev_dim = layer_dim
+
+        # Add final layer
+        layers.append(nn.Linear(prev_dim, output_dim))
+
+        return nn.Sequential(*layers)
+    
+    def forward(self, x, deterministic=None):
+        dx = self.dx_head(x)
+        dy = self.dy_head(x)
+        dyaw = self.dyaw_head(x)
+        actions = torch.cat([dx, dy, dyaw], dim=-1)
+        return actions
+    
 class ContFeedForward(LateFusionNet):
     def __init__(self,  env_config, exp_config, loss='l1', num_stack=5):
         super(ContFeedForward, self).__init__(None, env_config, exp_config)
@@ -110,6 +186,11 @@ class LateFusionBCNet(LateFusionNet):
                 hidden_size=self.shared_net_input_dim,
                 net_arch=self.arch_shared_net
             )
+        elif loss == 'nll':
+            self.head = DistHead(
+                hidden_size=self.shared_net_input_dim,
+                net_arch=self.arch_shared_net
+            )
         elif loss == 'gmm':
             self.head = GMM(
                 input_dim=self.shared_net_input_dim,
@@ -117,8 +198,6 @@ class LateFusionBCNet(LateFusionNet):
                 action_dim=exp_config.gmm.action_dim,
                 n_components=exp_config.gmm.n_components
             )
-        elif loss == 'dist':
-            pass
         else:
             raise ValueError(f"Loss name {loss} is not supported")
    
@@ -237,6 +316,11 @@ class LateFusionAttnBCNet(LateFusionNet):
                 hidden_size=exp_config.feedforward.hidden_size[-1],
                 net_arch=self.arch_shared_net
             )
+        elif loss == 'nll':
+            self.head = DistHead(
+                hidden_size=self.shared_net_input_dim,
+                net_arch=self.arch_shared_net
+            )
         elif loss == 'gmm':
             self.head = GMM(
                 input_dim=self.shared_net_input_dim,
@@ -244,8 +328,6 @@ class LateFusionAttnBCNet(LateFusionNet):
                 action_dim=exp_config.gmm.action_dim,
                 n_components=exp_config.gmm.n_components
             )
-        elif loss == 'dist':
-            pass
         else:
             raise ValueError(f"Loss name {loss} is not supported")
     
@@ -367,6 +449,11 @@ class WayformerEncoder(LateFusionBCNet):
                 hidden_size=exp_config.feedforward.hidden_size[-1],
                 net_arch=self.arch_shared_net
             )
+        elif loss == 'nll':
+            self.head = DistHead(
+                hidden_size=self.shared_net_input_dim,
+                net_arch=self.arch_shared_net
+            )
         elif loss == 'gmm':
             self.head = GMM(
                 input_dim=self.shared_net_input_dim,
@@ -374,8 +461,6 @@ class WayformerEncoder(LateFusionBCNet):
                 action_dim=exp_config.gmm.action_dim,
                 n_components=exp_config.gmm.n_components
             )
-        elif loss == 'dist':
-            pass
         else:
             raise ValueError(f"Loss name {loss} is not supported")
         

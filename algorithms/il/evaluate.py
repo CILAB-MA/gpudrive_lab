@@ -40,7 +40,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Configurations
-    NUM_WORLDS = 1
+    NUM_WORLDS = 50
     MAX_NUM_OBJECTS = 1
 
     # Initialize configurations
@@ -83,12 +83,11 @@ if __name__ == "__main__":
             actions = bc_policy(obs[~dead_agent_mask], deterministic=True)
         all_actions[~dead_agent_mask, :] = actions / args.action_scale
 
-        env.step_dynamics(expert_actions[:, :, time_step, :])
-        # env.step_dynamics(all_actions)
+        env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
         
-        # print(f'TIME {time_step} LOss: {loss.mean(0)}')
-        print(obs[~dead_agent_mask][0][:6])
+        print(f'TIME {time_step} LOSS: {loss.mean(0)}')
+
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()
@@ -110,6 +109,7 @@ if __name__ == "__main__":
     goal_rate = goal_achieved.sum().float() / alive_agent_mask.sum().float()
     collision_rate = off_road_rate + veh_coll_rate
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
+    print(f'Success World idx : ', torch.where(goal_achieved == 1)[0].tolist())
 
     if args.make_video:
         time = datetime.now().strftime("%Y%m%d%H%M")
