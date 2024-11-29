@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.distributions as dist
+import numpy as np
 
 
 class GMM(nn.Module):
@@ -40,7 +41,7 @@ class GMM(nn.Module):
         covariances = params[:, self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.n_components, self.action_dim)
         weights = params[:, -self.n_components:]
         
-        means = torch.tanh(means)
+        covariances = torch.clamp(covariances, -20, 2)
         covariances = torch.exp(covariances)
         weights = torch.softmax(weights, dim=1)
         
@@ -58,5 +59,10 @@ class GMM(nn.Module):
         sampled_covariances = covariances[torch.arange(x.size(0)), component_indices]
         
         actions = sampled_means if deterministic else dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
+        
+        # Squash actions and scaling
+        actions = torch.tanh(actions)
+        scale_factor = torch.tensor([6.0, 6.0, np.pi], device=actions.device)        
+        actions = scale_factor * actions
 
         return actions
