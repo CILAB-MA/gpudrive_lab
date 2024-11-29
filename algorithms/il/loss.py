@@ -106,6 +106,6 @@ def gmm_loss(model, obs, expert_actions):
         log_probs.append(gaussian.log_prob(unsquash_expert_actions))
 
     log_probs = torch.stack(log_probs, dim=1)
-    weighted_log_probs = log_probs + torch.log(weights + 1e-8) + torch.log(1 - squash_expert_actions**2 + 1e-6)
+    weighted_log_probs = log_probs + torch.log(weights + 1e-8) + torch.log(1 - squash_expert_actions**2 + 1e-6).sum(dim=1, keepdim=True)
     loss = -torch.logsumexp(weighted_log_probs, dim=1)
     return loss.mean()
