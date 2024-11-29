@@ -1,10 +1,8 @@
 # Define network
 import torch
 import torch.nn as nn
-import torch.distributions as dist
-from torch.distributions.categorical import Categorical
-from torch.distributions.normal import Normal
 import torch.nn.functional as F
+import numpy as np
 from typing import List
 
 from networks.perm_eq_late_fusion import LateFusionNet
@@ -60,7 +58,7 @@ class DistHead(nn.Module):
         ])
         
         self.mean = nn.Linear(hidden_dim, action_dim)
-        self.log_std = nn.Parameter(torch.ones(action_dim) * -3, requires_grad=True)
+        self.log_std = nn.Linear(hidden_dim, action_dim)
     
     def get_dist_params(self, x):
         """
@@ -74,13 +72,14 @@ class DistHead(nn.Module):
             x += residual
         
         mean = self.mean(x)
-        log_std = self.log_std
+        log_std = self.log_std(x)
+        log_std = torch.clamp(log_std, -20, 2)
         
         return mean, log_std
         
     def forward(self, x, deterministic=None):
         means, log_std = self.get_dist_params(x)
-        stds = log_std.exp()
+        stds = torch.exp(log_std)
         
         if deterministic:
             actions = means
@@ -90,11 +89,9 @@ class DistHead(nn.Module):
 
         squashed_actions = torch.tanh(actions)
 
-        lower_bounds = torch.tensor([-6.0, -6.0, -3.14], device=x.device)
-        upper_bounds = torch.tensor([6.0, 6.0, 3.14], device=x.device)
+        scaled_factor = torch.tensor([6.0, 6.0, np.pi], device=x.device)
 
-        scaled_actions = 0.5 * (upper_bounds - lower_bounds) * (squashed_actions + 1) + lower_bounds
-
+        scaled_actions = scaled_factor * squashed_actions
         return scaled_actions
 
 class ContFeedForward(LateFusionNet):
@@ -496,44 +493,3 @@ class WayformerEncoder(LateFusionBCNet):
         actions = self.head(context)
         
         return actions
-
-
-if __name__ == "__main__":
-    from pygpudrive.registration import make
-    from pygpudrive.env.config import DynamicsModel, ActionSpace
-    from baselines.ippo.config import ExperimentConfig
-    from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
-    import pyrallis
-    # CONFIGURE
-    TOTAL_STEPS = 90
-    MAX_CONTROLLED_AGENTS = 128
-    NUM_WORLDS = 1
-
-    env_config = EnvConfig(dynamics_model="delta_local")
-    render_config = RenderConfig()
-    scene_config = SceneConfig("data/processed/examples", NUM_WORLDS)
-
-    # MAKE ENVIRONMENT
-    kwargs = {
-        "config": env_config,
-        "scene_config": scene_config,
-        "max_cont_agents": MAX_CONTROLLED_AGENTS,
-        "device": "cuda", 
-        "num_stack": 5
-    }
-    
-    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
-    obs = env.reset()
-    exp_config = pyrallis.parse(config_class=ExperimentConfig)
-    bc_policy = LateFusionAttnBCNet(
-        observation_space=None,
-        exp_config=exp_config,
-        env_config=env_config
-    ).to("cuda")
-    actions = bc_policy(obs.squeeze(0))
-    dead_agent_mask = ~env.cont_agent_mask.clone()
-    actions = actions.unsqueeze(0)
-    print(actions.shape)
-    for _ in range(5):
-        env.step_dynamics(actions, use_indices=False)
-        obs = env.get_obs()

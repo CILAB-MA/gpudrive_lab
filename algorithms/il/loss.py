@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch.distributions import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
+import numpy as np
 
 def l1_loss(model, obs, expert_actions):
     '''
@@ -65,11 +66,19 @@ def two_hot_loss(model, obs, expert_actions):
 def nll_loss(model, obs, expert_actions):
     embedding_vector = model.get_embedded_obs(obs)
     means, log_std = model.head.get_dist_params(embedding_vector)
-    stds = log_std.exp()
+    stds = torch.exp(log_std)
 
     gaussian = Normal(means, stds)
-    log_probs = gaussian.log_prob(expert_actions)
-
+    
+    scale_factor = torch.tensor([6.0, 6.0, np.pi], device=expert_actions.device)
+    squash_expert_actions = expert_actions / scale_factor
+    squash_expert_actions = torch.clamp(squash_expert_actions, -1 + 1e-6, 1 - 1e-6)
+    
+    unsquash_expert_actions = torch.atanh(squash_expert_actions)
+    
+    log_probs = gaussian.log_prob(unsquash_expert_actions)
+    log_probs -= torch.log(1 - squash_expert_actions.pow(2) + 1e-6)
+    
     loss = -log_probs.sum(dim=-1)
 
     return loss.mean()
