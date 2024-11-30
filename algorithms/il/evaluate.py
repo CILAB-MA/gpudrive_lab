@@ -20,12 +20,12 @@ def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     # ENV
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--num-stack', '-s', type=int, default=1)
+    parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='bc_mse_stack1_11270134')
+    parser.add_argument('--model-name', '-m', type=str, default='bc_gmm_all_data_per_epoch_stack5_gmm_structure')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
 
@@ -114,7 +114,8 @@ if __name__ == "__main__":
     if args.make_video:
         time = datetime.now().strftime("%Y%m%d%H%M")
         for world_render_idx in range(NUM_WORLDS):
-            video_path = os.path.join(args.video_path, args.dataset, args.model_name)
-            if not os.path.exists(video_path):
-                os.makedirs(video_path)
-            imageio.mimwrite(f'{video_path}/world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
+            if world_render_idx not in torch.where(veh_collision + off_road >= 1)[0].tolist():
+                video_path = os.path.join(args.video_path, args.dataset, args.model_name)
+                if not os.path.exists(video_path):
+                    os.makedirs(video_path)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
