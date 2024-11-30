@@ -250,10 +250,10 @@ class LateFusionBCNet(LateFusionNet):
         embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
         return embedding_vector
 
-    def forward(self, obss):
+    def forward(self, obss, deterministic=False):
         # Unpack observation
         embedding_vector = self.get_embedded_obs(obss)
-        actions = self.head(embedding_vector)
+        actions = self.head(embedding_vector, deterministic)
         
         return actions
     
