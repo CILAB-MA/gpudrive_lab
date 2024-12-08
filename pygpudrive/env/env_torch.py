@@ -233,6 +233,10 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         """Get the mask for road observations."""
         return self.road_mask.clone()
     
+    def get_partner_goal(self):
+        "Get the partner goal"
+        return self.partner_goal_state.clone()
+
     def normalize_ego_state(self, state):
         """Normalize ego state features."""
 
@@ -241,9 +245,21 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         state[:, :, 1] /= constants.MAX_VEH_LEN
         state[:, :, 2] /= constants.MAX_VEH_WIDTH
 
-        # Relative goal coordinates
+        # Relative goal coordinates for other info
+        self.partner_goal_state = state[:, :, 3:5].clone()
+        self.partner_goal_state[:, :, 0] = self.normalize_tensor(
+            self.partner_goal_state[:, :, 0],
+            constants.MIN_REL_AGENT_POS,
+            constants.MAX_REL_AGENT_POS,
+        )
+        self.partner_goal_state[:, :, 1] = self.normalize_tensor(
+            self.partner_goal_state[:, :, 1],
+            constants.MIN_REL_AGENT_POS,
+            constants.MAX_REL_AGENT_POS,
+        )
+
         state[:, :, 3] = self.normalize_tensor(
-            state[:, :, 3],
+            self.partner_goal_state[:, :, 0],
             constants.MIN_REL_GOAL_COORD,
             constants.MAX_REL_GOAL_COORD,
         )
@@ -253,7 +269,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             constants.MIN_REL_GOAL_COORD,
             constants.MAX_REL_GOAL_COORD,
         )
-
         # Uncommment this to exclude the collision state
         # (1 if vehicle is in collision, 1 otherwise)
         # state = state[:, :, :5]
@@ -353,7 +368,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
         relative_distance[obs.sum(-1) == 0] = 99999
         sorted_indices = torch.argsort(relative_distance, dim=2)
-
         # Relative position
         obs[:, :, :, 1] = self.normalize_tensor(
             obs[:, :, :, 1],
@@ -383,6 +397,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         
         # Get Mask for sorted partner agents
         #TODO: obs.sum(-1) == 0 is not a good mask
+        self.partner_id = torch.gather(self.partner_id, dim=2, index=sorted_indices)
         self.partner_mask = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))
         
         return obs.flatten(start_dim=2)
@@ -752,17 +767,32 @@ if __name__ == "__main__":
                 ]
             ]
         ).reshape(NUM_WORLDS, env_config.max_num_agents_in_scene, -1)
-        env.get_expert_actions()
+        expert_action, _, _ = env.get_expert_actions()
         # Step the environment
         env.step_dynamics(rand_action)
 
         frames.append(env.render())
 
+        # extract the other_action_info
+        ego_id, partner_id = env.get_ids()
+        partner_mask = env.get_partner_mask()
+        action_for_other_info = expert_action[:, :, i, :].unsqueeze(1).repeat(1, 128, 1, 1)
+        not_me = ~torch.eye(128, dtype=torch.bool).to('cuda')
+        action_for_other_info = action_for_other_info[:, not_me].view(1, 128, 127, -1)
+
+        # extract the other_goal_info
+        partner_goal = env.get_partner_goal()
+        goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, 128, 1, 1)
+        goal_for_other_info = goal_for_other_info[:, not_me].view(1, 128, 127, -1)
+        partner_mask = partner_mask.unsqueeze(-1)
+        other_info = torch.cat([action_for_other_info , goal_for_other_info, partner_mask], dim=-1)
+        print(f'partner {partner_id[0, 1]} tom {other_info.shape}')
+        infos = env.get_infos()
         obs = env.get_obs()
         reward = env.get_rewards()
         done = env.get_dones()
 
     # import imageio
-    imageio.mimsave("world1.gif", np.array(frames))
+    # imageio.mimsave("world1.gif", np.array(frames))
 
     env.close()
