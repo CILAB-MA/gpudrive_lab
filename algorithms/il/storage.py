@@ -33,7 +33,21 @@ def save_obs_action_mean_std_mask_by_veh(env, save_path, save_index=0):
     expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
     expert_mean_std_lst = torch.zeros((alive_agent_num, env.episode_len, 6), device=device)
     expert_dead_mask_lst = torch.zeros((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
-    
+    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 6), device=device)
+
+    # extract the other_action_info
+    ego_id, partner_id = env.get_ids()
+    partner_mask = env.get_partner_mask()
+    action_for_other_info = expert_actions[:, :, 0, :].unsqueeze(1).repeat(1, 128, 1, 1)
+    not_me = ~torch.eye(128, dtype=torch.bool).to(device)
+    action_for_other_info = action_for_other_info[:, not_me].view(1, 128, 127, -1)
+
+    # extract the other_goal_info
+    partner_goal = env.get_partner_goal()
+    goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, 128, 1, 1)
+    goal_for_other_info = goal_for_other_info[:, not_me].view(1, 128, 127, -1)
+    partner_mask = partner_mask.unsqueeze(-1)
+    other_info = torch.cat([action_for_other_info , goal_for_other_info, partner_mask], dim=-1)
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
     
@@ -42,11 +56,26 @@ def save_obs_action_mean_std_mask_by_veh(env, save_path, save_index=0):
             if not dead_agent_mask[world_idx, agent_idx]:
                 expert_obs_lst[idx][time_step] = obs[world_idx, agent_idx, :]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step, :]
+                expert_other_info_lst[idx][time_step] = other_info[world_idx, agent_idx, :, :]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
         
         env.step_dynamics(expert_actions[:, :, time_step, :])
         dones = env.get_dones().to(device)
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
+
+        # extract the other_action_info
+        ego_id, partner_id = env.get_ids()
+        partner_mask = env.get_partner_mask()
+        action_for_other_info = expert_actions[:, :, time_step + 1, :].unsqueeze(1).repeat(1, 128, 1, 1)
+        not_me = ~torch.eye(128, dtype=torch.bool).to(device)
+        action_for_other_info = action_for_other_info[:, not_me].view(1, 128, 127, -1)
+
+        # extract the other_goal_info
+        partner_goal = env.get_partner_goal()
+        goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, 128, 1, 1)
+        goal_for_other_info = goal_for_other_info[:, not_me].view(1, 128, 127, -1)
+        partner_mask = partner_mask.unsqueeze(-1)
+        other_info = torch.cat([action_for_other_info , goal_for_other_info, partner_mask], dim=-1)
         
         obs = env.get_obs()
     
@@ -66,7 +95,8 @@ def save_obs_action_mean_std_mask_by_veh(env, save_path, save_index=0):
                         obs=expert_obs_lst,
                         actions=expert_actions_lst,
                         mean_std=expert_mean_std_lst,
-                        dead_mask=expert_dead_mask_lst)
+                        dead_mask=expert_dead_mask_lst,
+                        other_info=expert_other_info_lst)
 
 # GPUDRIVE IL
 def save_trajectory(env, save_path, save_index=0):
@@ -185,12 +215,25 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_trajectory_lst = torch.zeros((alive_agent_num, env.episode_len, obs.shape[-1]), device=device)
     expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
     expert_dead_mask_lst = torch.zeros((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
-    expert_partner_mask_lst = torch.zeros((alive_agent_num, env.episode_len, 127), device=device, dtype=torch.bool)
+    # expert_partner_mask_lst = torch.zeros((alive_agent_num, env.episode_len, 127), device=device, dtype=torch.bool)
     expert_road_mask_lst = torch.zeros((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    
+    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 6), device=device)
+
+    # extract the other_action_info
+    ego_id, partner_id = env.get_ids()
+    partner_mask = env.get_partner_mask()
+    action_for_other_info = expert_actions[:, :, 0, :].unsqueeze(1).repeat(1, 128, 1, 1)
+    not_me = ~torch.eye(128, dtype=torch.bool).to(device)
+    action_for_other_info = action_for_other_info[:, not_me].view(len(obs), 128, 127, -1)
+
+    # extract the other_goal_info
+    partner_goal = env.get_partner_goal()
+    goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, 128, 1, 1)
+    goal_for_other_info = goal_for_other_info[:, not_me].view(len(obs), 128, 127, -1)
+    partner_mask = partner_mask.unsqueeze(-1)
+    other_info = torch.cat([action_for_other_info , goal_for_other_info, partner_mask], dim=-1)
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
-    partner_mask = env.get_partner_mask()
     road_mask = env.get_road_mask()
     
     for time_step in tqdm(range(env.episode_len)):
@@ -198,8 +241,9 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
             if not dead_agent_mask[world_idx, agent_idx]:
                 expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx, :]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step, :]
+                expert_other_info_lst[idx][time_step] = other_info[world_idx, agent_idx, :, :]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
-            expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx, :]
+            # expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx, :]
             expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx, :]
         
         env.step_dynamics(expert_actions[:, :, time_step, :])
@@ -210,14 +254,27 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         if (dead_agent_mask == True).all():
             break
         
-        obs = env.get_obs()
+        # extract the other_action_info
+        ego_id, partner_id = env.get_ids()
         partner_mask = env.get_partner_mask()
+        action_for_other_info = expert_actions[:, :, time_step + 1, :].unsqueeze(1).repeat(1, 128, 1, 1)
+        not_me = ~torch.eye(128, dtype=torch.bool).to(device)
+        action_for_other_info = action_for_other_info[:, not_me].view(len(obs), 128, 127, -1)
+
+        # extract the other_goal_info
+        partner_goal = env.get_partner_goal()
+        goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, 128, 1, 1)
+        goal_for_other_info = goal_for_other_info[:, not_me].view(len(obs), 128, 127, -1)
+        partner_mask = partner_mask.unsqueeze(-1)
+        other_info = torch.cat([action_for_other_info , goal_for_other_info, partner_mask], dim=-1)
+
+        obs = env.get_obs()
         road_mask = env.get_road_mask()
     
     expert_trajectory_lst = expert_trajectory_lst.to('cpu')
     expert_actions_lst = expert_actions_lst.to('cpu')
     expert_dead_mask_lst = expert_dead_mask_lst.to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst.to('cpu')
+    expert_other_info_lst = expert_other_info_lst.to('cpu')
     expert_road_mask_lst = expert_road_mask_lst.to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
@@ -225,7 +282,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                         obs=expert_trajectory_lst,
                         actions=expert_actions_lst,
                         dead_mask=expert_dead_mask_lst,
-                        partner_mask=expert_partner_mask_lst,
+                        other_info=expert_other_info_lst,
                         road_mask=expert_road_mask_lst)
 
 
