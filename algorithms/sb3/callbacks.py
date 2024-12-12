@@ -178,7 +178,7 @@ class MultiAgentCallback(BaseCallback):
         policy = self.model
         base_env = self.locals["env"]._env
         action_tensor = torch.zeros(
-            (base_env.num_worlds, base_env.max_agent_count)
+            (base_env.num_worlds, base_env.max_agent_count, *self.locals["env"].action_space.shape)
         )
 
         obs = base_env.reset()
@@ -192,7 +192,7 @@ class MultiAgentCallback(BaseCallback):
         for step_num in range(self.config.episode_len):
             actions, _ = policy.predict(obs.detach().cpu().numpy())
             actions = torch.Tensor(actions)
-            action_tensor[base_env.cont_agent_mask] = actions
+            action_tensor[base_env.cont_agent_mask.detach().cpu()] = actions
 
             base_env.step_dynamics(action_tensor)
 
@@ -231,3 +231,95 @@ class MultiAgentCallback(BaseCallback):
         if self.wandb_run is not None:
             wandb.save(path, base_path=self.policy_base_path)
         print(f"Saved policy on step {self.num_timesteps:,} at: {path}")
+
+
+class StdoutCallback(BaseCallback):
+    def __init__(self, config, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.config = config
+        self.num_rollouts = 0
+        self.step_counter = 0
+        self.perc_goal_achieved = deque(
+            maxlen=config.logging_collection_window
+        )
+        self.perc_off_road = deque(maxlen=config.logging_collection_window)
+        self.perc_veh_collisions = deque(
+            maxlen=config.logging_collection_window
+        )
+        self.perc_non_veh_collision = deque(
+            maxlen=config.logging_collection_window
+        )
+        self.num_agent_rollouts = deque(
+            maxlen=config.logging_collection_window
+        )
+        self.perc_truncated = deque(maxlen=config.logging_collection_window)
+        self.max_obs = deque(maxlen=config.logging_collection_window)
+        self.min_obs = deque(maxlen=config.logging_collection_window)
+    
+    def _on_training_start(self) -> None:
+        """This method is called before the first rollout starts."""
+        self.start_training = perf_counter()
+        self.log_first_to_95 = True
+    
+    def _on_step(self) -> bool:
+        """Will be called by the model after each call to `env.step()`."""
+        self.step_counter += 1
+        env_info = self.locals["env"].info_dict
+
+        if env_info:
+            self.num_agent_rollouts.append(env_info["num_controlled_agents"])
+            self.perc_off_road.append(env_info["off_road"])
+            self.perc_veh_collisions.append(env_info["veh_collisions"])
+            self.perc_non_veh_collision.append(env_info["non_veh_collision"])
+            self.perc_goal_achieved.append(env_info["goal_achieved"])
+            self.perc_truncated.append(env_info["truncated"])
+            self.max_obs.append(self.locals["env"].obs_alive.max().item())
+            self.min_obs.append(self.locals["env"].obs_alive.min().item())
+
+            if self.step_counter % self.config.log_freq == 0:
+                self._log_metrics()
+                self._log_obs_stats()
+
+            if self.config.track_time_to_solve:
+                self._log_time_to_solve()
+
+    def _log_metrics(self) -> None:
+        """Log performance metrics."""
+        total_agents = int(sum(self.num_agent_rollouts))
+        self.logger.record("metrics/wallclock_time (s)", perf_counter() - self.start_training)
+        self.logger.record("metrics/global_step", self.num_timesteps)
+        self.logger.record("metrics/perc_off_road", sum(self.perc_off_road) / total_agents * 100)
+        self.logger.record("metrics/perc_veh_collisions", sum(self.perc_veh_collisions) / total_agents * 100)
+        self.logger.record("metrics/perc_non_veh_collision", sum(self.perc_non_veh_collision) / total_agents * 100)
+        self.logger.record("metrics/perc_goal_achieved", sum(self.perc_goal_achieved) / total_agents * 100)
+        self.logger.record("metrics/perc_truncated", sum(self.perc_truncated) / total_agents * 100)
+
+    def _log_obs_stats(self):
+        """Log observation statistics."""
+        self.logger.record("charts/obs_max", np.array(self.max_obs).max())
+        self.logger.record("charts/obs_min", np.array(self.min_obs).min())
+
+    def _log_time_to_solve(self):
+        """Log the time and steps taken to achieve 95% goal achievement."""
+        if (
+            sum(self.perc_goal_achieved) / sum(self.num_agent_rollouts) >= 0.95
+            and self.log_first_to_95
+        ):
+            self.logger.record("charts/time_to_95", perf_counter() - self.start_training)
+            self.logger.record("charts/steps_to_95", self.num_timesteps)
+            self.log_first_to_95 = False
+
+    def _on_rollout_end(self) -> None:
+        """Triggered before updating the policy."""
+        rewards = (
+            torch.nan_to_num(self.locals["rollout_buffer"].rewards, nan=0)
+            .sum()
+            .item()
+        )
+        completions = torch.nan_to_num(
+            self.locals["rollout_buffer"].episode_starts
+        ).sum().item()
+
+        self.num_rollouts += 1
+        self.logger.record("global_step", self.num_timesteps)
+        self.logger.record("metrics/mean_episode_reward_per_agent", rewards / completions)

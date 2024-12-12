@@ -123,7 +123,7 @@ class IPPO(PPO):
                 # EDIT_1: Mask out invalid observations (NaN axes and/or dead agents)
                 # Create dummy actions, values and log_probs (NaN)
                 actions = torch.full(
-                    fill_value=float("nan"), size=(self.n_envs,)
+                    fill_value=float("nan"), size=(self.n_envs, *env.action_space.shape)
                 ).to(self.device)
                 log_probs = torch.full(
                     fill_value=float("nan"),
@@ -136,7 +136,7 @@ class IPPO(PPO):
                         size=(self.n_envs,),
                         dtype=torch.float32,
                     )
-                    .unsqueeze(dim=1)
+                    .unsqueeze(dim=-1)
                     .to(self.device)
                 )
 
@@ -188,7 +188,9 @@ class IPPO(PPO):
                     # Otherwise, clip the actions to avoid out of bound error
                     # as we are sampling from an unbounded Gaussian distribution
                     clipped_actions = torch.clamp(
-                        actions, self.action_space.low, self.action_space.high
+                        actions, 
+                        min=torch.tensor(self.action_space.low, dtype=actions.dtype, device=actions.device),
+                        max=torch.tensor(self.action_space.high, dtype=actions.dtype, device=actions.device)
                     )
 
             new_obs, rewards, dones, infos = env.step(clipped_actions)
@@ -255,7 +257,8 @@ class IPPO(PPO):
             n_envs=self.n_envs,
         )
 
-        if self.mlp_class == LateFusionNet:
+        # if self.mlp_class == LateFusionNet:
+        if issubclass(self.mlp_class, LateFusionNet):
             self.policy = self.policy_class(
                 observation_space=self.observation_space,
                 env_config=self.env_config,

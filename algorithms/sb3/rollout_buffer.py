@@ -207,7 +207,7 @@ class MaskedRolloutBuffer(BaseBuffer):
                 else:
                     self.__dict__[tensor] = self.swap_and_flatten(
                         self.__dict__[tensor]
-                    )[self.valid_samples_mask]
+                    )[self.valid_samples_mask.squeeze()]
 
                 assert not torch.isnan(
                     self.__dict__[tensor]

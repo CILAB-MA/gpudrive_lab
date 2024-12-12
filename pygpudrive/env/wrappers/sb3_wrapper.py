@@ -34,6 +34,8 @@ class SB3MultiAgentEnv(VecEnv):
         scene_config,
         max_cont_agents,
         device,
+        action_space=ActionSpace.DISCRETE,
+        num_stack=1,
         render_mode="rgb_array",
     ):  
         kwargs={
@@ -41,8 +43,9 @@ class SB3MultiAgentEnv(VecEnv):
             "scene_config": scene_config,
             "max_cont_agents": max_cont_agents,
             "device": device,
+            "num_stack": num_stack,
         }
-        self._env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.DISCRETE, kwargs=kwargs)
+        self._env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=action_space, kwargs=kwargs)
 
         self.config = config
         self.exp_config = exp_config
@@ -57,7 +60,12 @@ class SB3MultiAgentEnv(VecEnv):
         self.num_envs = self._env.cont_agent_mask.sum().item()
         self.device = device
         self.controlled_agent_mask = self._env.cont_agent_mask.clone()
-        self.action_space = gym.spaces.Discrete(self._env.action_space.n)
+        # self.action_space = gym.spaces.Discrete(self._env.action_space.n)
+        self.action_space = self._env.action_space
+        if action_space == ActionSpace.CONTINUOUS:
+            low = np.concatenate([box.low for box in self._env.action_space])
+            high = np.concatenate([box.high for box in self._env.action_space])
+            self.action_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
         self.observation_space = gym.spaces.Box(
             -np.inf, np.inf, self._env.observation_space.shape, np.float32
         )
@@ -68,7 +76,8 @@ class SB3MultiAgentEnv(VecEnv):
             (self.num_worlds, self.max_agent_count)
         ).to(self.device)
         self.actions_tensor = torch.zeros(
-            (self.num_worlds, self.max_agent_count)
+            # (self.num_worlds, self.max_agent_count)
+            (self.num_worlds, self.max_agent_count, *self.action_space.shape)
         ).to(self.device)
         # Storage: Fill buffer with nan values
         self.buf_rews = torch.full(

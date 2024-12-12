@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from box import Box
 from gymnasium import spaces
 from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.type_aliases import PyTorchObs
 from torch import nn
 import wandb
 
@@ -257,3 +258,107 @@ class LateFusionPolicy(ActorCriticPolicy):
             self.exp_config,
             **self.mlp_config,
         )
+
+    def forward(self, obs: torch.Tensor, deterministic: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Forward pass in all the networks (actor and critic)
+
+        :param obs: Observation
+        :param deterministic: Whether to sample or use deterministic actions
+        :return: action, value and log probability of the action
+        """
+        if self.mlp_extractor.loss_func == 'gmm':
+            # Preprocess the observation if needed
+            features = self.extract_features(obs)
+            if self.share_features_extractor:
+                pi_features, vf_features = features, features
+            else:
+                pi_features, vf_features = features
+
+            # Actor forward
+            batch_size = obs.size(0)
+            embedding_vector = self.mlp_extractor.get_embedded_obs(pi_features)
+            means, covariances, weights, components = self.mlp_extractor.head.get_gmm_params(embedding_vector)
+            if deterministic:
+                component_indices = torch.argmax(weights, dim=1)
+            else:
+                component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
+            sampled_means = means[torch.arange(batch_size), component_indices]
+            sampled_covariances = covariances[torch.arange(batch_size), component_indices]
+            distribution = torch.distributions.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances))
+
+            # Get action
+            actions = distribution.mode() if deterministic else distribution.sample()
+            actions = actions.reshape((-1, *self.action_space.shape))  # type: ignore[misc]
+
+            # Get log probability
+            log_prob = distribution.log_prob(actions)
+
+            # Critic forward
+            latent_vf = self.mlp_extractor.forward_critic(vf_features)
+            values = self.value_net(latent_vf)
+            return actions, values, log_prob
+        else:
+            raise NotImplementedError
+
+    def _predict(self, observation: PyTorchObs, deterministic: bool = False) -> torch.Tensor:
+        """
+        Get the action according to the policy for a given observation.
+
+        :param observation:
+        :param deterministic: Whether to use stochastic or deterministic actions
+        :return: Taken action according to the policy
+        """
+        features = super().extract_features(observation, self.pi_features_extractor)
+        batch_size = observation.size(0)
+        embedding_vector = self.mlp_extractor.get_embedded_obs(features)
+        means, covariances, weights, components = self.mlp_extractor.head.get_gmm_params(embedding_vector)
+        if deterministic:
+            component_indices = torch.argmax(weights, dim=1)
+        else:
+            component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
+        sampled_means = means[torch.arange(batch_size), component_indices]
+        sampled_covariances = covariances[torch.arange(batch_size), component_indices]
+        distribution = torch.distributions.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances))
+
+        # Get log probability
+        actions = distribution.mode() if deterministic else distribution.sample()
+        actions = actions.reshape((-1, *self.action_space.shape))  # type: ignore[misc]
+
+        return actions
+
+    def evaluate_actions(self, obs: PyTorchObs, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        """
+        Evaluate actions according to the current policy,
+        given the observations.
+
+        :param obs: Observation
+        :param actions: Actions
+        :return: estimated value, log likelihood of taking those actions
+            and entropy of the action distribution.
+        """
+        # Preprocess the observation if needed
+        features = self.extract_features(obs)
+        if self.share_features_extractor:
+            pi_features, vf_features = features, features
+        else:
+            pi_features, vf_features = features
+        
+        # Actor forward
+        batch_size = obs.size(0)
+        embedding_vector = self.mlp_extractor.get_embedded_obs(pi_features)
+        means, covariances, weights, components = self.mlp_extractor.head.get_gmm_params(embedding_vector)
+        component_indices = torch.multinomial(weights, num_samples=1).squeeze(1)
+        sampled_means = means[torch.arange(batch_size), component_indices]
+        sampled_covariances = covariances[torch.arange(batch_size), component_indices]
+        distribution = torch.distributions.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances))
+
+        # Get log probability and entropy
+        log_prob = distribution.log_prob(actions)
+        entropy = distribution.entropy()
+
+        # Critic forward
+        latent_vf = self.mlp_extractor.forward_critic(vf_features)
+        values = self.value_net(latent_vf)
+
+        return values, log_prob, entropy

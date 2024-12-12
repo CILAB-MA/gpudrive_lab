@@ -139,7 +139,7 @@ class ContFeedForward(LateFusionNet):
         return actions
 
 class LateFusionBCNet(LateFusionNet):
-    def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
+    def __init__(self, observation_space, env_config, exp_config, loss='l1', num_stack=5):
         super(LateFusionBCNet, self).__init__(None, env_config, exp_config)
         self.num_stack = num_stack
         
@@ -250,12 +250,20 @@ class LateFusionBCNet(LateFusionNet):
         embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
         return embedding_vector
 
-    def forward(self, obss, deterministic=False):
+    def forward(self, features):
+        return self.forward_actor(features), self.forward_critic(features)
+
+    def forward_actor(self, features):
+        raise NotImplementedError
+
+    def forward_critic(self, features):
         # Unpack observation
-        embedding_vector = self.get_embedded_obs(obss)
-        actions = self.head(embedding_vector, deterministic)
-        
-        return actions
+        embedding_vector = self.get_embedded_obs(features)
+
+        # Pass through the output layer
+        out = self.val_out_net(embedding_vector)
+
+        return out
     
 class LateFusionAttnBCNet(LateFusionNet):
     def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
