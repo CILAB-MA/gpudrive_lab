@@ -259,7 +259,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
 
         state[:, :, 3] = self.normalize_tensor(
-            self.partner_goal_state[:, :, 0],
+            state[:, :, 3],
             constants.MIN_REL_GOAL_COORD,
             constants.MAX_REL_GOAL_COORD,
         )
