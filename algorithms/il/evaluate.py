@@ -22,10 +22,10 @@ def parse_args():
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
-    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
+    parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
     parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='bc_gmm_all_data_per_epoch_stack5_gmm_structure')
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm_all_data')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
 
