@@ -49,6 +49,7 @@ class ExperimentConfig:
         hidden_dim: int = 128
         action_dim: int = 3
         n_components: int = 10
+        time_dim: int = 91
         
     # Sub-configurations
     feedforward: FeedForwardConfig = field(default_factory=FeedForwardConfig)
