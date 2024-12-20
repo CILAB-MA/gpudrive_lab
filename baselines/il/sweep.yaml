@@ -1,0 +1,15 @@
+program: train.py
+method: grid
+name: sweep
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  batch_size: 
+    values: [128,256]
+  lr:
+    values: [0.0005, 0.004] 
+  epochs:
+    value: 1000
+  sample_per_epoch:
+    value: 438763
