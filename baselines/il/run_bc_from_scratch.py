@@ -11,8 +11,7 @@ from tqdm import tqdm
 from datetime import datetime
 
 # GPUDrive
-from pygpudrive.env.config import EnvConfig
-from baselines.il.config import NetworkConfig, ExperimentConfig
+from baselines.il.config import NetworkConfig, ExperimentConfig, EnvConfig
 from baselines.il.dataloader import ExpertDataset
 from algorithms.il import MODELS, LOSS
 

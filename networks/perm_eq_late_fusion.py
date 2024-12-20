@@ -10,9 +10,6 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import nn
 import wandb
 
-# Import env wrapper that makes gym env compatible with stable-baselines3
-from pygpudrive.env.wrappers.sb3_wrapper import SB3MultiAgentEnv
-from pygpudrive.env.config import EnvConfig
 from pygpudrive.env import constants
 
 
@@ -22,7 +19,7 @@ class LateFusionNet(nn.Module):
     def __init__(
         self,
         observation_space: spaces.Box,
-        env_config: EnvConfig,
+        env_config,
         exp_config,
     ):
         super().__init__()
