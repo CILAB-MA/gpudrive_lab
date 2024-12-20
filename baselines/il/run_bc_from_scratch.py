@@ -70,14 +70,15 @@ def train():
 
     if args.use_wandb:
         model_save_path = f"{args.model_path}/{args.model_name}_{args.exp_name}.pth"
-        wandb.init()
+        wandb.init(
+            name=f"{args.model_name}_{args.loss_name}_{args.exp_name}",
+            tags=[args.model_name, args.loss_name, args.exp_name])
         config = wandb.config
         wandb.config.update({
             'num_stack': args.num_stack,
             'num_vehicle': 128,
             'model_save_path': model_save_path})
         wandb.run.name = f"{type(bc_policy).__name__}_{args.loss_name}_lr_{config.lr}_bs_{config.batch_size}_{args.exp_name}"
-        wandb.run.tags = [args.model_name, args.loss_name, args.exp_name, f"lr_{config.lr}", f"bs_{config.batch_size}"],
         wandb.run.save()
     else:
         config = ExperimentConfig()
