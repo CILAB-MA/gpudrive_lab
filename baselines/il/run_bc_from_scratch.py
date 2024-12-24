@@ -23,14 +23,14 @@ def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
-    parser.add_argument('--num-stack', '-s', type=int, default=1)
+    parser.add_argument('--num-stack', '-s', type=int, default=5)
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='wayformer', choices=['bc', 'late_fusion', 'attention', 'wayformer'])
+    parser.add_argument('--model-name', '-m', type=str, default='attention', choices=['bc', 'late_fusion', 'attention', 'wayformer'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm'])
-    parser.add_argument('--rollout-len', '-rl', type=int, default=10)
-    parser.add_argument('--pred-len', '-pl', type=int, default=5)
+    parser.add_argument('--rollout-len', '-rl', type=int, default=5)
+    parser.add_argument('--pred-len', '-pl', type=int, default=1)
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom')
@@ -166,8 +166,9 @@ def train():
                 break
             total_samples += batch_size
             
-            # Data ['obs', 'actions', 'masks', 'ego_mask', 'partner_mask', 'road_mask']
-            if len(batch) == 6:
+            if len(batch) == 7:
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
+            elif len(batch) == 6:
                 obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
             elif len(batch) == 3:
                 obs, expert_action, masks = batch
@@ -178,6 +179,7 @@ def train():
             ego_masks = ego_masks.to(args.device) if len(batch) > 3 else None
             partner_masks = partner_masks.to(args.device) if len(batch) > 3 else None
             road_masks = road_masks.to(args.device) if len(batch) > 3 else None
+            other_info = other_info.to(args.device) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             
             # Forward pass
@@ -223,8 +225,9 @@ def train():
                 break
             total_samples += batch_size
             
-            # Data #todo: add other info
-            if len(batch) == 6:
+            if len(batch) == 7:
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch  
+            elif len(batch) == 6:
                 obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch  
             elif len(batch) == 3:
                 obs, expert_action, masks = batch
@@ -235,6 +238,7 @@ def train():
             ego_masks = ego_masks.to(args.device) if len(batch) > 3 else None
             partner_masks = partner_masks.to(args.device) if len(batch) > 3 else None
             road_masks = road_masks.to(args.device) if len(batch) > 3 else None
+            other_info = other_info.to(args.device) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             
             with torch.no_grad():
