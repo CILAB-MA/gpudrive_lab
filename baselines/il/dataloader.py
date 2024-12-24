@@ -29,7 +29,8 @@ class ExpertDataset(torch.utils.data.Dataset):
         if self.masks is not None:
             self.use_mask = True
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'actions', 'masks', 'partner_mask', 'road_mask'] # todo: add other info
+        self.full_var = ['obs', 'actions', 'masks', 'partner_mask', 'road_mask' ,
+                         'other_info']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -50,7 +51,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                 if self.__dict__[var_name] is not None:
                     if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
-                    elif var_name == 'actions':
+                    elif var_name in ['actions', 'other_info']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
