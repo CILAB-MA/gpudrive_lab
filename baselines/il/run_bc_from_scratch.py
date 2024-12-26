@@ -11,7 +11,7 @@ from tqdm import tqdm
 from datetime import datetime
 
 # GPUDrive
-from baselines.il.config import NetworkConfig, ExperimentConfig, EnvConfig
+from baselines.il.config import *
 from baselines.il.dataloader import ExpertDataset
 from algorithms.il import MODELS, LOSS
 
@@ -21,14 +21,14 @@ logger.setLevel(logging.INFO)
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
+    # ENVIRONMENT
     parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer',
-                                                                                      'aux_fusion'])
+    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -42,52 +42,45 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', type=str, default='aux_head')
+    parser.add_argument('--use-tom', '-ut', type=str, default='none', choices=['none', 'oracle', 'aux_head'])
     args = parser.parse_args()
     
     return args
 
 def train():
     net_config = NetworkConfig()
-    env_config = EnvConfig(
-        dynamics_model='delta_local',
-        steer_actions=torch.round(
-            torch.linspace(-0.3, 0.3, 7), decimals=3
-        ),
-        accel_actions=torch.round(
-            torch.linspace(-6.0, 6.0, 7), decimals=3
-        ),
-        dx=torch.round(
-            torch.linspace(-6.0, 6.0, 100), decimals=3
-        ).to(args.device),
-        dy=torch.round(
-            torch.linspace(-6.0, 6.0, 100), decimals=3
-        ).to(args.device),
-        dyaw=torch.round(
-            torch.linspace(-np.pi, np.pi, 100), decimals=3
-        ).to(args.device),
-    )
-
-    bc_policy = MODELS[args.model_name](env_config, net_config, args.loss_name, args.num_stack,
-                                        use_tom=args.use_tom).to(args.device)
+    env_config = EnvConfig()
+    head_config = HeadConfig()
 
     if args.use_wandb:
-        model_save_path = f"{args.model_path}/{args.model_name}_{args.exp_name}.pth"
-        wandb.init(
-            name=f"{args.model_name}_{args.loss_name}_{args.exp_name}",
-            tags=[args.model_name, args.loss_name, args.exp_name])
+        wandb.init()
+        # Tag Update
+        current_time = datetime.now().strftime("%Y%m%d_%H%M")
+        wandb_tags = list(wandb.run.tags)
+        wandb_tags.append(current_time)
+        for key, value in wandb.config.items():
+            wandb_tags.append(f"{key}_{value}")
+        wandb.run.tags = tuple(wandb_tags)
+        # Config Update
+        for key, value in vars(args).items():
+            if key not in wandb.config:
+                wandb.config[key] = value
         config = wandb.config
-        wandb.config.update({
-            'num_stack': args.num_stack,
-            'num_vehicle': 128,
-            'model_save_path': model_save_path})
-        wandb.run.name = f"{type(bc_policy).__name__}_{args.loss_name}_lr_{config.lr}_bs_{config.batch_size}_{args.exp_name}"
+        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
         wandb.run.save()
+        # NetConfig, HeadConfig Update (if sweep parameter is used)
+        for key, value in config.items():
+            if key in net_config.__dict__.keys():
+                setattr(net_config, key, value)
+            if key in head_config.__dict__.keys():
+                setattr(head_config, key, value)
     else:
         config = ExperimentConfig()
+        config.__dict__.update(vars(args))
     
-    # Initialize optimizer
-    optimizer = Adam(bc_policy.parameters(), lr=config.lr)  
+    # Initialize model and optimizer
+    bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack).to(config.device)
+    optimizer = Adam(bc_policy.parameters(), lr=config.lr)
 
     # Get state action pairs
     train_expert_obs, train_expert_actions = [], []
@@ -99,19 +92,19 @@ def train():
     train_road_mask, eval_road_mask = [], []
     
     # Load cached data
-    with np.load(os.path.join(args.data_path, args.train_data_file)) as npz:
+    with np.load(os.path.join(config.data_path, config.train_data_file)) as npz:
         train_expert_obs = [npz['obs']]
         train_expert_actions = [npz['actions']]
-        train_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and args.use_mask) else []
-        train_other_info = [npz['other_info']] if ('other_info' in npz.keys() and args.use_tom) else []
-        train_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and args.use_mask) else []
+        train_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and config.use_mask) else []
+        train_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
+        train_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
 
-    with np.load(os.path.join(args.data_path, args.eval_data_file)) as npz:
+    with np.load(os.path.join(config.data_path, config.eval_data_file)) as npz:
         eval_expert_obs = [npz['obs']]
         eval_expert_actions = [npz['actions']]
-        eval_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and args.use_mask) else []
-        eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and args.use_tom) else []
-        eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and args.use_mask) else []
+        eval_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and config.use_mask) else []
+        eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
+        eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
 
 
     # Combine data (no changes)
@@ -126,7 +119,7 @@ def train():
         ExpertDataset(
             train_expert_obs, train_expert_actions, train_expert_masks,
             other_info=train_other_info, road_mask=train_road_mask,
-            rollout_len=args.rollout_len, pred_len=args.pred_len
+            rollout_len=config.rollout_len, pred_len=config.pred_len
         ),
         batch_size=config.batch_size,
         shuffle=True,
@@ -146,7 +139,7 @@ def train():
         ExpertDataset(
             eval_expert_obs, eval_expert_actions, eval_expert_masks,
             other_info=eval_other_info, road_mask=eval_road_mask,
-            rollout_len=args.rollout_len, pred_len=args.pred_len
+            rollout_len=config.rollout_len, pred_len=config.pred_len
         ),
         batch_size=config.batch_size,
         shuffle=False,
@@ -179,27 +172,28 @@ def train():
                 obs, expert_action, masks = batch
             else:
                 obs, expert_action = batch
-            obs, expert_action = obs.to(args.device), expert_action.to(args.device)
-            masks = masks.to(args.device) if len(batch) > 2 else None
-            ego_masks = ego_masks.to(args.device) if len(batch) > 3 else None
-            partner_masks = partner_masks.to(args.device) if len(batch) > 3 else None
-            road_masks = road_masks.to(args.device) if len(batch) > 3 else None
-            other_info = other_info.to(args.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
+            obs, expert_action = obs.to(config.device), expert_action.to(config.device)
+            masks = masks.to(config.device) if len(batch) > 2 else None
+            ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
+            partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
+            road_masks = road_masks.to(config.device) if len(batch) > 3 else None
+            other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             
             # Forward pass
-            if args.use_tom == 'oracle':
-                context = bc_policy.get_embedded_obs(obs, all_masks[1:], other_info=other_info)
-                loss = LOSS[args.loss_name](bc_policy, context, expert_action, all_masks)
-            elif args.use_tom == 'aux_head':
-                context, other_embeds = bc_policy.get_embedded_obs(obs, all_masks[1:], other_info=None)
-                tom_a_loss = LOSS[args.loss_name](bc_policy, other_embeds, other_info[...,:3], all_masks, aux_head='action')
-                tom_g_loss = LOSS[args.loss_name](bc_policy, other_embeds, other_info[...,3:], all_masks, aux_head='goal')
-                pred_loss = LOSS[args.loss_name](bc_policy, context, expert_action, all_masks)
+            if config.use_tom == 'oracle':
+                context = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
+                loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+            elif config.use_tom == 'aux_head':
+                context, other_embeds = bc_policy.get_context(obs, all_masks[1:], other_info=None)
+                tom_a_loss = LOSS[config.loss_name](bc_policy, other_embeds, other_info[...,:3], all_masks, aux_head='action')
+                tom_g_loss = LOSS[config.loss_name](bc_policy, other_embeds, other_info[...,3:], all_masks, aux_head='goal')
+                pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 loss = pred_loss + tom_a_loss + tom_g_loss
             else:
-                context = bc_policy.get_embedded_obs(obs, all_masks[1:])
-                loss = LOSS[args.loss_name](bc_policy, context, expert_action, all_masks)
+                context = bc_policy.get_context(obs, all_masks[1:])
+                loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+            
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
@@ -216,7 +210,7 @@ def train():
                 dyaw_losses += dyaw_loss
                 
             losses += loss.mean().item()
-        if args.use_wandb:
+        if config.use_wandb:
             wandb.log(
                 {   
                     "train/loss": losses / (i + 1),
@@ -247,12 +241,12 @@ def train():
                 obs, expert_action, masks = batch
             else:
                 obs, expert_action = batch
-            obs, expert_action = obs.to(args.device), expert_action.to(args.device)
-            masks = masks.to(args.device) if len(batch) > 2 else None
-            ego_masks = ego_masks.to(args.device) if len(batch) > 3 else None
-            partner_masks = partner_masks.to(args.device) if len(batch) > 3 else None
-            road_masks = road_masks.to(args.device) if len(batch) > 3 else None
-            other_info = other_info.to(args.device) if len(batch) > 6 else None
+            obs, expert_action = obs.to(config.device), expert_action.to(config.device)
+            masks = masks.to(config.device) if len(batch) > 2 else None
+            ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
+            partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
+            road_masks = road_masks.to(config.device) if len(batch) > 3 else None
+            other_info = other_info.to(config.device) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             
             with torch.no_grad():
@@ -266,7 +260,7 @@ def train():
                 dyaw_losses += dyaw_loss
                 losses += action_loss.mean().item()
         
-        if args.use_wandb:
+        if config.use_wandb:
             wandb.log(
                 {
                     "eval/loss": losses / (i + 1) ,
@@ -277,9 +271,9 @@ def train():
             )
 
     # Save policy
-    if not os.path.exists(args.model_path):
-        os.makedirs(args.model_path)
-    torch.save(bc_policy, f"{args.model_path}/{args.model_name}_{args.loss_name}_{args.exp_name}.pth")
+    if not os.path.exists(config.model_path):
+        os.makedirs(config.model_path)
+    torch.save(bc_policy, f"{config.model_path}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
 
 
 if __name__ == "__main__":
