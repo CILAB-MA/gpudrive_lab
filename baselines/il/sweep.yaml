@@ -7,13 +7,13 @@ metric:
 parameters:
   # EXPERIMENT
   batch_size:
-    values: [128,256]
+    values: [256,512]
   epochs:
-    value: 1
+    value: 1000
   lr:
     value: 0.0005
   sample_per_epoch:
-    value: 1000
+    value: 438763
 
   # MODEL
   model_name:
