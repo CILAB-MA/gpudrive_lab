@@ -27,7 +27,8 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='attention', choices=['bc', 'late_fusion', 'attention', 'wayformer'])
+    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer',
+                                                                                      'aux_fusion'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -41,7 +42,7 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', action='store_true')
+    parser.add_argument('--use-tom', '-ut', type=str, default='aux_head')
     args = parser.parse_args()
     
     return args
@@ -67,7 +68,8 @@ def train():
         ).to(args.device),
     )
 
-    bc_policy = MODELS[args.model_name](env_config, net_config, args.loss_name, args.num_stack).to(args.device)
+    bc_policy = MODELS[args.model_name](env_config, net_config, args.loss_name, args.num_stack,
+                                        use_tom=args.use_tom).to(args.device)
 
     if args.use_wandb:
         model_save_path = f"{args.model_path}/{args.model_name}_{args.exp_name}.pth"
@@ -182,13 +184,22 @@ def train():
             ego_masks = ego_masks.to(args.device) if len(batch) > 3 else None
             partner_masks = partner_masks.to(args.device) if len(batch) > 3 else None
             road_masks = road_masks.to(args.device) if len(batch) > 3 else None
-            other_info = other_info.to(args.device) if len(batch) > 6 else None
+            other_info = other_info.to(args.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             
             # Forward pass
-            context = bc_policy.get_embedded_obs(obs, all_masks[1:])
-            loss = LOSS[args.loss_name](bc_policy, context, expert_action, all_masks)
-            
+            if args.use_tom == 'oracle':
+                context = bc_policy.get_embedded_obs(obs, all_masks[1:], other_info=other_info)
+                loss = LOSS[args.loss_name](bc_policy, context, expert_action, all_masks)
+            elif args.use_tom == 'aux_head':
+                context, other_embeds = bc_policy.get_embedded_obs(obs, all_masks[1:], other_info=None)
+                tom_a_loss = LOSS[args.loss_name](bc_policy, other_embeds, other_info[...,:3], all_masks, aux_head='action')
+                tom_g_loss = LOSS[args.loss_name](bc_policy, other_embeds, other_info[...,3:], all_masks, aux_head='goal')
+                pred_loss = LOSS[args.loss_name](bc_policy, context, expert_action, all_masks)
+                loss = pred_loss + tom_a_loss + tom_g_loss
+            else:
+                context = bc_policy.get_embedded_obs(obs, all_masks[1:])
+                loss = LOSS[args.loss_name](bc_policy, context, expert_action, all_masks)
             # Backward pass
             optimizer.zero_grad()
             loss.backward()

@@ -104,6 +104,7 @@ class ExperimentConfig:
     epochs: int = 1000
     lr: float = 5e-4
     sample_per_epoch: int = 438763
+    
 
 @dataclass
 class NetworkConfig:
