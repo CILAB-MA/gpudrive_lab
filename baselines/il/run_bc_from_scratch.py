@@ -40,6 +40,8 @@ def parse_args():
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
+    parser.add_argument('--use-mask', action='store_true')
+    parser.add_argument('--use-tom', action='store_true')
     args = parser.parse_args()
     
     return args
@@ -98,16 +100,17 @@ def train():
     with np.load(os.path.join(args.data_path, args.train_data_file)) as npz:
         train_expert_obs = [npz['obs']]
         train_expert_actions = [npz['actions']]
-        train_expert_masks = [npz['dead_mask']] if 'dead_mask' in npz.keys() else []
-        train_other_info = [npz['other_info']] if 'other_info' in npz.keys() else []
-        train_road_mask = [npz['road_mask']] if 'road_mask' in npz.keys() else []
+        train_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and args.use_mask) else []
+        train_other_info = [npz['other_info']] if ('other_info' in npz.keys() and args.use_tom) else []
+        train_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and args.use_mask) else []
 
     with np.load(os.path.join(args.data_path, args.eval_data_file)) as npz:
         eval_expert_obs = [npz['obs']]
         eval_expert_actions = [npz['actions']]
-        eval_expert_masks = [npz['dead_mask']] if 'dead_mask' in npz.keys() else []
-        eval_other_info = [npz['other_info']] if 'other_info' in npz.keys() else []
-        eval_road_mask = [npz['road_mask']] if 'road_mask' in npz.keys() else []
+        eval_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and args.use_mask) else []
+        eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and args.use_tom) else []
+        eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and args.use_mask) else []
+
 
     # Combine data (no changes)
     num_cpus = os.cpu_count()
