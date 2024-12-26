@@ -82,15 +82,21 @@ def nll_loss(model, context, expert_actions, masks=None):
 
     return loss.mean()
 
-def gmm_loss(model, context, expert_actions, masks=None):
+def gmm_loss(model, context, expert_actions, masks=None, aux_head=None):
     '''
     compute the gmm loss between the predicted and expert actions
     '''
-    means, covariances, weights, components = model.head.get_gmm_params(context)
+    scale_factor = torch.tensor([6.0, 6.0, np.pi], device=expert_actions.device)
+    if aux_head == 'action':
+        means, covariances, weights, components = model.aux_action_head.get_gmm_params(context)
+    elif aux_head == 'goal':
+        means, covariances, weights, components = model.aux_goal_head.get_gmm_params(context)
+        scale_factor = torch.tensor([1.0, 1.0], device=expert_actions.device)
+    else:
+        means, covariances, weights, components = model.head.get_gmm_params(context)
     
     # Rescaling actions and resquash
     expert_actions = expert_actions.unsqueeze(1) if expert_actions.dim() == 2 else expert_actions
-    scale_factor = torch.tensor([6.0, 6.0, np.pi], device=expert_actions.device)
     squash_expert_actions = expert_actions / scale_factor
     squash_expert_actions = torch.clamp(squash_expert_actions, -1 + 1e-6, 1 - 1e-6)
     

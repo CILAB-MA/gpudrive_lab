@@ -11,7 +11,7 @@ from algorithms.il.model.bc_utils.head import *
 
 
 class ContFeedForward(LateFusionNet):
-    def __init__(self,  env_config, exp_config, loss='l1', num_stack=5):
+    def __init__(self,  env_config, exp_config, loss='l1', num_stack=5, use_tom=None):
         super(ContFeedForward, self).__init__(None, env_config, exp_config)
         self.num_stack = num_stack
 
@@ -61,7 +61,7 @@ class ContFeedForward(LateFusionNet):
         return actions
 
 class LateFusionBCNet(LateFusionNet):
-    def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
+    def __init__(self, env_config, exp_config, loss='l1', num_stack=5, use_tom=None):
         super(LateFusionBCNet, self).__init__(None, env_config, exp_config)
         self.num_stack = num_stack
         
@@ -80,7 +80,27 @@ class LateFusionBCNet(LateFusionNet):
         )
 
         self.loss_func = loss
-        
+        # Aux head
+        if use_tom == 'aux_head':
+            self.aux_action_head = GMM(
+                network_type=self.__class__.__name__,
+                input_dim=self.road_object_layers[-1],
+                hidden_dim=exp_config.gmm.hidden_dim,
+                action_dim=exp_config.gmm.action_dim,
+                n_components=exp_config.gmm.n_components,
+                time_dim=1
+            )
+            self.aux_goal_head = GMM(
+                network_type=self.__class__.__name__,
+                input_dim=self.road_object_layers[-1],
+                hidden_dim=exp_config.gmm.hidden_dim,
+                action_dim=2,
+                n_components=exp_config.gmm.n_components,
+                time_dim=1
+            )
+        else:
+            raise ValueError(f'ToM method "{use_tom}" is not implemented yet!!')
+
         # Action head
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
@@ -178,14 +198,24 @@ class LateFusionBCNet(LateFusionNet):
         """Get the action from the context."""
         return self.head(context, deterministic)
 
-    def forward(self, obs, masks=None, deterministic=False):
-        """Generate an actions by end-to-end network."""
-        context = self.get_embedded_obs(obs)
-        actions = self.get_action(context, deterministic)
-        return actions
+    def get_tom(self, context, deterministic=False):
+        """Get the tom info from the context."""
+        other_actions = self.aux_action_head(context, deterministic)
+        other_goals = self.aux_goal_head(context, deterministic)
+        return other_actions, other_goals
     
+    def forward(self, obs, masks=None, deterministic=False, use_tom=False):
+        """Generate an actions by end-to-end network."""
+        context = self.get_embedded_obs(obs, use_tom)
+        actions = self.get_action(context, deterministic)
+        if use_tom:
+            tom_preds = self.get_tom(context, deterministic)
+            return actions, tom_preds
+        return actions
+
+
 class LateFusionAttnBCNet(LateFusionNet):
-    def __init__(self, env_config, exp_config, loss='l1', num_stack=5):
+    def __init__(self, env_config, exp_config, loss='l1', num_stack=5, use_tom=None):
         super(LateFusionAttnBCNet, self).__init__(None, env_config, exp_config)
         self.num_stack = num_stack
         
@@ -336,7 +366,7 @@ class LateFusionAttnBCNet(LateFusionNet):
         return actions
 
 class WayformerEncoder(LateFusionNet):
-    def __init__(self, env_config, exp_config, loss='l1', num_stack=1, rollout_len=10, pred_len=5):
+    def __init__(self, env_config, exp_config, loss='l1', num_stack=1, rollout_len=10, pred_len=5, use_tom=None):
         super(WayformerEncoder, self).__init__(None, env_config, exp_config)
         self.num_stack = num_stack
         
