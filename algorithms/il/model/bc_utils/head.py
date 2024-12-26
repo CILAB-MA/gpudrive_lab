@@ -92,7 +92,8 @@ class DistHead(nn.Module):
         return scaled_actions
 
 class GMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, action_dim=3, n_components=10, time_dim=1):
+    def __init__(self, network_type, input_dim, hidden_dim=128, action_dim=3, n_components=10, 
+                 time_dim=1, device='cuda'):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -112,6 +113,10 @@ class GMM(nn.Module):
         self.action_dim = action_dim
         self.time_dim = time_dim
         self.network_type = network_type
+        if action_dim == 3:
+            self.scale_factor = torch.tensor([6.0, 6.0, np.pi]).to(device)
+        elif action_dim == 2:
+            self.scale_factor = torch.tensor([1.0, 1.0]).to(device)
 
     def get_gmm_params(self, x):
         """
@@ -155,7 +160,6 @@ class GMM(nn.Module):
         
         # Squash actions and scaling
         actions = torch.tanh(actions)
-        scale_factor = torch.tensor([6.0, 6.0, np.pi], device=actions.device)
-        actions = scale_factor * actions
+        actions = self.scale_factor * actions
 
         return actions

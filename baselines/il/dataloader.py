@@ -17,7 +17,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
         
         self.actions = actions
-        self.other_info = other_info
+        self.other_info = other_info[..., :-1]
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len
