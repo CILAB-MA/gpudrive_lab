@@ -50,10 +50,10 @@ class EnvConfig:
     # Classic or Invertible Bicycle dynamics model
     steer_actions=torch.round(
         torch.linspace(-0.3, 0.3, 7), decimals=3
-    ),
+    )
     accel_actions=torch.round(
         torch.linspace(-6.0, 6.0, 7), decimals=3
-    ),
+    )
     head_tilt_actions: torch.Tensor = torch.Tensor([0])
     
     # Delta Local dynamics model
