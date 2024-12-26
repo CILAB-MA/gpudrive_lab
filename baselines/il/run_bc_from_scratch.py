@@ -48,8 +48,8 @@ def parse_args():
     return args
 
 def train():
-    net_config = NetworkConfig()
     env_config = EnvConfig()
+    net_config = NetworkConfig()
     head_config = HeadConfig()
 
     if args.use_wandb:
