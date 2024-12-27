@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default='oracle', choices=[None, 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default='None', choices=['None', 'oracle', 'aux_head'])
     args = parser.parse_args()
     
     return args
@@ -192,7 +192,7 @@ def train():
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 loss = pred_loss + tom_a_loss + tom_g_loss
             else:
-                context, _ = bc_policy.get_context(obs, all_masks[1:])
+                context = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
             
             # Backward pass

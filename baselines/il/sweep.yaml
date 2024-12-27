@@ -17,10 +17,10 @@ parameters:
 
   # MODEL
   model_name:
-    values: ["aux_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer']
+    values: ["late_fusion", "bc"] # ['bc', 'late_fusion', 'attention', 'wayformer']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm']
   network_dim:
-    values: [64,128]
+    values: [128,256]
   network_num_layers:
-    values: [2,3]
+    values: [2,3,4]
