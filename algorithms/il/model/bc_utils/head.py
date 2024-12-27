@@ -156,7 +156,6 @@ class GMM(nn.Module):
         
         actions = sampled_means if deterministic else dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
         actions = actions.squeeze(2)
-        actions = actions.squeeze(1) if self.network_type != 'WayformerEncoder' else actions
         
         # Squash actions and scaling
         actions = torch.tanh(actions)
