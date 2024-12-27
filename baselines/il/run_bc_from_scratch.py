@@ -28,7 +28,7 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
+    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', type=str, default='none', choices=['none', 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default='aux_head', choices=[None, 'oracle', 'aux_head'])
     args = parser.parse_args()
     
     return args
@@ -79,7 +79,8 @@ def train():
         config.__dict__.update(vars(args))
     
     # Initialize model and optimizer
-    bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack).to(config.device)
+    bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
+                                          config.use_tom).to(config.device)
     optimizer = Adam(bc_policy.parameters(), lr=config.lr)
 
     # Get state action pairs
@@ -182,7 +183,7 @@ def train():
             
             # Forward pass
             if config.use_tom == 'oracle':
-                context = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
+                context, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
             elif config.use_tom == 'aux_head':
                 context, other_embeds = bc_policy.get_context(obs, all_masks[1:], other_info=None)
@@ -191,7 +192,7 @@ def train():
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 loss = pred_loss + tom_a_loss + tom_g_loss
             else:
-                context = bc_policy.get_context(obs, all_masks[1:])
+                context, _ = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
             
             # Backward pass
@@ -246,11 +247,12 @@ def train():
             ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
             partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
             road_masks = road_masks.to(config.device) if len(batch) > 3 else None
-            other_info = other_info.to(config.device) if len(batch) > 6 else None
+            other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
-            
+            if config.use_tom != 'oracle':
+                other_info = None
             with torch.no_grad():
-                pred_actions = bc_policy(obs, all_masks[1:], deterministic=True)
+                pred_actions = bc_policy(obs, all_masks[1:], other_info=other_info, deterministic=True)
                 action_loss = torch.abs(pred_actions - expert_action)
                 dx_loss = action_loss[..., 0].mean().item()
                 dy_loss = action_loss[..., 1].mean().item()

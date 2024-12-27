@@ -118,7 +118,7 @@ class LateFusionAuxNet(CustomLateFusionNet):
         if self.use_tom == 'aux_head':
             return context, road_objects
         else:
-            return context
+            return context, None
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""

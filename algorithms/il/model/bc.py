@@ -11,7 +11,7 @@ from algorithms.il.model.bc_utils.head import *
 
 
 class ContFeedForward(CustomLateFusionNet):
-    def __init__(self,  env_config, net_config, head_config, loss, num_stack=5):
+    def __init__(self,  env_config, net_config, head_config, loss, num_stack=5, use_tom=None):
         super(ContFeedForward, self).__init__(env_config, net_config)
         self.nn = self._build_network(
             input_dim=(self.ego_input_dim + self.ro_input_dim * self.ro_max + self.rg_input_dim * self.rg_max) * num_stack,
@@ -60,7 +60,7 @@ class ContFeedForward(CustomLateFusionNet):
         return actions
 
 class LateFusionBCNet(CustomLateFusionNet):
-    def __init__(self, env_config, net_config, head_config, loss, num_stack=5):
+    def __init__(self, env_config, net_config, head_config, loss, num_stack=5, use_tom=None):
         super(LateFusionBCNet, self).__init__(env_config, net_config)
         self.num_stack = num_stack
         # Scene encoder
@@ -164,7 +164,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         return actions
 
 class LateFusionAttnBCNet(CustomLateFusionNet):
-    def __init__(self, env_config, net_config, head_config, loss, num_stack=5):
+    def __init__(self, env_config, net_config, head_config, loss, num_stack=5, use_tom=None):
         super(LateFusionAttnBCNet, self).__init__(env_config, net_config)
         self.num_stack = num_stack 
         # Scene encoder
