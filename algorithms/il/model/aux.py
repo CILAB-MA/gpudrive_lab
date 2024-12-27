@@ -36,7 +36,7 @@ class LateFusionAuxNet(CustomLateFusionNet):
                 time_dim=self.ro_max
             )
         elif use_tom == 'oracle':
-            other_input_dim += 5
+            other_input_dim += 5 * 5
         else:
             raise ValueError(f'ToM method "{use_tom}" is not implemented yet!!')
         
