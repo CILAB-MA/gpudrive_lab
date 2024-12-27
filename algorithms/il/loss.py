@@ -114,6 +114,9 @@ def gmm_loss(model, context, expert_actions, masks=None, aux_head=None):
     weighted_log_probs = log_probs + torch.log(weights + 1e-8) + torch.log(1 - squash_expert_actions**2 + 1e-6).sum(dim=-1, keepdim=True)
     loss = -torch.logsumexp(weighted_log_probs, dim=-1)
 
-    mask, _, _, _ = masks
-    loss = loss * mask.unsqueeze(-1)
+    mask, _, partner_masks, _ = masks
+    if aux_head != None:
+        loss = loss * partner_masks[:, -1]
+    else:
+        loss = loss * mask.unsqueeze(-1)
     return loss.mean(dim=1).sum() / mask.sum()
