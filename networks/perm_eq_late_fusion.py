@@ -1,6 +1,6 @@
 import copy
-from typing import Callable, Dict, List, Optional, Tuple, Type, Union
-import os
+from typing import Callable, List, Optional, Tuple, Type
+from abc import ABC, abstractmethod
 
 import torch
 import torch.nn.functional as F
@@ -8,10 +8,82 @@ from box import Box
 from gymnasium import spaces
 from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import nn
-import wandb
 
 from pygpudrive.env import constants
 
+
+class CustomLateFusionNet(nn.Module):
+    """Processes the env observation using a late fusion architecture."""
+
+    def __init__(
+        self,
+        env_config,
+        net_config,
+    ):
+        super().__init__()
+
+        self.config = env_config
+        self.net_config = net_config
+
+        # Unpack feature dimensions
+        self.ego_input_dim = constants.EGO_FEAT_DIM if self.config.ego_state else 0
+        self.ro_input_dim = constants.PARTNER_FEAT_DIM if self.config.partner_obs else 0
+        self.rg_input_dim = constants.ROAD_GRAPH_FEAT_DIM if self.config.road_map_obs else 0
+
+        self.ro_max = self.config.max_num_agents_in_scene-1
+        self.rg_max = self.config.roadgraph_top_k
+
+        # Network architectures
+        self.hidden_dim = self.net_config.network_dim
+        self.hidden_num = self.net_config.network_num_layers
+        self.act_func = (
+            nn.Tanh() if self.net_config.act_func == "tanh" else nn.ReLU()
+        )
+        self.dropout = self.net_config.dropout
+
+        # If using max pool across object dim
+        self.shared_net_input_dim = (
+            self.net_config.network_dim
+            + self.net_config.network_dim
+            + self.net_config.network_dim
+        )
+    @abstractmethod
+    def _build_network(self, input_dim: int) -> nn.Module:
+        """Build a network with the specified architecture."""
+        layers = []
+        prev_dim = input_dim
+        net_arch = [self.hidden_dim] * self.hidden_num
+        for layer_dim in net_arch:
+            layers.append(nn.Linear(prev_dim, layer_dim))
+            layers.append(nn.Dropout(self.dropout))
+            layers.append(nn.LayerNorm(layer_dim))
+            layers.append(self.act_func)
+            prev_dim = layer_dim
+        
+        network = nn.Sequential(*layers)
+        network.last_layer_dim = prev_dim
+
+        return network
+
+    @abstractmethod
+    def _unpack_obs(self, obs_flat, time_dim):
+        """Unpack the flattened observation with time dimension or num_stack."""
+        pass
+    
+    @abstractmethod
+    def get_context(self, obs, masks=None):
+        """Get the context of the observation."""
+        pass
+
+    @abstractmethod
+    def get_action(self, context, determinisitic=False):
+        """Get the action from the context."""
+        pass
+
+    @abstractmethod
+    def forward(self, obs, masks=None, attn_weights=False, deterministic=False):
+        """Forward pass."""
+        pass
 
 class LateFusionNet(nn.Module):
     """Processes the env observation using a late fusion architecture."""
@@ -215,7 +287,6 @@ class LateFusionNet(nn.Module):
         )
 
         return ego_state, road_objects, road_graph
-
 
 class LateFusionPolicy(ActorCriticPolicy):
     def __init__(

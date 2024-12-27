@@ -1,15 +1,26 @@
-program: train.py
+program: run_bc_from_scratch.py
 method: grid
 name: sweep
 metric:
   goal: minimize
   name: eval/loss
 parameters:
-  batch_size: 
-    values: [128,256]
-  lr:
-    values: [0.0005, 0.004] 
+  # EXPERIMENT
+  batch_size:
+    values: [256,512]
   epochs:
     value: 1000
+  lr:
+    value: 0.0005
   sample_per_epoch:
     value: 438763
+
+  # MODEL
+  model_name:
+    values: ["bc","late_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer']
+  loss_name:
+    value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm']
+  network_dim:
+    values: [64,128]
+  network_num_layers:
+    values: [2,3]

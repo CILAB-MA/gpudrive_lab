@@ -7,31 +7,34 @@ from typing import List
 
 
 class ContHead(nn.Module):
-    def __init__(self, hidden_size, net_arch):
+    def __init__(self, input_dim, hidden_dim, hidden_num):
         super(ContHead, self).__init__()
-        self.dx_head = self._build_out_network(hidden_size, 1, net_arch)
-        self.dy_head = self._build_out_network(hidden_size, 1, net_arch)
-        self.dyaw_head = self._build_out_network(hidden_size, 1, net_arch)
-
-    def _build_out_network(
-        self, input_dim: int, output_dim: int, net_arch: List[int]
-    ):
-        """Create the output network architecture."""
-        layers = []
-        prev_dim = input_dim
-        for layer_dim in net_arch:
-            layers.append(nn.Linear(prev_dim, layer_dim))
-            layers.append(nn.LayerNorm(layer_dim))
-            layers.append(nn.Tanh())
-            layers.append(nn.Dropout(0.0))
-            prev_dim = layer_dim
-
-        # Add final layer
-        layers.append(nn.Linear(prev_dim, output_dim))
-
-        return nn.Sequential(*layers)
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU()
+        )
+        self.dx_head = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+            ) for _ in range(hidden_num)
+        ])
+        self.dy_head = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+            ) for _ in range(hidden_num)
+        ])
+        self.dyaw_head = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+            ) for _ in range(hidden_num)
+        ])
     
     def forward(self, x, deterministic=None):
+        # TODO: residual dx, dy, dyaw block (to do fair comparison with GMM, Dist)
+        x = self.input_layer(x)
         dx = self.dx_head(x)
         dy = self.dy_head(x)
         dyaw = self.dyaw_head(x)
@@ -39,7 +42,7 @@ class ContHead(nn.Module):
         return actions
     
 class DistHead(nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, action_dim=3):
+    def __init__(self, input_dim, hidden_dim=128, hidden_num = 4, action_dim=3):
         super(DistHead, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -50,8 +53,7 @@ class DistHead(nn.Module):
             nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim)
-            ) for _ in range(4)
+            ) for _ in range(hidden_num)
         ])
         
         self.mean = nn.Linear(hidden_dim, action_dim)
@@ -66,7 +68,7 @@ class DistHead(nn.Module):
         for layer in self.residual_block:
             residual = x
             x = layer(x)
-            x += residual
+            x = x + residual
         
         mean = self.mean(x)
         log_std = self.log_std(x)
@@ -92,8 +94,7 @@ class DistHead(nn.Module):
         return scaled_actions
 
 class GMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, action_dim=3, n_components=10, 
-                 time_dim=1, device='cuda'):
+    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, device='cuda'):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -104,8 +105,7 @@ class GMM(nn.Module):
             nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim)
-            ) for _ in range(4)
+            ) for _ in range(hidden_num)
         ])
         
         self.head = nn.Linear(hidden_dim, n_components * (2 * action_dim + 1))
@@ -128,7 +128,7 @@ class GMM(nn.Module):
         for layer in self.residual_block:
             residual = x
             x = layer(x)
-            x += residual
+            x = x + residual
         
         params = self.head(x)
         

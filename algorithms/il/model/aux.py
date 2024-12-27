@@ -114,7 +114,7 @@ class LateFusionAuxNet(LateFusionNet):
 
         return nn.Sequential(*layers)
 
-    def get_embedded_obs(self, obs, masks=None, other_info=None):
+    def get_context(self, obs, masks=None, other_info=None):
         """Get the embedded observation."""
         batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=5)
