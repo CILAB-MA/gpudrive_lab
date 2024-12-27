@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default='aux_head', choices=[None, 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default='oracle', choices=[None, 'oracle', 'aux_head'])
     args = parser.parse_args()
     
     return args

@@ -3,7 +3,7 @@ import numpy as np
 
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, other_info=None, road_mask=None,
-                 rollout_len=1, pred_len=1):
+                 rollout_len=1, pred_len=1, tom_time='only_pred'):
         # obs
         self.obs = obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
@@ -26,6 +26,12 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.partner_mask = other_info[..., -1]
         partner_mask_pad = np.zeros((self.partner_mask.shape[0], rollout_len - 1, *self.partner_mask.shape[2:]), dtype=np.float32)
         self.partner_mask = np.concatenate([partner_mask_pad, self.partner_mask], axis=1).astype('bool')
+        if tom_time == 'only_pred':
+            self.tom_timestep = self.pred_len
+        elif tom_time == 'understand_pred':
+            self.tom_timestep = self.rollout_len
+        other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
+        self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
         if self.masks is not None:
             self.use_mask = True
         self.valid_indices = self._compute_valid_indices()
@@ -51,8 +57,10 @@ class ExpertDataset(torch.utils.data.Dataset):
                 if self.__dict__[var_name] is not None:
                     if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
-                    elif var_name in ['actions', 'other_info']:
+                    elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
+                    elif var_name in ['other_info']:
+                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.tom_timestep] # idx 0 -> (0, 0:6) -> start with first timestep
                     elif var_name == 'masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
                     else:
@@ -65,5 +73,5 @@ class ExpertDataset(torch.utils.data.Dataset):
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
                     data = self.__dict__[var_name][idx]
-                    batch = batch + (data, )   
+                    batch = batch + (data, )
         return batch
