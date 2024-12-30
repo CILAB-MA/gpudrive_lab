@@ -182,7 +182,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         self.ro_attn = SelfAttentionBlock(
             num_layers=2,
             num_heads=4,
-            num_channels=64,
+            num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
         )
@@ -190,7 +190,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         self.rg_attn = SelfAttentionBlock(
             num_layers=2,
             num_heads=4,
-            num_channels=64,
+            num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
         )
@@ -290,7 +290,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context = self.get_context(obs)
+        context = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
         return actions
 
