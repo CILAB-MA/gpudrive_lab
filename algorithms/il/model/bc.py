@@ -183,16 +183,16 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
             num_layers=2,
             num_heads=4,
             num_channels=64,
-            num_qk_channels=self.arch_road_objects[-1],
-            num_v_channels=self.arch_road_objects[-1],
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
         )
 
         self.rg_attn = SelfAttentionBlock(
             num_layers=2,
             num_heads=4,
             num_channels=64,
-            num_qk_channels=self.arch_road_graph[-1],
-            num_v_channels=self.arch_road_graph[-1],
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
         )
         self.agents_positional_embedding = nn.parameter.Parameter(
             torch.zeros((1, self.ro_max, 64)),
@@ -262,22 +262,22 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
-        road_objects = road_objects + self.agents_positional_embedding
-        road_objects_attn = self.ro_attn(road_objects)
+        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
+        objects_attn = self.ro_attn(all_objects)
         
         road_graph = self.road_graph_net(road_graph)
-        road_graph_attn = self.ro_attn(road_graph)
+        road_graph_attn = self.rg_attn(road_graph)
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
         road_objects = F.avg_pool1d(
-            road_objects_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.ro_max
+            objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.avg_pool1d(
             road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
-        embedding_vector = torch.cat((ego_state, road_objects, road_graph), dim=1)
+        embedding_vector = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects, road_graph), dim=1)
         return embedding_vector
 
     def get_action(self, context, deterministic=False):

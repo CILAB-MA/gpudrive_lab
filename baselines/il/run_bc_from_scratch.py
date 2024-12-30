@@ -28,7 +28,7 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
+    parser.add_argument('--model-name', '-m', type=str, default='attention', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -150,7 +150,8 @@ def train():
     del eval_expert_obs
     del eval_expert_actions
     del eval_expert_masks
-
+    trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
+    non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
     # Training loop
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
