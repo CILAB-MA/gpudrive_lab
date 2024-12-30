@@ -262,11 +262,15 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
+        ego_masks = masks[0][:, -1]
+        ro_masks = masks[1][:, -1]
+        rg_masks = masks[2][:, -1]
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
-        objects_attn = self.ro_attn(all_objects)
+        obj_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks], dim=-1)
+        objects_attn = self.ro_attn(all_objects, pad_mask=obj_masks)
         
         road_graph = self.road_graph_net(road_graph)
-        road_graph_attn = self.rg_attn(road_graph)
+        road_graph_attn = self.rg_attn(road_graph, pad_mask=rg_masks)
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
