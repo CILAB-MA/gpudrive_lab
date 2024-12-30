@@ -53,7 +53,7 @@ class ContFeedForward(CustomLateFusionNet):
         """Get the action from the context."""
         return self.head(context, deterministic)
 
-    def forward(self, obs, masks=None, deterministic=False):
+    def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
         context = self.get_context(obs)
         actions = self.get_action(context, deterministic)
@@ -156,7 +156,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         """Get the action from the context."""
         return self.head(context, deterministic)
 
-    def forward(self, obs, masks=None, deterministic=False):
+    def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
         context = self.get_context(obs)
         actions = self.get_action(context, deterministic)
@@ -284,7 +284,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         """Get the action from the context."""
         return self.head(context, deterministic)
 
-    def forward(self, obs, masks=None, attn_weights=False, deterministic=False):
+    def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
         context = self.get_context(obs)
         actions = self.get_action(context, deterministic)
@@ -394,7 +394,7 @@ class WayformerEncoder(CustomLateFusionNet):
         """Get the action from the context."""
         return self.head(context, deterministic)
 
-    def forward(self, obs, masks=None, deterministic=False):
+    def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
         context = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
