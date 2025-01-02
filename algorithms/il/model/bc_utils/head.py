@@ -107,7 +107,7 @@ class GMM(nn.Module):
                 nn.ReLU(),
             ) for _ in range(hidden_num)
         ])
-        
+        self.relu = nn.ReLU()
         self.head = nn.Linear(hidden_dim, n_components * (2 * action_dim + 1))
         self.n_components = n_components
         self.action_dim = action_dim
@@ -128,7 +128,7 @@ class GMM(nn.Module):
         for layer in self.residual_block:
             residual = x
             x = layer(x)
-            x = x + residual
+            x = self.relu(x + residual)
         
         params = self.head(x)
         
