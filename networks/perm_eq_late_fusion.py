@@ -8,9 +8,16 @@ from box import Box
 from gymnasium import spaces
 from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import nn
-
+import numpy as np
 from pygpudrive.env import constants
 
+def init(module, weight_init, bias_init, gain=1):
+    '''
+    This function provides weight and bias initializations for linear layers.
+    '''
+    weight_init(module.weight.data, gain=gain)
+    bias_init(module.bias.data)
+    return module
 
 class CustomLateFusionNet(nn.Module):
     """Processes the env observation using a late fusion architecture."""
@@ -37,7 +44,7 @@ class CustomLateFusionNet(nn.Module):
         self.hidden_dim = self.net_config.network_dim
         self.hidden_num = self.net_config.network_num_layers
         self.act_func = (
-            nn.Tanh() if self.net_config.act_func == "tanh" else nn.ReLU()
+            nn.Tanh(inplace=True) if self.net_config.act_func == "tanh" else nn.SELU(inplace=True)
         )
         self.dropout = self.net_config.dropout
 
@@ -50,11 +57,12 @@ class CustomLateFusionNet(nn.Module):
     @abstractmethod
     def _build_network(self, input_dim: int) -> nn.Module:
         """Build a network with the specified architecture."""
+        init_ = lambda m: init(m, nn.init.xavier_normal_, lambda x: nn.init.constant_(x, 0), np.sqrt(2))
         layers = []
         prev_dim = input_dim
         net_arch = [self.hidden_dim] * self.hidden_num
         for layer_dim in net_arch:
-            layers.append(nn.Linear(prev_dim, layer_dim))
+            layers.append(init_(nn.Linear(prev_dim, layer_dim)))
             layers.append(nn.Dropout(self.dropout))
             layers.append(nn.LayerNorm(layer_dim))
             layers.append(self.act_func)
@@ -157,7 +165,7 @@ class LateFusionNet(nn.Module):
             output_dim=self.latent_dim_vf,
             net_arch=self.arch_shared_net,
         )
-
+    
     def _build_network(
         self,
         input_dim: int,

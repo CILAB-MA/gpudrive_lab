@@ -53,9 +53,11 @@ class DistHead(nn.Module):
             nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
             ) for _ in range(hidden_num)
         ])
         
+        self.relu = nn.ReLU()
         self.mean = nn.Linear(hidden_dim, action_dim)
         self.log_std = nn.Linear(hidden_dim, action_dim)
     
@@ -68,7 +70,7 @@ class DistHead(nn.Module):
         for layer in self.residual_block:
             residual = x
             x = layer(x)
-            x = x + residual
+            x = self.relu(x + residual)
         
         mean = self.mean(x)
         log_std = self.log_std(x)
@@ -105,9 +107,10 @@ class GMM(nn.Module):
             nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
             ) for _ in range(hidden_num)
         ])
-        
+        self.relu = nn.ReLU()
         self.head = nn.Linear(hidden_dim, n_components * (2 * action_dim + 1))
         self.n_components = n_components
         self.action_dim = action_dim
@@ -128,7 +131,7 @@ class GMM(nn.Module):
         for layer in self.residual_block:
             residual = x
             x = layer(x)
-            x = x + residual
+            x = self.relu(x + residual)
         
         params = self.head(x)
         

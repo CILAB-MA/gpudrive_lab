@@ -64,6 +64,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         super(LateFusionBCNet, self).__init__(env_config, net_config)
         self.num_stack = num_stack
         # Scene encoder
+
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
         )
@@ -91,7 +92,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
-                input_dim=self.shared_net_input_dim,
+                input_dim=2 * 4 * net_config.network_dim + net_config.network_dim,
                 hidden_dim=head_config.head_dim,
                 hidden_num=head_config.head_num_layers,
                 action_dim=head_config.action_dim,
@@ -135,6 +136,7 @@ class LateFusionBCNet(CustomLateFusionNet):
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
+        batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
@@ -142,13 +144,16 @@ class LateFusionBCNet(CustomLateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
+        ro_pool_dim = int(self.ro_max / 4)
+        rg_pool_dim = int(self.rg_max / 4)
         road_objects = F.max_pool1d(
-            road_objects.permute(0, 2, 1), kernel_size=self.ro_max
+            road_objects.permute(0, 2, 1), kernel_size=ro_pool_dim
         ).squeeze(-1)
         road_graph = F.max_pool1d(
-            road_graph.permute(0, 2, 1), kernel_size=self.rg_max
+            road_graph.permute(0, 2, 1), kernel_size=rg_pool_dim
         ).squeeze(-1)
-
+        road_objects = road_objects.reshape(batch, -1)
+        road_graph = road_graph.reshape(batch, -1)
         context = torch.cat((ego_state, road_objects, road_graph), dim=1)
         return context
 
@@ -180,25 +185,20 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         
         # Attention
         self.ro_attn = SelfAttentionBlock(
-            num_layers=2,
+            num_layers=3,
             num_heads=4,
-            num_channels=64,
+            num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
         )
 
         self.rg_attn = SelfAttentionBlock(
-            num_layers=2,
+            num_layers=3,
             num_heads=4,
-            num_channels=64,
+            num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
         )
-        self.agents_positional_embedding = nn.parameter.Parameter(
-            torch.zeros((1, self.ro_max, 64)),
-            requires_grad=True
-        )
-        
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
                 input_dim=self.shared_net_input_dim,
@@ -215,7 +215,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
-                input_dim=self.shared_net_input_dim,
+                input_dim= 2 * 4 * net_config.network_dim + net_config.network_dim,
                 hidden_dim=head_config.head_dim,
                 hidden_num=head_config.head_num_layers,
                 action_dim=head_config.action_dim,
@@ -259,6 +259,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
+        batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
@@ -274,13 +275,17 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
+
+        ro_pool_dim = int(self.ro_max / 4)
+        rg_pool_dim = int(self.rg_max / 4)
         road_objects = F.avg_pool1d(
-            objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=self.ro_max
+            objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=ro_pool_dim
         ).squeeze(-1)
         road_graph = F.avg_pool1d(
-            road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.rg_max
+            road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=rg_pool_dim
         ).squeeze(-1)
-
+        road_objects = road_objects.reshape(batch, -1)
+        road_graph = road_graph.reshape(batch, -1)
         embedding_vector = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects, road_graph), dim=1)
         return embedding_vector
 

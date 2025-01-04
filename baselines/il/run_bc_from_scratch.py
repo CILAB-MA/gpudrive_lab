@@ -2,7 +2,7 @@
 import logging
 import numpy as np
 import torch
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 from torch.utils.data import DataLoader
 import os, sys, torch
 sys.path.append(os.getcwd())
@@ -81,7 +81,7 @@ def train():
     # Initialize model and optimizer
     bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
                                           config.use_tom).to(config.device)
-    optimizer = Adam(bc_policy.parameters(), lr=config.lr)
+    optimizer = AdamW(bc_policy.parameters(), lr=config.lr, eps=0.0001)
 
     # Get state action pairs
     train_expert_obs, train_expert_actions = [], []
@@ -153,6 +153,7 @@ def train():
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
     non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
     # Training loop
+    print(f'Total params: {trainable_params + non_trainable_params}')
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
         total_samples = 0
