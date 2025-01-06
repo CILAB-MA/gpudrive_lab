@@ -82,7 +82,17 @@ def train():
     bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
                                           config.use_tom).to(config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=config.lr, eps=0.0001)
-
+    
+    # Model Params wandb update
+    trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
+    non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
+    print(f'Total params: {trainable_params + non_trainable_params}')
+    if args.use_wandb:
+        wandb_tags = list(wandb.run.tags)
+        wandb_tags.append(f"trainable_params_{trainable_params}")
+        wandb_tags.append(f"non_trainable_params_{non_trainable_params}")
+        wandb.run.tags = tuple(wandb_tags)
+    
     # Get state action pairs
     train_expert_obs, train_expert_actions = [], []
     eval_expert_obs, eval_expert_actions, = [], []
