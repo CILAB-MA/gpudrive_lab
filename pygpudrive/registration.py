@@ -2,7 +2,14 @@ from pygpudrive.env.config import DynamicsModel, ActionSpace
 from pygpudrive.env.env_torch import GPUDriveDiscreteEnv, GPUDriveMultiDiscreteEnv, GPUDriveContinuousEnv
 
 def make(dynamics_id=None, action_space=None, kwargs=None) -> None:
-    """Creates a environment with dynamics model and action space specified."""
+    """
+    Creates an environment with a specified dynamics model and action space.
+
+    Args:
+        dynamics_id (str, optional): Identifier for the dynamics model. Default is None.
+        action_space (gym.Space, optional): The action space for the environment. Default is None.
+        kwargs: config, scene_config, max_cont_agents, device, num_stack, render_config
+    """
     match dynamics_id:
         case DynamicsModel.CLASSIC:
             match action_space:

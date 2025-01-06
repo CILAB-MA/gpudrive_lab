@@ -23,9 +23,9 @@ def parse_args():
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
-    parser.add_argument('--action-scale', '-as', type=int, default=1)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm_all_data')
+    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion_gmm_oracle_test_20241227_1836')
+    parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
 
@@ -41,7 +41,9 @@ if __name__ == "__main__":
     
     # Configurations
     NUM_WORLDS = 50
+    NUM_PARTNER = 128
     MAX_NUM_OBJECTS = 1
+    ROLLOUT_LEN = 5
 
     # Initialize configurations
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
@@ -79,9 +81,32 @@ if __name__ == "__main__":
     expert_actions, _, _ = env.get_expert_actions()
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
+        
+        # MASK
+        ego_masks = env.get_stacked_controlled_agents_mask().to(args.device)
+        partner_masks = env.get_stacked_partner_mask().to(args.device)
+        road_masks = env.get_stacked_road_mask().to(args.device)
+        ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
+        partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
+        road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
+        all_masks = [ego_masks[~dead_agent_mask], partner_masks[~dead_agent_mask], road_masks[~dead_agent_mask]]
+        
+        # OTHER INFO
+        if hasattr(bc_policy, 'use_tom'):
+            if bc_policy.use_tom == 'oracle':
+                other_info = env.get_other_infos(step=time_step)
+                other_info = other_info[~dead_agent_mask]
+            elif bc_policy.use_tom == 'aux_head':
+                other_info = None
+            else:
+                raise ValueError(f'ToM method "{bc_policy.use_tom}" is not implemented yet!!')
+        else:
+            other_info = None
+            
         with torch.no_grad():
-            actions = bc_policy(obs[~dead_agent_mask], deterministic=True)
-        all_actions[~dead_agent_mask, :] = actions / args.action_scale
+            actions = bc_policy(obs[~dead_agent_mask], masks=all_masks, other_info=other_info, deterministic=True)
+            actions = actions.squeeze(1)
+        all_actions[~dead_agent_mask, :] = actions
 
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
@@ -111,10 +136,18 @@ if __name__ == "__main__":
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
     print(f'Success World idx : ', torch.where(goal_achieved == 1)[0].tolist())
 
+    if args.make_csv:
+        csv_path = f"{args.model_path}/result.csv"
+        file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
+        with open(csv_path, 'a', encoding='utf-8') as f:
+            if file_is_empty:
+                f.write("model_name,dataset,off_road_rate,veh_coll_rate,goal_rate,collision_rate\n")
+            f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate}\n")
+    
     if args.make_video:
         time = datetime.now().strftime("%Y%m%d%H%M")
         for world_render_idx in range(NUM_WORLDS):
-            if world_render_idx not in torch.where(veh_collision + off_road >= 1)[0].tolist():
+            if world_render_idx in torch.where(veh_collision + off_road >= 1)[0].tolist():
                 video_path = os.path.join(args.video_path, args.dataset, args.model_name)
                 if not os.path.exists(video_path):
                     os.makedirs(video_path)

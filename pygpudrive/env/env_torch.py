@@ -72,6 +72,22 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             .to(torch.float)
             .to(self.device)
         )
+        
+    def get_other_infos(self, step):
+        not_me = ~torch.eye(self.max_agent_count, dtype=torch.bool).to(self.device)
+        
+        # extract the other_action_info (3)
+        expert_action, _, _ = self.get_expert_actions()
+        action_for_other_info = expert_action[:, :, step, :].unsqueeze(1).repeat(1, self.max_agent_count, 1, 1)
+        action_for_other_info = action_for_other_info[:, not_me].view(self.num_worlds, self.max_agent_count, self.max_agent_count - 1, -1)
+
+        # extract the other_goal_info (2)
+        partner_goal = self.get_partner_goal()
+        goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, self.max_agent_count, 1, 1)
+        goal_for_other_info = goal_for_other_info[:, not_me].view(self.num_worlds, self.max_agent_count, self.max_agent_count - 1, -1)
+        
+        other_info = torch.cat([action_for_other_info , goal_for_other_info], dim=-1)
+        return other_info
 
     def get_rewards(
         self, collision_weight=0, goal_achieved_weight=1.0, off_road_weight=0
@@ -213,25 +229,44 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         if reset:
             self.stacked_obs = torch.zeros_like(torch.cat([obs_filtered for _ in range(self.num_stack)],dim=-1))
+            self.stacked_control_mask = torch.zeros_like(torch.cat([self.get_controlled_agents_mask() for _ in range(self.num_stack)],dim=-1))
+            self.stacked_partner_mask = torch.zeros_like(torch.cat([self.get_partner_mask() for _ in range(self.num_stack)],dim=-1))
+            self.stacked_road_mask = torch.zeros_like(torch.cat([self.get_road_mask() for _ in range(self.num_stack)],dim=-1))
         else:
             self.stacked_obs[..., :-obs_filtered.shape[-1]] = self.stacked_obs[..., obs_filtered.shape[-1]:]
+            self.stacked_control_mask[..., :-self.get_controlled_agents_mask().shape[-1]] = self.stacked_control_mask[..., self.get_controlled_agents_mask().shape[-1]:].clone()
+            self.stacked_partner_mask[..., :-self.get_partner_mask().shape[-1]] = self.stacked_partner_mask[..., self.get_partner_mask().shape[-1]:].clone()
+            self.stacked_road_mask[..., :-self.get_road_mask().shape[-1]] = self.stacked_road_mask[..., self.get_road_mask().shape[-1]:].clone()
 
         self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
+        self.stacked_control_mask[..., -self.get_controlled_agents_mask().shape[-1]:] = self.get_controlled_agents_mask()
+        self.stacked_partner_mask[..., -self.get_partner_mask().shape[-1]:] = self.get_partner_mask()
+        self.stacked_road_mask[..., -self.get_road_mask().shape[-1]:] = self.get_road_mask()
         return self.stacked_obs.clone()
 
     def get_controlled_agents_mask(self):
         """Get the control mask."""
-        return (self.sim.controlled_state_tensor().to_torch() == 1).squeeze(
-            axis=2
-        )
+        return (self.sim.controlled_state_tensor().to_torch() == 1).squeeze(axis=2)
 
+    def get_stacked_controlled_agents_mask(self):
+        """Get the stacked control mask."""
+        return self.stacked_control_mask.clone()
+    
     def get_partner_mask(self):
         """Get the mask for partner observations."""
         return self.partner_mask.clone()
+
+    def get_stacked_partner_mask(self):
+        """Get the stacked partner mask."""
+        return self.stacked_partner_mask.clone()
     
     def get_road_mask(self):
         """Get the mask for road observations."""
         return self.road_mask.clone()
+    
+    def get_stacked_road_mask(self):
+        """Get the stacked road mask."""
+        return self.stacked_road_mask.clone()
     
     def get_partner_goal(self):
         "Get the partner goal"
@@ -239,7 +274,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def normalize_ego_state(self, state):
         """Normalize ego state features."""
-
         # Speed, vehicle length, vehicle width
         state[:, :, 0] /= constants.MAX_SPEED
         state[:, :, 1] /= constants.MAX_VEH_LEN
@@ -743,7 +777,8 @@ if __name__ == "__main__":
         "config": env_config,
         "scene_config": scene_config,
         "max_cont_agents": MAX_CONTROLLED_AGENTS,
-        "device": "cuda", 
+        "device": "cuda",
+        "num_stack": 5,
         "render_config": render_config
     }
     
@@ -753,8 +788,8 @@ if __name__ == "__main__":
     obs = env.reset()
     frames = []
 
-    for i in range(TOTAL_STEPS):
-        print(f"Step: {i}")
+    for step in range(TOTAL_STEPS):
+        print(f"Step: {step}")
 
         # Take a random actions
         rand_action = torch.Tensor(
@@ -772,21 +807,8 @@ if __name__ == "__main__":
         env.step_dynamics(rand_action)
 
         frames.append(env.render())
-
-        # extract the other_action_info
-        ego_id, partner_id = env.get_ids()
-        partner_mask = env.get_partner_mask()
-        action_for_other_info = expert_action[:, :, i, :].unsqueeze(1).repeat(1, 128, 1, 1)
-        not_me = ~torch.eye(128, dtype=torch.bool).to('cuda')
-        action_for_other_info = action_for_other_info[:, not_me].view(1, 128, 127, -1)
-
-        # extract the other_goal_info
-        partner_goal = env.get_partner_goal()
-        goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, 128, 1, 1)
-        goal_for_other_info = goal_for_other_info[:, not_me].view(1, 128, 127, -1)
-        partner_mask = partner_mask.unsqueeze(-1)
-        other_info = torch.cat([action_for_other_info , goal_for_other_info, partner_mask], dim=-1)
-        print(f'partner {partner_id[0, 1]} tom {other_info.shape}')
+        
+        other_infos = env.get_other_infos(step=step)
         infos = env.get_infos()
         obs = env.get_obs()
         reward = env.get_rewards()
