@@ -49,12 +49,15 @@ def parse_args():
 
 def get_grad_norm(params):
     total_norm = 0
+    param_count = 0
     for param in params:
         if param.grad is not None:
             param_norm = param.grad.data.norm(2)
             total_norm += param_norm.item() ** 2
+            param_count += param.numel() 
     total_norm = total_norm ** 0.5
-    return total_norm
+    average_norm = total_norm / param_count if param_count > 0 else 0 
+    return average_norm
 
 def train():
     env_config = EnvConfig()
