@@ -87,6 +87,10 @@ class PyGameVisualizer:
 
             self.surf = pygame.Surface((self.WINDOW_W, self.WINDOW_H))
             self.compute_window_settings()
+        if self.render_config.render_mode == RenderMode.PYGAME_ABSOLUTE and self.render_config.draw_expert_footprint:
+            self.footprints = np.zeros((gpudrive.episodeLen, self.num_worlds, gpudrive.kMaxAgentCount, 2))
+        else:
+            self.footprints = None
 
     @staticmethod
     def get_all_endpoints(map_info):
@@ -615,6 +619,16 @@ class PyGameVisualizer:
                 if agent_response_types[agent_idx] == STATIC_AGENT_ID:
                     color = (128, 128, 128)
 
+                # Draw the expert footprint
+                if self.footprints is not None:
+                    for footprint in self.footprints:
+                        x = footprint[world_render_idx, agent_idx, 0]
+                        y = footprint[world_render_idx, agent_idx, 1]
+                        if x >=0 and y >= 0:
+                            pygame.gfxdraw.filled_circle(
+                                self.surf, int(x), int(y), 2, color
+                            )
+                        
                 pygame.gfxdraw.aapolygon(self.surf, agent_corners, color)
                 pygame.gfxdraw.filled_polygon(self.surf, agent_corners, color)
 
@@ -744,3 +758,44 @@ class PyGameVisualizer:
     def destroy(self):
         pygame.display.quit()
         pygame.quit()
+
+    def saveExpertFootprint(self, world_render_idx=0, time_step=0):
+        """save the expert footprint for the agent at the given time step. (to use in drawing the expert trajectory)"""
+        # Get agent info
+        agent_info = (
+            self.sim.absolute_self_observation_tensor()
+            .to_torch()[world_render_idx, :, :]
+            .cpu()
+            .detach()
+            .numpy()
+        )
+
+        # Get the agent goal positions and current positions
+        agent_pos = agent_info[:, :2]  # x, y
+        agent_response_types = (  # 0: Valid (can be controlled), 2: Invalid (static vehicles)
+            self.sim.response_type_tensor()
+            .to_torch()[world_render_idx, :, :]
+            .cpu()
+            .detach()
+            .numpy()
+        )
+
+        num_agents = self.num_agents[world_render_idx][0]
+
+        # Draw the agent positions
+        for agent_idx in range(num_agents):
+            if agent_response_types[agent_idx] != STATIC_AGENT_ID:
+                info_tensor = self.sim.info_tensor().to_torch()[
+                    world_render_idx
+                ]
+                if info_tensor[agent_idx, -1] == float(
+                    gpudrive.EntityType.Padding
+                ) or info_tensor[agent_idx, -1] == float(
+                    gpudrive.EntityType._None
+                ):
+                    continue
+                
+                x = self.scale_coords(agent_pos[agent_idx], world_render_idx)[0]
+                y = self.scale_coords(agent_pos[agent_idx], world_render_idx)[1]
+                
+                self.footprints[time_step, world_render_idx, agent_idx] = [x, y]

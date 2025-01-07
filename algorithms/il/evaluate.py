@@ -58,7 +58,8 @@ if __name__ == "__main__":
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
     )
     render_config = RenderConfig(
-        draw_obj_idx=True
+        draw_obj_idx=True,
+        draw_expert_footprint=True
     )
     # Initialize environment
     kwargs={
@@ -73,10 +74,23 @@ if __name__ == "__main__":
 
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}.pth").to(args.device)
     bc_policy.eval()
+
+    # To make video with expert trajectories footprint
+    if render_config.draw_expert_footprint:
+        obs = env.reset()
+        expert_actions, _, _ = env.get_expert_actions()
+        for time_step in range(env.episode_len):
+            env.step_dynamics(expert_actions[:, :, time_step, :])
+            obs = env.get_obs()
+            dones = env.get_dones()
+            for world_render_idx in range(NUM_WORLDS):
+                env.save_expert_footprint(world_render_idx=world_render_idx, time_step=time_step)
+            if (dones == True).all():
+                break
+    
+    obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
-
-    obs = env.reset()
     frames = [[] for _ in range(NUM_WORLDS)]
     expert_actions, _, _ = env.get_expert_actions()
     for time_step in range(env.episode_len):
@@ -143,7 +157,7 @@ if __name__ == "__main__":
             if file_is_empty:
                 f.write("model_name,dataset,off_road_rate,veh_coll_rate,goal_rate,collision_rate\n")
             f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate}\n")
-    
+
     if args.make_video:
         time = datetime.now().strftime("%Y%m%d%H%M")
         for world_render_idx in range(NUM_WORLDS):
