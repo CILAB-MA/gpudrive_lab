@@ -249,6 +249,30 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
         }:
             return self.visualizer.getRender()
 
+    def save_expert_footprint(self, world_render_idx=0, time_step=0):
+        """Saves the expert footprint of the environment.
+
+        Args:
+            world_render_idx (int): Index of the world to render.
+
+        Returns:
+            Any: Rendered view of the world, or None if an invalid index is specified.
+        """
+        if world_render_idx >= self.num_worlds:
+            print(f"Invalid world_render_idx: {world_render_idx}")
+            return None
+        if self.render_config.render_mode in {
+            RenderMode.PYGAME_ABSOLUTE,
+        }:
+            return self.visualizer.saveExpertFootprint(
+                world_render_idx=world_render_idx,
+                time_step=time_step,
+            )
+        else:
+            raise ValueError(
+                "Expert footprint rendering is only supported in Pygame absolute mode."
+            )
+
     def reinit_scenarios(self, dataset: List[str]):
         """Resample the scenes.
         Args:
