@@ -7,9 +7,9 @@ metric:
 parameters:
   # EXPERIMENT
   batch_size:
-    values: [256,512]
+    values: [512]
   epochs:
-    value: 300
+    value: 500
   lr:
     value: 0.0003
   sample_per_epoch:
@@ -17,10 +17,10 @@ parameters:
 
   # MODEL
   model_name:
-    values: ["late_fusion", "attention"] # ['bc', 'late_fusion', 'attention', 'wayformer']
+    values: ["late_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm']
   network_dim:
-    values: [128]
+    values: [128, 256]
   network_num_layers:
-    values: [4]
+    values: [2, 3]

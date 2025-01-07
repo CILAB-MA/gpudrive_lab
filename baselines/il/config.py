@@ -112,8 +112,8 @@ class ExperimentConfig:
 @dataclass
 class NetworkConfig:
     # BASE LATEFUSION
-    network_dim: int = 256
-    network_num_layers: int = 4
+    network_dim: int = 64
+    network_num_layers: int = 3
     act_func: str = "selu"
     dropout: float = 0.1
 

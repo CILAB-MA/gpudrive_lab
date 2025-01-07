@@ -2,7 +2,8 @@
 import logging
 import numpy as np
 import torch
-from torch.optim import Adam, AdamW
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 import os, sys, torch
 sys.path.append(os.getcwd())
@@ -28,7 +29,7 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='attention', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -46,6 +47,18 @@ def parse_args():
     args = parser.parse_args()
     
     return args
+
+def get_grad_norm(params):
+    total_norm = 0
+    param_count = 0
+    for param in params:
+        if param.grad is not None:
+            param_norm = param.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+            param_count += param.numel() 
+    total_norm = total_norm ** 0.5
+    average_norm = total_norm / param_count if param_count > 0 else 0 
+    return average_norm
 
 def train():
     env_config = EnvConfig()
@@ -82,7 +95,6 @@ def train():
     bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
                                           config.use_tom).to(config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=config.lr, eps=0.0001)
-    
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
     non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
@@ -120,7 +132,6 @@ def train():
 
     # Combine data (no changes)
     num_cpus = os.cpu_count()
-
     train_expert_obs = np.concatenate(train_expert_obs)
     train_expert_actions = np.concatenate(train_expert_actions)
     train_expert_masks = np.concatenate(train_expert_masks) if len(train_expert_masks) > 0 else None
@@ -160,22 +171,15 @@ def train():
     del eval_expert_obs
     del eval_expert_actions
     del eval_expert_masks
-    trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
-    non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
-    # Training loop
-    print(f'Total params: {trainable_params + non_trainable_params}')
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
-        total_samples = 0
         losses = 0
         dx_losses = 0
         dy_losses = 0
+        grad_norms = 0
         dyaw_losses = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
-            if total_samples + batch_size > config.sample_per_epoch:
-                break
-            total_samples += batch_size
             
             if len(batch) == 7:
                 obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
@@ -210,6 +214,9 @@ def train():
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
+            grad_norm = get_grad_norm(bc_policy.parameters())
+            grad_norms += grad_norm
+            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 5)
             optimizer.step()
 
             with torch.no_grad():
@@ -230,6 +237,7 @@ def train():
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
+                    "train/grad_norm": grad_norms / (i + 1)
                 }, step=epoch
             )
 
