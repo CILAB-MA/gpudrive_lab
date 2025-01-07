@@ -2,7 +2,8 @@
 import logging
 import numpy as np
 import torch
-from torch.optim import Adam, AdamW
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 import os, sys, torch
 sys.path.append(os.getcwd())
@@ -94,7 +95,6 @@ def train():
     bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
                                           config.use_tom).to(config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=config.lr, eps=0.0001)
-    
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
     non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
@@ -132,7 +132,6 @@ def train():
 
     # Combine data (no changes)
     num_cpus = os.cpu_count()
-
     train_expert_obs = np.concatenate(train_expert_obs)
     train_expert_actions = np.concatenate(train_expert_actions)
     train_expert_masks = np.concatenate(train_expert_masks) if len(train_expert_masks) > 0 else None
@@ -174,7 +173,6 @@ def train():
     del eval_expert_masks
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
-        total_samples = 0
         losses = 0
         dx_losses = 0
         dy_losses = 0
@@ -182,9 +180,6 @@ def train():
         dyaw_losses = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
-            if total_samples + batch_size > config.sample_per_epoch:
-                break
-            total_samples += batch_size
             
             if len(batch) == 7:
                 obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
