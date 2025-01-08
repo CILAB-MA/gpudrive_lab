@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default='aux_head', choices=['None', 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default='None', choices=['None', 'oracle', 'aux_head'])
     args = parser.parse_args()
     
     return args
@@ -57,7 +57,7 @@ def get_grad_norm(params):
             grad_norm = param.grad.view(-1).norm(2).item()  # L2 norm
             if grad_norm > max_grad_norm:
                 max_grad_norm = grad_norm
-                grad_name = name
+                grad_name = str(name)
 
     return max_grad_norm, grad_name
 
@@ -220,10 +220,9 @@ def train():
             optimizer.zero_grad()
             loss.backward()
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
-            # grad_norms += grad_norm
             max_norms += max_norm
             max_names.append(max_name)
-            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
+            # torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
             optimizer.step()
 
             with torch.no_grad():
@@ -244,9 +243,7 @@ def train():
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
-                    # "train/grad_norm": grad_norms / (i + 1),
                     "train/max_grad_norm": max_norms / (i + 1),
-                    "train/max_grad_norm": max(set(max_names), key=max_names.count),
                 }, step=epoch
             )
         # Evaluation loop
