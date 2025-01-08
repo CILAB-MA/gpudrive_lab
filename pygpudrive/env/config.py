@@ -205,6 +205,7 @@ class RenderConfig:
     obj_idx_font_size: int = 9
     color_scheme: str = "light"
     draw_expert_footprint: bool = False
+    draw_only_ego_footprint: bool = False
 
     def __str__(self) -> str:
         """Returns a string representation of the rendering configuration."""

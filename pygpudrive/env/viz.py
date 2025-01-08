@@ -17,6 +17,9 @@ CHARCOAL = (22, 28, 32)
 
 STATIC_AGENT_ID = 2
 
+SHORT_MIN = np.iinfo(np.int16).min  # -32768
+SHORT_MAX = np.iinfo(np.int16).max  # 32767
+
 
 class PyGameVisualizer:
     WINDOW_W, WINDOW_H = 1920, 1080
@@ -620,14 +623,15 @@ class PyGameVisualizer:
                     color = (128, 128, 128)
 
                 # Draw the expert footprint
-                if self.footprints is not None:
-                    for footprint in self.footprints:
-                        x = footprint[world_render_idx, agent_idx, 0]
-                        y = footprint[world_render_idx, agent_idx, 1]
-                        if x >=0 and y >= 0:
-                            pygame.gfxdraw.filled_circle(
-                                self.surf, int(x), int(y), 2, color
-                            )
+                if agent_response_types[agent_idx] != STATIC_AGENT_ID and self.footprints is not None:
+                    if (self.render_config.draw_only_ego_footprint and cont_agent_mask[world_render_idx][agent_idx]) or not self.render_config.draw_only_ego_footprint:
+                        for footprint in self.footprints:
+                            x = footprint[world_render_idx, agent_idx, 0]
+                            y = footprint[world_render_idx, agent_idx, 1]
+                            if SHORT_MIN <= x <= SHORT_MAX and SHORT_MIN <= y <= SHORT_MAX:
+                                pygame.gfxdraw.filled_circle(
+                                    self.surf, int(x), int(y), 2, color
+                                )
                         
                 pygame.gfxdraw.aapolygon(self.surf, agent_corners, color)
                 pygame.gfxdraw.filled_polygon(self.surf, agent_corners, color)
@@ -799,3 +803,6 @@ class PyGameVisualizer:
                 y = self.scale_coords(agent_pos[agent_idx], world_render_idx)[1]
                 
                 self.footprints[time_step, world_render_idx, agent_idx] = [x, y]
+                
+                if self.render_config.draw_only_ego_footprint:
+                    break

@@ -177,6 +177,8 @@ def train():
     del eval_expert_obs
     del eval_expert_actions
     del eval_expert_masks
+
+    # Training loop
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
         losses = 0
