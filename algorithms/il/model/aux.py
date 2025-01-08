@@ -283,15 +283,15 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
         ro_pool_dim = int(self.ro_max / 4)
         rg_pool_dim = int(self.rg_max / 4)
-        road_objects = F.avg_pool1d(
+        road_objects_avg = F.avg_pool1d(
             objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=ro_pool_dim
         ).squeeze(-1)
         road_graph = F.avg_pool1d(
             road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=rg_pool_dim
         ).squeeze(-1)
-        road_objects = road_objects.reshape(batch, -1)
+        road_objects_avg = road_objects_avg.reshape(batch, -1)
         road_graph = road_graph.reshape(batch, -1)
-        embedding_vector = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects, road_graph), dim=1)
+        embedding_vector = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects_avg, road_graph), dim=1)
         if self.use_tom == 'aux_head':
             return embedding_vector, road_objects
         else:
