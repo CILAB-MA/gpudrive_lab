@@ -179,7 +179,6 @@ def train():
         losses = 0
         dx_losses = 0
         dy_losses = 0
-        grad_norms = 0
         dyaw_losses = 0
         max_norms = 0
         max_names = []
@@ -220,6 +219,7 @@ def train():
             optimizer.zero_grad()
             loss.backward()
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
+            # print(f"Max grad norm: {max_norm} at {max_name}")
             max_norms += max_norm
             max_names.append(max_name)
             # torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
