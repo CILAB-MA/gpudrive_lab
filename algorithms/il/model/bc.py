@@ -94,7 +94,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
-                input_dim=2 * 4 * net_config.network_dim + net_config.network_dim,
+                input_dim=self.shared_net_input_dim,
                 hidden_dim=head_config.head_dim,
                 hidden_num=head_config.head_num_layers,
                 action_dim=head_config.action_dim,
@@ -149,20 +149,20 @@ class LateFusionBCNet(CustomLateFusionNet):
 
         # ro_pool_dim = int(self.ro_max / 4)
         # rg_pool_dim = int(self.rg_max / 4)
-        # road_objects = F.max_pool1d(
-        #     road_objects.permute(0, 2, 1), kernel_size=ro_pool_dim
-        # ).squeeze(-1)
-        # road_graph = F.max_pool1d(
-        #     road_graph.permute(0, 2, 1), kernel_size=rg_pool_dim
-        # ).squeeze(-1)
+        road_objects = F.max_pool1d(
+            road_objects.permute(0, 2, 1), kernel_size=self.ro_max
+        ).squeeze(-1)
+        road_graph = F.max_pool1d(
+            road_graph.permute(0, 2, 1), kernel_size=self.rg_max
+        ).squeeze(-1)
         # other_objects = torch.cat([road_objects, road_graph], dim=1)
         # other_objects = self.compress_net(other_objects.reshape(batch, -1))
         # context = torch.cat((ego_state, other_objects), dim=1)
 
-        road_graph = torch.topk(road_graph, 4, dim=1).values
-        road_objects = torch.topk(road_objects, 4, dim=1).values
-        road_graph = road_graph.reshape(batch, -1)
-        road_objects = road_objects.reshape(batch, -1)
+        # road_graph = torch.topk(road_graph, 4, dim=1).values
+        # road_objects = torch.topk(road_objects, 4, dim=1).values
+        # road_graph = road_graph.reshape(batch, -1)
+        # road_objects = road_objects.reshape(batch, -1)
         context = torch.cat((ego_state, road_objects, road_graph), dim=1)
         return context
 

@@ -100,7 +100,8 @@ class GMM(nn.Module):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.LayerNorm(hidden_dim)
         )
         
         self.residual_block = nn.ModuleList([
@@ -139,7 +140,7 @@ class GMM(nn.Module):
         covariances = params[..., self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
         weights = params[..., -self.n_components:].view(-1, self.time_dim, self.n_components)
         
-        covariances = torch.clamp(covariances, -20, 2)
+        covariances = torch.clamp(covariances, -1.609, 5)
         covariances = torch.exp(covariances)
         weights = torch.softmax(weights, dim=-1)
         
