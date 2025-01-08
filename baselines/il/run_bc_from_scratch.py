@@ -29,7 +29,8 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer', 'aux_fusion'])
+    parser.add_argument('--model-name', '-m', type=str, default='aux_attn', choices=['bc', 'late_fusion', 'attention', 'wayformer',
+                                                                                         'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -43,7 +44,7 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default='None', choices=['None', 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default='oracle', choices=['None', 'oracle', 'aux_head'])
     args = parser.parse_args()
     
     return args
@@ -51,14 +52,19 @@ def parse_args():
 def get_grad_norm(params):
     total_norm = 0
     param_count = 0
+    max_norm = 0
+
     for param in params:
         if param.grad is not None:
-            param_norm = param.grad.data.norm(2)
+            param_norm = param.grad.data.norm(2)  # L2 norm
             total_norm += param_norm.item() ** 2
-            param_count += param.numel() 
+            max_norm = max(max_norm, param_norm.item())
+            param_count += param.numel()
+
     total_norm = total_norm ** 0.5
-    average_norm = total_norm / param_count if param_count > 0 else 0 
-    return average_norm
+    average_norm = total_norm / param_count if param_count > 0 else 0
+
+    return average_norm, max_norm
 
 def train():
     env_config = EnvConfig()
@@ -141,7 +147,7 @@ def train():
         ExpertDataset(
             train_expert_obs, train_expert_actions, train_expert_masks,
             other_info=train_other_info, road_mask=train_road_mask,
-            rollout_len=config.rollout_len, pred_len=config.pred_len
+            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='understand_pred'
         ),
         batch_size=config.batch_size,
         shuffle=True,
@@ -161,7 +167,7 @@ def train():
         ExpertDataset(
             eval_expert_obs, eval_expert_actions, eval_expert_masks,
             other_info=eval_other_info, road_mask=eval_road_mask,
-            rollout_len=config.rollout_len, pred_len=config.pred_len
+            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='understand_pred'
         ),
         batch_size=config.batch_size,
         shuffle=False,
@@ -178,6 +184,7 @@ def train():
         dy_losses = 0
         grad_norms = 0
         dyaw_losses = 0
+        max_norms = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             
@@ -214,9 +221,10 @@ def train():
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
-            grad_norm = get_grad_norm(bc_policy.parameters())
+            grad_norm, max_norm = get_grad_norm(bc_policy.parameters())
             grad_norms += grad_norm
-            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 5)
+            max_norms += max_norm
+            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
             optimizer.step()
 
             with torch.no_grad():
@@ -237,60 +245,61 @@ def train():
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
-                    "train/grad_norm": grad_norms / (i + 1)
+                    "train/grad_norm": grad_norms / (i + 1),
+                    "train/max_grad_norm": max_norms / (i + 1)
                 }, step=epoch
             )
-
         # Evaluation loop
-        bc_policy.eval()
-        total_samples = 0
-        losses = 0
-        dx_losses = 0
-        dy_losses = 0
-        dyaw_losses = 0
-        for i, batch in enumerate(eval_expert_data_loader):
-            batch_size = batch[0].size(0)
-            if total_samples + batch_size > int(config.sample_per_epoch / 5): 
-                break
-            total_samples += batch_size
+        if epoch % 5 == 0:
+            bc_policy.eval()
+            total_samples = 0
+            losses = 0
+            dx_losses = 0
+            dy_losses = 0
+            dyaw_losses = 0
+            for i, batch in enumerate(eval_expert_data_loader):
+                batch_size = batch[0].size(0)
+                if total_samples + batch_size > int(config.sample_per_epoch / 5): 
+                    break
+                total_samples += batch_size
+                
+                if len(batch) == 7:
+                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch  
+                elif len(batch) == 6:
+                    obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch  
+                elif len(batch) == 3:
+                    obs, expert_action, masks = batch
+                else:
+                    obs, expert_action = batch
+                obs, expert_action = obs.to(config.device), expert_action.to(config.device)
+                masks = masks.to(config.device) if len(batch) > 2 else None
+                ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
+                partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
+                road_masks = road_masks.to(config.device) if len(batch) > 3 else None
+                other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
+                all_masks= [masks, ego_masks, partner_masks, road_masks]
+                if config.use_tom != 'oracle':
+                    other_info = None
+                with torch.no_grad():
+                    pred_actions = bc_policy(obs, all_masks[1:], other_info=other_info, deterministic=True)
+                    action_loss = torch.abs(pred_actions - expert_action)
+                    dx_loss = action_loss[..., 0].mean().item()
+                    dy_loss = action_loss[..., 1].mean().item()
+                    dyaw_loss = action_loss[..., 2].mean().item()
+                    dx_losses += dx_loss
+                    dy_losses += dy_loss
+                    dyaw_losses += dyaw_loss
+                    losses += action_loss.mean().item()
             
-            if len(batch) == 7:
-                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch  
-            elif len(batch) == 6:
-                obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch  
-            elif len(batch) == 3:
-                obs, expert_action, masks = batch
-            else:
-                obs, expert_action = batch
-            obs, expert_action = obs.to(config.device), expert_action.to(config.device)
-            masks = masks.to(config.device) if len(batch) > 2 else None
-            ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
-            partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
-            road_masks = road_masks.to(config.device) if len(batch) > 3 else None
-            other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
-            all_masks= [masks, ego_masks, partner_masks, road_masks]
-            if config.use_tom != 'oracle':
-                other_info = None
-            with torch.no_grad():
-                pred_actions = bc_policy(obs, all_masks[1:], other_info=other_info, deterministic=True)
-                action_loss = torch.abs(pred_actions - expert_action)
-                dx_loss = action_loss[..., 0].mean().item()
-                dy_loss = action_loss[..., 1].mean().item()
-                dyaw_loss = action_loss[..., 2].mean().item()
-                dx_losses += dx_loss
-                dy_losses += dy_loss
-                dyaw_losses += dyaw_loss
-                losses += action_loss.mean().item()
-        
-        if config.use_wandb:
-            wandb.log(
-                {
-                    "eval/loss": losses / (i + 1) ,
-                    "eval/dx_loss": dx_losses / (i + 1),
-                    "eval/dy_loss": dy_losses / (i + 1),
-                    "eval/dyaw_loss": dyaw_losses / (i + 1),
-                }, step=epoch
-            )
+            if config.use_wandb:
+                wandb.log(
+                    {
+                        "eval/loss": losses / (i + 1) ,
+                        "eval/dx_loss": dx_losses / (i + 1),
+                        "eval/dy_loss": dy_losses / (i + 1),
+                        "eval/dyaw_loss": dyaw_losses / (i + 1),
+                    }, step=epoch
+                )
 
     # Save policy
     if not os.path.exists(config.model_path):
