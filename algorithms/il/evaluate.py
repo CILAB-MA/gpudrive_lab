@@ -59,7 +59,8 @@ if __name__ == "__main__":
     )
     render_config = RenderConfig(
         draw_obj_idx=True,
-        draw_expert_footprint=True
+        draw_expert_footprint=True,
+        draw_only_ego_footprint=True,
     )
     # Initialize environment
     kwargs={
