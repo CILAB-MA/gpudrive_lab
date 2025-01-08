@@ -50,24 +50,16 @@ def parse_args():
     return args
 
 def get_grad_norm(params):
-    total_norm = 0
     max_grad_norm = 0
-    grad_norms = []
     grad_name = None
     for name, param in params:
         if param.grad is not None:
-            # Flatten the gradient to a vector and compute the norm
             grad_norm = param.grad.view(-1).norm(2).item()  # L2 norm
-            grad_norms.append(grad_norm)
-            total_norm += grad_norm ** 2
-            max_grad_norm = max(max_grad_norm, grad_norm)
-            if grad_norm != max_grad_norm:
+            if grad_norm > max_grad_norm:
+                max_grad_norm = grad_norm
                 grad_name = name
-    
-    param_count = sum(param.numel() for param in params if param.grad is not None)
-    average_norm = total_norm ** 0.5 / param_count if param_count > 0 else 0
 
-    return average_norm, max_grad_norm, grad_name
+    return max_grad_norm, grad_name
 
 def train():
     env_config = EnvConfig()
@@ -227,8 +219,8 @@ def train():
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
-            grad_norm, max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
-            grad_norms += grad_norm
+            max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
+            # grad_norms += grad_norm
             max_norms += max_norm
             max_names.append(max_name)
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
@@ -252,7 +244,7 @@ def train():
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
-                    "train/grad_norm": grad_norms / (i + 1),
+                    # "train/grad_norm": grad_norms / (i + 1),
                     "train/max_grad_norm": max_norms / (i + 1),
                     "train/max_grad_norm": max(set(max_names), key=max_names.count),
                 }, step=epoch
