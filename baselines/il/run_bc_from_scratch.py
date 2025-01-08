@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default='oracle', choices=['None', 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default='aux_head', choices=['None', 'oracle', 'aux_head'])
     args = parser.parse_args()
     
     return args
@@ -142,7 +142,7 @@ def train():
         ExpertDataset(
             train_expert_obs, train_expert_actions, train_expert_masks,
             other_info=train_other_info, road_mask=train_road_mask,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='understand_pred'
+            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
         ),
         batch_size=config.batch_size,
         shuffle=True,
@@ -162,7 +162,7 @@ def train():
         ExpertDataset(
             eval_expert_obs, eval_expert_actions, eval_expert_masks,
             other_info=eval_other_info, road_mask=eval_road_mask,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='understand_pred'
+            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
         ),
         batch_size=config.batch_size,
         shuffle=False,
