@@ -51,22 +51,23 @@ def parse_args():
 
 def get_grad_norm(params):
     total_norm = 0
-    param_count = 0
     max_grad_norm = 0
-    max_grad_layer = None
+    grad_norms = []
+    grad_name = None
     for name, param in params:
         if param.grad is not None:
-            param_norm = param.grad.data.norm(2)  # L2 norm
-            total_norm += param_norm.item() ** 2
-            if param_norm.item() > max_grad_norm:
-                max_grad_norm = param_norm.item()
-                max_grad_layer = name
-            param_count += param.numel()
+            # Flatten the gradient to a vector and compute the norm
+            grad_norm = param.grad.view(-1).norm(2).item()  # L2 norm
+            grad_norms.append(grad_norm)
+            total_norm += grad_norm ** 2
+            max_grad_norm = max(max_grad_norm, grad_norm)
+            if grad_norm != max_grad_norm:
+                grad_name = name
+    
+    param_count = sum(param.numel() for param in params if param.grad is not None)
+    average_norm = total_norm ** 0.5 / param_count if param_count > 0 else 0
 
-    total_norm = total_norm ** 0.5
-    average_norm = total_norm / param_count if param_count > 0 else 0
-
-    return average_norm, max_grad_norm, max_grad_layer
+    return average_norm, max_grad_norm, grad_name
 
 def train():
     env_config = EnvConfig()
