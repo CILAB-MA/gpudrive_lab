@@ -119,4 +119,4 @@ def gmm_loss(model, context, expert_actions, masks=None, aux_head=None):
         loss = loss * partner_masks[:, -1]
     else:
         loss = loss * mask.unsqueeze(-1)
-    return loss.mean(dim=1).sum() / mask.sum()
+    return loss.sum() / mask.sum()
