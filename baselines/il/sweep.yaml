@@ -11,7 +11,7 @@ parameters:
   epochs:
     value: 500
   lr:
-    value: 0.0007
+    value: [0.0005, 0.0007]
   sample_per_epoch:
     value: 438763
 
@@ -21,6 +21,6 @@ parameters:
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm']
   network_dim:
-    values: [128, 256]
+    values: [128]
   network_num_layers:
-    values: [2, 3]
+    values: [2]
