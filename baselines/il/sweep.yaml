@@ -11,7 +11,7 @@ parameters:
   epochs:
     value: 500
   lr:
-    values: [0.0003, 0.001, 0.003]
+    values: [0.0003]
   sample_per_epoch:
     value: 438763
 
@@ -23,4 +23,6 @@ parameters:
   network_dim:
     values: [512]
   network_num_layers:
-    values: [3, 4]
+    values: [3]
+  clip_value:
+    values: [-5, -4, -3]

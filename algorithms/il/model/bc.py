@@ -99,7 +99,8 @@ class LateFusionBCNet(CustomLateFusionNet):
                 hidden_num=head_config.head_num_layers,
                 action_dim=head_config.action_dim,
                 n_components=head_config.n_components,
-                time_dim=1
+                time_dim=1,
+                clip_value=head_config.clip_value
             )
         else:
             raise ValueError(f"Loss name {loss} is not supported")
