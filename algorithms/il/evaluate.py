@@ -13,7 +13,7 @@ from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.config import DynamicsModel, ActionSpace
 from algorithms.il.model.bc import *
 from pygpudrive.registration import make
-
+from pygpudrive.env.config import SelectionDiscipline
 
 
 def parse_args():
@@ -22,9 +22,10 @@ def parse_args():
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
-    parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
+    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion_gmm_oracle_test_20241227_1836')
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm_cov_clip_value_20250109_0758')
+    # parser.add_argument('--model-name', '-m', type=str, default='attention_gmm_baseline_20250104_1701')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
@@ -47,7 +48,9 @@ if __name__ == "__main__":
 
     # Initialize configurations
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
-                               NUM_WORLDS,)
+                               NUM_WORLDS,
+                               start_idx=0,
+                               discipline=SelectionDiscipline.RANGE_N)
     
     env_config = EnvConfig(
         dynamics_model="delta_local",
@@ -75,7 +78,13 @@ if __name__ == "__main__":
 
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}.pth").to(args.device)
     bc_policy.eval()
-
+    with np.load(os.path.join('/data/tom', 'train_trajectory_1000.npz')) as npz:
+        train_expert_obs = [npz['obs']]
+        train_expert_obs = np.concatenate(train_expert_obs)
+        print(train_expert_obs.shape)
+        train_expert_obs = train_expert_obs[0]
+        obs_pad = np.zeros(( 4, 3876), dtype=np.float32)
+        train_expert_obs = np.concatenate([obs_pad, train_expert_obs], axis=0)
     # To make video with expert trajectories footprint
     if render_config.draw_expert_footprint:
         obs = env.reset()
@@ -96,7 +105,10 @@ if __name__ == "__main__":
     expert_actions, _, _ = env.get_expert_actions()
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
-        
+        print(obs[alive_agent_mask].shape)
+        print('5stack diff', train_expert_obs[time_step:time_step+5].sum(), obs[~dead_agent_mask][0].sum())
+        print('One obs diff', train_expert_obs[time_step+4].sum(), obs[~dead_agent_mask][0][-3876:].sum())
+        print()
         # MASK
         ego_masks = env.get_stacked_controlled_agents_mask().to(args.device)
         partner_masks = env.get_stacked_partner_mask().to(args.device)
@@ -123,10 +135,11 @@ if __name__ == "__main__":
             actions = actions.squeeze(1)
         all_actions[~dead_agent_mask, :] = actions
 
-        env.step_dynamics(all_actions)
+        # env.step_dynamics(all_actions)
+        env.step_dynamics(expert_actions[:, :, time_step, :])
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
         
-        print(f'TIME {time_step} LOSS: {loss.mean(0)}')
+        # print(f'TIME {time_step} LOSS: {loss.mean(0)}')
 
         obs = env.get_obs()
         dones = env.get_dones()
@@ -143,6 +156,7 @@ if __name__ == "__main__":
     off_road = controlled_agent_info[:, 0]
     veh_collision = controlled_agent_info[:, 1]
     goal_achieved = controlled_agent_info[:, 3]
+    print(f"infos : {infos.shape}")
 
     off_road_rate = off_road.sum().float() / alive_agent_mask.sum().float()
     veh_coll_rate = veh_collision.sum().float() / alive_agent_mask.sum().float()

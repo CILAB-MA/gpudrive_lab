@@ -228,20 +228,23 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             dim=-1,
         )
         if reset:
+            # Initialize stacked tensors
             self.stacked_obs = torch.zeros_like(torch.cat([obs_filtered for _ in range(self.num_stack)],dim=-1))
             self.stacked_control_mask = torch.zeros_like(torch.cat([self.get_controlled_agents_mask() for _ in range(self.num_stack)],dim=-1))
             self.stacked_partner_mask = torch.zeros_like(torch.cat([self.get_partner_mask() for _ in range(self.num_stack)],dim=-1))
             self.stacked_road_mask = torch.zeros_like(torch.cat([self.get_road_mask() for _ in range(self.num_stack)],dim=-1))
         else:
-            self.stacked_obs[..., :-obs_filtered.shape[-1]] = self.stacked_obs[..., obs_filtered.shape[-1]:]
+            # Shift existing values to make space for new ones
+            self.stacked_obs[..., :-obs_filtered.shape[-1]] = self.stacked_obs[..., obs_filtered.shape[-1]:].clone()
             self.stacked_control_mask[..., :-self.get_controlled_agents_mask().shape[-1]] = self.stacked_control_mask[..., self.get_controlled_agents_mask().shape[-1]:].clone()
             self.stacked_partner_mask[..., :-self.get_partner_mask().shape[-1]] = self.stacked_partner_mask[..., self.get_partner_mask().shape[-1]:].clone()
             self.stacked_road_mask[..., :-self.get_road_mask().shape[-1]] = self.stacked_road_mask[..., self.get_road_mask().shape[-1]:].clone()
-
+        # Add new observations and masks
         self.stacked_obs[..., -obs_filtered.shape[-1]:] = obs_filtered
         self.stacked_control_mask[..., -self.get_controlled_agents_mask().shape[-1]:] = self.get_controlled_agents_mask()
         self.stacked_partner_mask[..., -self.get_partner_mask().shape[-1]:] = self.get_partner_mask()
         self.stacked_road_mask[..., -self.get_road_mask().shape[-1]:] = self.get_road_mask()
+
         return self.stacked_obs.clone()
 
     def get_controlled_agents_mask(self):
