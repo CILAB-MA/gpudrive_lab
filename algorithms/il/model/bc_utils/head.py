@@ -96,7 +96,7 @@ class DistHead(nn.Module):
         return scaled_actions
 
 class GMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, device='cuda'):
+    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=0, device='cuda'):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -116,6 +116,7 @@ class GMM(nn.Module):
         self.n_components = n_components
         self.action_dim = action_dim
         self.time_dim = time_dim
+        self.clip_value = clip_value
         self.network_type = network_type
         if action_dim == 3:
             self.scale_factor = torch.tensor([6.0, 6.0, np.pi]).to(device)
@@ -140,7 +141,7 @@ class GMM(nn.Module):
         covariances = params[..., self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
         weights = params[..., -self.n_components:].view(-1, self.time_dim, self.n_components)
         
-        covariances = torch.clamp(covariances, -2, 3.58352)
+        covariances = torch.clamp(covariances, self.clip_value, 3.58352)
         covariances = torch.exp(covariances)
         weights = torch.softmax(weights, dim=-1)
         
