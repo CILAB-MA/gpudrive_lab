@@ -20,9 +20,9 @@ parameters:
     values: ["late_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm']
-  network_dim:
-    values: [512]
   network_num_layers:
-    values: [3]
-  clip_value:
-    values: [-5, -4, -3]
+    values: [2, 3]
+  network_dim:
+    values: [256, 512]
+  # clip_value:
+  #   values: [-5, -4, -3]

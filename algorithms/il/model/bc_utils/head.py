@@ -96,7 +96,7 @@ class DistHead(nn.Module):
         return scaled_actions
 
 class GMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=0, device='cuda'):
+    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-1.609, device='cuda'):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -112,7 +112,8 @@ class GMM(nn.Module):
             ) for _ in range(hidden_num)
         ])
         self.relu = nn.ReLU()
-        self.head = nn.Linear(hidden_dim, n_components * (2 * action_dim + 1))
+        self.head = nn.Linear(hidden_dim, n_components * (3 * action_dim))
+        self.prob_predictor = nn.Linear(hidden_dim, n_components) # TODO: unitraj code is (hidden_dim, 1)
         self.n_components = n_components
         self.action_dim = action_dim
         self.time_dim = time_dim
@@ -127,6 +128,7 @@ class GMM(nn.Module):
         """
         Get the parameters of the Gaussian Mixture Model
         """
+        # TODO: x shape is (B, query_len, channel) and use (B, C, channel) in unitraj
         x = x.reshape(x.size(0), self.time_dim, x.size(-1))
         x = self.input_layer(x)
         
@@ -136,34 +138,27 @@ class GMM(nn.Module):
             x = self.relu(x + residual)
         
         params = self.head(x)
+        component_probs = self.prob_predictor(x).reshape(-1, self.n_components)
         
         means = params[..., :self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
-        covariances = params[..., self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
-        weights = params[..., -self.n_components:].view(-1, self.time_dim, self.n_components)
+        log_std = params[..., self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
+        rho = params[..., 2 * self.n_components * self.action_dim:].view(-1, self.time_dim, self.n_components, self.action_dim)
         
-        covariances = torch.clamp(covariances, self.clip_value, 3.58352)
-        covariances = torch.exp(covariances)
-        weights = torch.softmax(weights, dim=-1)
+        log_std = torch.clamp(log_std, self.clip_value, 5.0)
+        rho = torch.clamp(rho, -0.5, 0.5)
         
-        return means, covariances, weights, self.n_components
+        return means, log_std, rho, component_probs
 
     def forward(self, x, deterministic=None):
         """
         Sample actions from the Gaussian Mixture Model
         """
-        means, covariances, weights, components = self.get_gmm_params(x)
-
-        component_indices = torch.argmax(weights, dim=-1) if deterministic else dist.Categorical(weights).sample()
-        component_indices = component_indices.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 1, self.action_dim)
+        means, _, _, pred_scores = self.get_gmm_params(x) # (B, T, C, 3), (B, C)
         
-        sampled_means = torch.gather(means, 2, component_indices)
-        sampled_covariances = torch.gather(covariances, 2, component_indices)
-        
-        actions = sampled_means if deterministic else dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
-        actions = actions.squeeze(2)
+        best_component_idx = torch.argmax(pred_scores, dim=-1)
+        actions = means[torch.arange(means.size(0)), :, best_component_idx]
         
         # Squash actions and scaling
         actions = torch.tanh(actions)
         actions = self.scale_factor * actions
-
         return actions
