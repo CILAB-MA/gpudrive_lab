@@ -167,3 +167,80 @@ class GMM(nn.Module):
         actions = self.scale_factor * actions
 
         return actions
+
+class NewGMM(nn.Module):
+    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-1.609, device='cuda'):
+        super(GMM, self).__init__()
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.LayerNorm(hidden_dim)
+        )
+        
+        self.residual_block = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+            ) for _ in range(hidden_num)
+        ])
+        self.relu = nn.ReLU()
+        self.head = nn.Linear(hidden_dim, n_components * (3 * action_dim))
+        def init(module, weight_init, bias_init, gain=1):
+            '''
+            This function provides weight and bias initializations for linear layers.
+            '''
+            weight_init(module.weight.data, gain=gain)
+            bias_init(module.bias.data)
+            return module
+        init_ = lambda m: init(m, nn.init.xavier_normal_, lambda x: nn.init.constant_(x, 0), np.sqrt(2))
+        self.prob_predictor = nn.Sequential(init_(nn.Linear(hidden_dim, n_components))) # TODO: unitraj code is (hidden_dim, 1)
+        self.n_components = n_components
+        self.action_dim = action_dim
+        self.time_dim = time_dim
+        self.clip_value = clip_value
+        self.network_type = network_type
+        if action_dim == 3:
+            self.scale_factor = torch.tensor([6.0, 6.0, np.pi]).to(device)
+        elif action_dim == 2:
+            self.scale_factor = torch.tensor([1.0, 1.0]).to(device)
+
+    def get_gmm_params(self, x):
+        """
+        Get the parameters of the Gaussian Mixture Model
+        """
+        # TODO: x shape is (B, query_len, channel) and use (B, C, channel) in unitraj
+        x = x.reshape(x.size(0), self.time_dim, x.size(-1))
+        x = self.input_layer(x)
+        
+        for layer in self.residual_block:
+            residual = x
+            x = layer(x)
+            x = self.relu(x + residual)
+        
+        params = self.head(x)
+        component_probs = self.prob_predictor(x).reshape(-1, self.n_components)
+        self.component_probs = torch.softmax(component_probs[0].detach(), dim=-1) # To wandb log
+        
+        means = params[..., :self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
+        log_std = params[..., self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
+        rho = params[..., 2 * self.n_components * self.action_dim:].view(-1, self.time_dim, self.n_components, self.action_dim)
+        
+        log_std = torch.clamp(log_std, self.clip_value, 5.0)
+        rho = torch.clamp(rho, -0.5, 0.5)
+        
+        return means, log_std, rho, component_probs
+
+    def forward(self, x, deterministic=None):
+        """
+        Sample actions from the Gaussian Mixture Model
+        """
+        means, _, _, pred_scores = self.get_gmm_params(x) # (B, T, C, 3), (B, C)
+        
+        best_component_idx = torch.argmax(pred_scores, dim=-1)
+        actions = means[torch.arange(means.size(0)), :, best_component_idx]
+        
+        # Squash actions and scaling
+        actions = torch.tanh(actions)
+        actions = self.scale_factor * actions
+        return actions
