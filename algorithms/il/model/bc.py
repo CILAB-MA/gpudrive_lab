@@ -102,6 +102,17 @@ class LateFusionBCNet(CustomLateFusionNet):
                 time_dim=1,
                 clip_value=head_config.clip_value
             )
+        elif loss == 'new_gmm':
+            self.head = NewGMM(
+                network_type=self.__class__.__name__,
+                input_dim=self.shared_net_input_dim,
+                hidden_dim=head_config.head_dim,
+                hidden_num=head_config.head_num_layers,
+                action_dim=head_config.action_dim,
+                n_components=head_config.n_components,
+                time_dim=1,
+                clip_value=head_config.clip_value
+            )
         else:
             raise ValueError(f"Loss name {loss} is not supported")
 
@@ -232,6 +243,16 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
                 n_components=head_config.n_components,
                 time_dim=1
             )
+        elif loss == 'new_gmm':
+            self.head = NewGMM(
+                network_type=self.__class__.__name__,
+                input_dim= 2 * 4 * net_config.network_dim + net_config.network_dim,
+                hidden_dim=head_config.head_dim,
+                hidden_num=head_config.head_num_layers,
+                action_dim=head_config.action_dim,
+                n_components=head_config.n_components,
+                time_dim=1
+            )
         else:
             raise ValueError(f"Loss name {loss} is not supported")
 
@@ -348,6 +369,16 @@ class WayformerEncoder(CustomLateFusionNet):
             )
         elif loss == 'gmm':
             self.head = GMM(
+                network_type=self.__class__.__name__,
+                input_dim=64,
+                hidden_dim=head_config.head_dim,
+                hidden_num=head_config.head_num_layers,
+                action_dim=head_config.action_dim,
+                n_components=head_config.n_components,
+                time_dim=pred_len
+            )
+        elif loss == 'new_gmm':
+            self.head = NewGMM(
                 network_type=self.__class__.__name__,
                 input_dim=64,
                 hidden_dim=head_config.head_dim,
