@@ -7,29 +7,29 @@ from typing import List
 
 
 class ContHead(nn.Module):
-    def __init__(self, input_dim, hidden_dim, hidden_num):
+    def __init__(self, input_dim, head_config):
         super(ContHead, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.hidden_dim),
             nn.ReLU()
         )
         self.dx_head = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
                 nn.ReLU(),
-            ) for _ in range(hidden_num)
+            ) for _ in range(head_config.hidden_num)
         ])
         self.dy_head = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
                 nn.ReLU(),
-            ) for _ in range(hidden_num)
+            ) for _ in range(head_config.hidden_num)
         ])
         self.dyaw_head = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
                 nn.ReLU(),
-            ) for _ in range(hidden_num)
+            ) for _ in range(head_config.hidden_num)
         ])
     
     def forward(self, x, deterministic=None):
@@ -42,24 +42,24 @@ class ContHead(nn.Module):
         return actions
     
 class DistHead(nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, hidden_num = 4, action_dim=3):
+    def __init__(self, input_dim, head_config):
         super(DistHead, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.hidden_dim),
             nn.ReLU()
         )
         
         self.residual_block = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-            ) for _ in range(hidden_num)
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
+            ) for _ in range(head_config.hidden_num)
         ])
         
         self.relu = nn.ReLU()
-        self.mean = nn.Linear(hidden_dim, action_dim)
-        self.log_std = nn.Linear(hidden_dim, action_dim)
+        self.mean = nn.Linear(head_config.hidden_dim, head_config.action_dim)
+        self.log_std = nn.Linear(head_config.hidden_dim, head_config.action_dim)
     
     def get_dist_params(self, x):
         """
@@ -91,27 +91,27 @@ class DistHead(nn.Module):
         return actions
 
 class GMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-20, device='cuda'):
+    def __init__(self, network_type, input_dim, head_config, time_dim=1):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.hidden_dim),
             nn.ReLU(),
-            nn.LayerNorm(hidden_dim)
+            nn.LayerNorm(head_config.hidden_dim)
         )
         
         self.residual_block = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-            ) for _ in range(hidden_num)
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
+            ) for _ in range(head_config.hidden_num)
         ])
         self.relu = nn.ReLU()
-        self.head = nn.Linear(hidden_dim, n_components * (2 * action_dim + 1))
-        self.n_components = n_components
-        self.action_dim = action_dim
+        self.head = nn.Linear(head_config.hidden_dim, head_config.n_components * (2 * head_config.action_dim + 1))
+        self.n_components = head_config.n_components
+        self.action_dim = head_config.action_dim
         self.time_dim = time_dim
-        self.clip_value = clip_value
+        self.clip_value = head_config.clip_value
         self.network_type = network_type
 
     def get_gmm_params(self, x):
@@ -160,23 +160,23 @@ class GMM(nn.Module):
         return actions
 
 class NewGMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-1.609, device='cuda'):
+    def __init__(self, network_type, input_dim, head_config, time_dim=1):
         super(NewGMM, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.hidden_dim),
             nn.ReLU(),
-            nn.LayerNorm(hidden_dim)
+            nn.LayerNorm(head_config.hidden_dim)
         )
         
         self.residual_block = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-            ) for _ in range(hidden_num)
+                nn.Linear(head_config.hidden_dim, head_config.hidden_dim),
+            ) for _ in range(head_config.hidden_num)
         ])
         self.relu = nn.ReLU()
-        self.head = nn.Linear(hidden_dim, n_components * (3 * action_dim))
+        self.head = nn.Linear(head_config.hidden_dim, head_config.n_components * (3 * head_config.action_dim))
         def init(module, weight_init, bias_init, gain=1):
             '''
             This function provides weight and bias initializations for linear layers.
@@ -185,11 +185,11 @@ class NewGMM(nn.Module):
             bias_init(module.bias.data)
             return module
         init_ = lambda m: init(m, nn.init.xavier_normal_, lambda x: nn.init.constant_(x, 0), np.sqrt(2))
-        self.prob_predictor = nn.Sequential(init_(nn.Linear(hidden_dim, n_components))) # TODO: unitraj code is (hidden_dim, 1)
-        self.n_components = n_components
-        self.action_dim = action_dim
+        self.prob_predictor = nn.Sequential(init_(nn.Linear(head_config.hidden_dim, head_config.n_components))) # TODO: unitraj code is (hidden_dim, 1)
+        self.n_components = head_config.n_components
+        self.action_dim = head_config.action_dim
         self.time_dim = time_dim
-        self.clip_value = clip_value
+        self.clip_value = head_config.clip_value
         self.network_type = network_type
 
     def get_gmm_params(self, x):
