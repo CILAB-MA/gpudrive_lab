@@ -10,9 +10,9 @@ class SetNorm(nn.LayerNorm):
         torch.nn.init.constant_(self.weights, 1.)
         torch.nn.init.constant_(self.biases, 0.)
 
-    def forward(self, x, lengths=None):
+    def forward(self, x):
         # standardization
         out = super().forward(x)
         # transform params
         out = F.linear(out, torch.diag_embed(self.weights), self.biases)
-        return out, lengths
+        return out
