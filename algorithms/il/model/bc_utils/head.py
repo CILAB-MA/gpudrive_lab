@@ -96,7 +96,7 @@ class DistHead(nn.Module):
         return scaled_actions
 
 class GMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=0, device='cuda'):
+    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-20, device='cuda'):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -144,8 +144,12 @@ class GMM(nn.Module):
         covariances = torch.clamp(covariances, self.clip_value, 3.58352)
         covariances = torch.exp(covariances)
         weights = torch.softmax(weights, dim=-1)
+        self.component_probs = weights[0,0].detach() # To wandb log
         
         return means, covariances, weights, self.n_components
+
+    def get_component_probs(self):
+        return self.component_probs
 
     def forward(self, x, deterministic=None):
         """
@@ -170,7 +174,7 @@ class GMM(nn.Module):
 
 class NewGMM(nn.Module):
     def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-1.609, device='cuda'):
-        super(GMM, self).__init__()
+        super(NewGMM, self).__init__()
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
@@ -230,6 +234,9 @@ class NewGMM(nn.Module):
         rho = torch.clamp(rho, -0.5, 0.5)
         
         return means, log_std, rho, component_probs
+
+    def get_component_probs(self):
+        return self.component_probs
 
     def forward(self, x, deterministic=None):
         """

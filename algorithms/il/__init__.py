@@ -13,5 +13,6 @@ LOSS = dict(
     mse=mse_loss,
     twohot=two_hot_loss,
     nll=nll_loss,
-    gmm=gmm_loss
+    gmm=gmm_loss,
+    new_gmm=new_gmm_loss
 )
