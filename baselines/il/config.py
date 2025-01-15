@@ -116,6 +116,7 @@ class NetworkConfig:
     network_num_layers: int = 2
     act_func: str = "selu"
     dropout: float = 0.1
+    norm: str = "LN" # LN, BN, SN
 
 @dataclass
 class HeadConfig:

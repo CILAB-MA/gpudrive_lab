@@ -9,7 +9,9 @@ from gymnasium import spaces
 from stable_baselines3.common.policies import ActorCriticPolicy
 from torch import nn
 import numpy as np
+
 from pygpudrive.env import constants
+from networks.norms import SetNorm
 
 def init(module, weight_init, bias_init, gain=1):
     '''
@@ -46,6 +48,12 @@ class CustomLateFusionNet(nn.Module):
         self.act_func = (
             nn.Tanh(inplace=True) if self.net_config.act_func == "tanh" else nn.SELU(inplace=True)
         )
+        self.norm = (
+            lambda dim: nn.LayerNorm(dim) if self.net_config.norm == "LN" else
+            lambda dim: nn.BatchNorm1d(dim) if self.net_config.norm == "BN" else
+            lambda dim: SetNorm(dim, feature_dim=dim) if self.net_config.norm == "SN" else
+            (_ for _ in ()).throw(ValueError("Invalid norm type"))
+        )
         self.dropout = self.net_config.dropout
 
         # If using max pool across object dim
@@ -64,7 +72,7 @@ class CustomLateFusionNet(nn.Module):
         for layer_dim in net_arch:
             layers.append(init_(nn.Linear(prev_dim, layer_dim)))
             layers.append(nn.Dropout(self.dropout))
-            layers.append(nn.LayerNorm(layer_dim))
+            layers.append(self.norm(layer_dim))
             layers.append(self.act_func)
             prev_dim = layer_dim
         
