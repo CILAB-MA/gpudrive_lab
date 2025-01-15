@@ -88,12 +88,7 @@ class DistHead(nn.Module):
             dist = torch.distributions.Normal(means, stds)
             actions = dist.rsample()
 
-        squashed_actions = torch.tanh(actions)
-
-        scaled_factor = torch.tensor([6.0, 6.0, np.pi], device=x.device)
-
-        scaled_actions = scaled_factor * squashed_actions
-        return scaled_actions
+        return actions
 
 class GMM(nn.Module):
     def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-20, device='cuda'):
@@ -118,10 +113,6 @@ class GMM(nn.Module):
         self.time_dim = time_dim
         self.clip_value = clip_value
         self.network_type = network_type
-        if action_dim == 3:
-            self.scale_factor = torch.tensor([6.0, 6.0, np.pi]).to(device)
-        elif action_dim == 2:
-            self.scale_factor = torch.tensor([1.0, 1.0]).to(device)
 
     def get_gmm_params(self, x):
         """
@@ -165,10 +156,6 @@ class GMM(nn.Module):
         
         actions = sampled_means if deterministic else dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
         actions = actions.squeeze(2)
-        
-        # Squash actions and scaling
-        actions = torch.tanh(actions)
-        actions = self.scale_factor * actions
 
         return actions
 
@@ -204,10 +191,6 @@ class NewGMM(nn.Module):
         self.time_dim = time_dim
         self.clip_value = clip_value
         self.network_type = network_type
-        if action_dim == 3:
-            self.scale_factor = torch.tensor([6.0, 6.0, np.pi]).to(device)
-        elif action_dim == 2:
-            self.scale_factor = torch.tensor([1.0, 1.0]).to(device)
 
     def get_gmm_params(self, x):
         """
@@ -247,7 +230,4 @@ class NewGMM(nn.Module):
         best_component_idx = torch.argmax(pred_scores, dim=-1)
         actions = means[torch.arange(means.size(0)), :, best_component_idx]
         
-        # Squash actions and scaling
-        actions = torch.tanh(actions)
-        actions = self.scale_factor * actions
         return actions
