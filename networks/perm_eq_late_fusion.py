@@ -52,7 +52,7 @@ class CustomLateFusionNet(nn.Module):
             lambda dim: nn.LayerNorm(dim) if self.net_config.norm == "LN" else
             lambda dim: nn.BatchNorm1d(dim) if self.net_config.norm == "BN" else
             lambda dim: SetNorm(dim, feature_dim=dim) if self.net_config.norm == "SN" else
-            (_ for _ in ()).throw(ValueError("Invalid norm type"))
+            lambda dim: nn.Identity()
         )
         self.dropout = self.net_config.dropout
 
