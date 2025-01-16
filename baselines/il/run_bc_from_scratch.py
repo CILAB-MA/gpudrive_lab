@@ -20,7 +20,7 @@ from algorithms.il import MODELS, LOSS
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
+torch.backends.cudnn.benchmark = True
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -131,8 +131,10 @@ def train():
         eval_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and config.use_mask) else []
         eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
-
-
+    tsne_obs = train_expert_obs[0][0][2:7]
+    tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
+    tsne_mask = train_other_info[0][0][6][:, -1] #todo: index 임의 지정
+    tsne_mask = torch.from_numpy(tsne_mask).to(config.device)
     # Combine data (no changes)
     num_cpus = os.cpu_count()
     train_expert_obs = np.concatenate(train_expert_obs)
@@ -290,9 +292,9 @@ def train():
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
-            
+                    others_tsne = bc_policy.get_tsne(tsne_obs, tsne_mask).squeeze(0).detach().cpu().numpy()
             tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
-            emb_tsne = tsne.fit_transform(bc_policy.log_road_objects)
+            emb_tsne = tsne.fit_transform(others_tsne)
             x = emb_tsne[:, 0]
             y = emb_tsne[:, 1]
             plt.figure(figsize=(6,6))

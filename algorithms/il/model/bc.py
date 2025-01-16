@@ -129,6 +129,14 @@ class LateFusionBCNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
 
+    def get_tsne(self, obs, mask):
+        obs = obs.unsqueeze(0)
+        mask = (1 - mask).unsqueeze(0).unsqueeze(-1).bool()
+        _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        road_objects = self.road_object_net(road_objects)
+        masked_road_objects = road_objects[mask.expand_as(road_objects)].view(-1, road_objects.size(-1))
+        return masked_road_objects
+    
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
