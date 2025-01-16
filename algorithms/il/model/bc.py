@@ -139,12 +139,13 @@ class LateFusionBCNet(CustomLateFusionNet):
     
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
+        partner_mask = masks[1]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
+        partner_mask = (1 - partner_mask).unsqueeze(-1)
+        road_objects = road_objects * partner_mask
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
-
-        self.log_road_objects = road_objects[0].detach().cpu().numpy()
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
