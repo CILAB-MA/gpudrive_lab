@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from baselines.il.config import *
 from baselines.il.dataloader import ExpertDataset
 from algorithms.il import MODELS, LOSS
-
+from algorithms.il.utils import visualize_partner_obs_final
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 torch.backends.cudnn.benchmark = True
@@ -132,8 +132,13 @@ def train():
         eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
     tsne_obs = train_expert_obs[0][0][2:7]
-    tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
     tsne_mask = train_other_info[0][0][6][:, -1] #todo: index 임의 지정
+    # Training loop
+    if config.use_wandb:
+        raw_fig = visualize_partner_obs_final(tsne_obs, tsne_mask)
+        wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)})
+        plt.close()
+    tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
     tsne_mask = torch.from_numpy(tsne_mask).to(config.device)
     # Combine data (no changes)
     num_cpus = os.cpu_count()
@@ -177,7 +182,6 @@ def train():
     del eval_expert_actions
     del eval_expert_masks
 
-    # Training loop
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
         losses = 0
@@ -309,7 +313,7 @@ def train():
                         "eval/dx_loss": dx_losses / (i + 1),
                         "eval/dy_loss": dy_losses / (i + 1),
                         "eval/dyaw_loss": dyaw_losses / (i + 1),
-                        "tsne_plot": wandb.Image(plt),
+                        "embedding/tsne_plot": wandb.Image(plt),
                     }, step=epoch
                 )
             plt.close()
