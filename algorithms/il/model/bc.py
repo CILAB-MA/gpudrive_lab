@@ -20,24 +20,18 @@ class ContFeedForward(CustomLateFusionNet):
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
                 input_dim=self.nn.last_layer_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers
+                head_config=head_config
             )
         elif loss == 'nll':
             self.head = DistHead(
                 input_dim=self.nn.last_layer_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim
+                head_config=head_config
             )
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
                 input_dim=self.nn.last_layer_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,         
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                head_config=head_config,
                 time_dim=1
             )
         else:
@@ -74,44 +68,31 @@ class LateFusionBCNet(CustomLateFusionNet):
         self.road_graph_net = self._build_network(
             input_dim=self.rg_input_dim * num_stack,
         )
-        # self.compress_net = self._build_network(
-        #     input_dim = net_config.network_dim * (self.ro_max + self.rg_max)
-        # )
+
         # Action head
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers
+                head_config=head_config
             )
         elif loss == 'nll':
             self.head = DistHead(
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim
+                head_config=head_config
             )
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                head_config=head_config,
                 time_dim=1,
-                clip_value=head_config.clip_value
             )
         elif loss == 'new_gmm':
             self.head = NewGMM(
                 network_type=self.__class__.__name__,
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                head_config=head_config,
                 time_dim=1,
-                clip_value=head_config.clip_value
             )
         else:
             raise ValueError(f"Loss name {loss} is not supported")
@@ -150,31 +131,22 @@ class LateFusionBCNet(CustomLateFusionNet):
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
-        batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
 
+        self.log_road_objects = road_objects[0].detach().cpu().numpy()
+
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-
-        # ro_pool_dim = int(self.ro_max / 4)
-        # rg_pool_dim = int(self.rg_max / 4)
         road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.max_pool1d(
             road_graph.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
-        # other_objects = torch.cat([road_objects, road_graph], dim=1)
-        # other_objects = self.compress_net(other_objects.reshape(batch, -1))
-        # context = torch.cat((ego_state, other_objects), dim=1)
-
-        # road_graph = torch.topk(road_graph, 4, dim=1).values
-        # road_objects = torch.topk(road_objects, 4, dim=1).values
-        # road_graph = road_graph.reshape(batch, -1)
-        # road_objects = road_objects.reshape(batch, -1)
+        
         context = torch.cat((ego_state, road_objects, road_graph), dim=1)
         return context
 
@@ -223,34 +195,25 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers
+                head_config=head_config
             )
         elif loss == 'nll':
             self.head = DistHead(
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
+                head_config=head_config
             )
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
                 input_dim= 2 * 4 * net_config.network_dim + net_config.network_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                head_config=head_config,
                 time_dim=1
             )
         elif loss == 'new_gmm':
             self.head = NewGMM(
                 network_type=self.__class__.__name__,
                 input_dim= 2 * 4 * net_config.network_dim + net_config.network_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                head_config=head_config,
                 time_dim=1
             )
         else:
@@ -303,6 +266,8 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         
         road_graph = self.road_graph_net(road_graph)
         road_graph_attn = self.rg_attn(road_graph, pad_mask=rg_masks)
+
+        self.log_road_objects = road_objects[0].detach().cpu().numpy()
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
@@ -364,27 +329,20 @@ class WayformerEncoder(CustomLateFusionNet):
         elif loss == 'nll':
             self.head = DistHead(
                 input_dim=64,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers
+                head_config=head_config
             )
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
                 input_dim=64,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                head_config=head_config,
                 time_dim=pred_len
             )
         elif loss == 'new_gmm':
             self.head = NewGMM(
                 network_type=self.__class__.__name__,
                 input_dim=64,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                head_config=head_config,
                 time_dim=pred_len
             )
         else:

@@ -7,29 +7,29 @@ from typing import List
 
 
 class ContHead(nn.Module):
-    def __init__(self, input_dim, hidden_dim, hidden_num):
+    def __init__(self, input_dim, head_config):
         super(ContHead, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.head_dim),
             nn.ReLU()
         )
         self.dx_head = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.head_dim, head_config.head_dim),
                 nn.ReLU(),
-            ) for _ in range(hidden_num)
+            ) for _ in range(head_config.head_num_layers)
         ])
         self.dy_head = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.head_dim, head_config.head_dim),
                 nn.ReLU(),
-            ) for _ in range(hidden_num)
+            ) for _ in range(head_config.head_num_layers)
         ])
         self.dyaw_head = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.head_dim, head_config.head_dim),
                 nn.ReLU(),
-            ) for _ in range(hidden_num)
+            ) for _ in range(head_config.head_num_layers)
         ])
     
     def forward(self, x, deterministic=None):
@@ -42,24 +42,24 @@ class ContHead(nn.Module):
         return actions
     
 class DistHead(nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, hidden_num = 4, action_dim=3):
+    def __init__(self, input_dim, head_config):
         super(DistHead, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.head_dim),
             nn.ReLU()
         )
         
         self.residual_block = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.head_dim, head_config.head_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-            ) for _ in range(hidden_num)
+                nn.Linear(head_config.head_dim, head_config.head_dim),
+            ) for _ in range(head_config.head_num_layers)
         ])
         
         self.relu = nn.ReLU()
-        self.mean = nn.Linear(hidden_dim, action_dim)
-        self.log_std = nn.Linear(hidden_dim, action_dim)
+        self.mean = nn.Linear(head_config.head_dim, head_config.action_dim)
+        self.log_std = nn.Linear(head_config.head_dim, head_config.action_dim)
     
     def get_dist_params(self, x):
         """
@@ -88,40 +88,31 @@ class DistHead(nn.Module):
             dist = torch.distributions.Normal(means, stds)
             actions = dist.rsample()
 
-        squashed_actions = torch.tanh(actions)
-
-        scaled_factor = torch.tensor([6.0, 6.0, np.pi], device=x.device)
-
-        scaled_actions = scaled_factor * squashed_actions
-        return scaled_actions
+        return actions
 
 class GMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=0, device='cuda'):
+    def __init__(self, network_type, input_dim, head_config, time_dim=1):
         super(GMM, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.head_dim),
             nn.ReLU(),
-            nn.LayerNorm(hidden_dim)
+            nn.LayerNorm(head_config.head_dim)
         )
         
         self.residual_block = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.head_dim, head_config.head_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-            ) for _ in range(hidden_num)
+                nn.Linear(head_config.head_dim, head_config.head_dim),
+            ) for _ in range(head_config.head_num_layers)
         ])
         self.relu = nn.ReLU()
-        self.head = nn.Linear(hidden_dim, n_components * (2 * action_dim + 1))
-        self.n_components = n_components
-        self.action_dim = action_dim
+        self.head = nn.Linear(head_config.head_dim, head_config.n_components * (2 * head_config.action_dim + 1))
+        self.n_components = head_config.n_components
+        self.action_dim = head_config.action_dim
         self.time_dim = time_dim
-        self.clip_value = clip_value
+        self.clip_value = head_config.clip_value
         self.network_type = network_type
-        if action_dim == 3:
-            self.scale_factor = torch.tensor([6.0, 6.0, np.pi]).to(device)
-        elif action_dim == 2:
-            self.scale_factor = torch.tensor([1.0, 1.0]).to(device)
 
     def get_gmm_params(self, x):
         """
@@ -144,8 +135,12 @@ class GMM(nn.Module):
         covariances = torch.clamp(covariances, self.clip_value, 3.58352)
         covariances = torch.exp(covariances)
         weights = torch.softmax(weights, dim=-1)
+        self.component_probs = weights[0,0].detach() # To wandb log
         
         return means, covariances, weights, self.n_components
+
+    def get_component_probs(self):
+        return self.component_probs
 
     def forward(self, x, deterministic=None):
         """
@@ -161,31 +156,27 @@ class GMM(nn.Module):
         
         actions = sampled_means if deterministic else dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
         actions = actions.squeeze(2)
-        
-        # Squash actions and scaling
-        actions = torch.tanh(actions)
-        actions = self.scale_factor * actions
 
         return actions
 
 class NewGMM(nn.Module):
-    def __init__(self, network_type, input_dim, hidden_dim=128, hidden_num=4, action_dim=3, n_components=10, time_dim=1, clip_value=-1.609, device='cuda'):
-        super(GMM, self).__init__()
+    def __init__(self, network_type, input_dim, head_config, time_dim=1):
+        super(NewGMM, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, head_config.head_dim),
             nn.ReLU(),
-            nn.LayerNorm(hidden_dim)
+            nn.LayerNorm(head_config.head_dim)
         )
         
         self.residual_block = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(head_config.head_dim, head_config.head_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-            ) for _ in range(hidden_num)
+                nn.Linear(head_config.head_dim, head_config.head_dim),
+            ) for _ in range(head_config.head_num_layers)
         ])
         self.relu = nn.ReLU()
-        self.head = nn.Linear(hidden_dim, n_components * (3 * action_dim))
+        self.head = nn.Linear(head_config.head_dim, head_config.n_components * (3 * head_config.action_dim))
         def init(module, weight_init, bias_init, gain=1):
             '''
             This function provides weight and bias initializations for linear layers.
@@ -194,16 +185,12 @@ class NewGMM(nn.Module):
             bias_init(module.bias.data)
             return module
         init_ = lambda m: init(m, nn.init.xavier_normal_, lambda x: nn.init.constant_(x, 0), np.sqrt(2))
-        self.prob_predictor = nn.Sequential(init_(nn.Linear(hidden_dim, n_components))) # TODO: unitraj code is (hidden_dim, 1)
-        self.n_components = n_components
-        self.action_dim = action_dim
+        self.prob_predictor = nn.Sequential(init_(nn.Linear(head_config.head_dim, head_config.n_components))) # TODO: unitraj code is (head_dim, 1)
+        self.n_components = head_config.n_components
+        self.action_dim = head_config.action_dim
         self.time_dim = time_dim
-        self.clip_value = clip_value
+        self.clip_value = head_config.clip_value
         self.network_type = network_type
-        if action_dim == 3:
-            self.scale_factor = torch.tensor([6.0, 6.0, np.pi]).to(device)
-        elif action_dim == 2:
-            self.scale_factor = torch.tensor([1.0, 1.0]).to(device)
 
     def get_gmm_params(self, x):
         """
@@ -231,6 +218,9 @@ class NewGMM(nn.Module):
         
         return means, log_std, rho, component_probs
 
+    def get_component_probs(self):
+        return self.component_probs
+
     def forward(self, x, deterministic=None):
         """
         Sample actions from the Gaussian Mixture Model
@@ -240,7 +230,4 @@ class NewGMM(nn.Module):
         best_component_idx = torch.argmax(pred_scores, dim=-1)
         actions = means[torch.arange(means.size(0)), :, best_component_idx]
         
-        # Squash actions and scaling
-        actions = torch.tanh(actions)
-        actions = self.scale_factor * actions
         return actions

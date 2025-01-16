@@ -112,10 +112,11 @@ class ExperimentConfig:
 @dataclass
 class NetworkConfig:
     # BASE LATEFUSION
-    network_dim: int = 64
-    network_num_layers: int = 3
+    network_dim: int = 256
+    network_num_layers: int = 2
     act_func: str = "selu"
     dropout: float = 0.1
+    norm: str = "LN" # LN, BN, SN
 
 @dataclass
 class HeadConfig:
@@ -124,4 +125,4 @@ class HeadConfig:
     action_dim: int = 3
     n_components: int = 10
     time_dim: int = 91
-    clip_value: float = 3.0
+    clip_value: float = -20.0

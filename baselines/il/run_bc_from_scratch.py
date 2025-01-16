@@ -10,6 +10,8 @@ sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from tqdm import tqdm
 from datetime import datetime
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
 
 # GPUDrive
 from baselines.il.config import *
@@ -29,7 +31,7 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='aux_attn', choices=['bc', 'late_fusion', 'attention', 'wayformer',
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
@@ -219,14 +221,13 @@ def train():
             optimizer.zero_grad()
             loss.backward()
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
-            # print(f"Max grad norm: {max_norm} at {max_name}")
             max_norms += max_norm
             max_names.append(max_name)
-            # torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
             optimizer.step()
 
             with torch.no_grad():
                 pred_actions = bc_policy.get_action(context, deterministic=True)
+                component_probs = bc_policy.head.get_component_probs().cpu().numpy()
                 action_loss = torch.abs(pred_actions - expert_action)
                 dx_loss = action_loss[..., 0].mean().item()
                 dy_loss = action_loss[..., 1].mean().item()
@@ -244,6 +245,8 @@ def train():
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
                     "train/max_grad_norm": max_norms / (i + 1),
+                    "train/max_component_probs": max(component_probs),
+                    "train/min_component_probs": min(component_probs),
                 }, step=epoch
             )
         # Evaluation loop
@@ -288,6 +291,15 @@ def train():
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
             
+            tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
+            emb_tsne = tsne.fit_transform(bc_policy.log_road_objects)
+            x = emb_tsne[:, 0]
+            y = emb_tsne[:, 1]
+            plt.figure(figsize=(6,6))
+            plt.scatter(x, y, s=5, alpha=0.7)
+            plt.xlim(-150, 150)
+            plt.ylim(-150, 150)
+            plt.title("TSNE Visualization")
             if config.use_wandb:
                 wandb.log(
                     {
@@ -295,8 +307,10 @@ def train():
                         "eval/dx_loss": dx_losses / (i + 1),
                         "eval/dy_loss": dy_losses / (i + 1),
                         "eval/dyaw_loss": dyaw_losses / (i + 1),
+                        "tsne_plot": wandb.Image(plt),
                     }, step=epoch
                 )
+            plt.close()
 
     # Save policy
     if not os.path.exists(config.model_path):
