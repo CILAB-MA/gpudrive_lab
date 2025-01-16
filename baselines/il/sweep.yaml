@@ -19,7 +19,7 @@ parameters:
   model_name:
     values: ["late_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer']
   loss_name:
-    value: "new_gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
+    value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
   network_num_layers:
     values: [2, 3]
   network_dim:

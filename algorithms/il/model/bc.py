@@ -136,6 +136,8 @@ class LateFusionBCNet(CustomLateFusionNet):
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
 
+        self.log_road_objects = road_objects[0].detach().cpu().numpy()
+
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
         road_objects = F.max_pool1d(
@@ -264,6 +266,8 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         
         road_graph = self.road_graph_net(road_graph)
         road_graph_attn = self.rg_attn(road_graph, pad_mask=rg_masks)
+
+        self.log_road_objects = road_objects[0].detach().cpu().numpy()
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)

@@ -10,6 +10,8 @@ sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from tqdm import tqdm
 from datetime import datetime
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
 
 # GPUDrive
 from baselines.il.config import *
@@ -289,6 +291,15 @@ def train():
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
             
+            tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
+            emb_tsne = tsne.fit_transform(bc_policy.log_road_objects)
+            x = emb_tsne[:, 0]
+            y = emb_tsne[:, 1]
+            plt.figure(figsize=(6,6))
+            plt.scatter(x, y, s=5, alpha=0.7)
+            plt.xlim(-150, 150)
+            plt.ylim(-150, 150)
+            plt.title("TSNE Visualization")
             if config.use_wandb:
                 wandb.log(
                     {
@@ -296,8 +307,10 @@ def train():
                         "eval/dx_loss": dx_losses / (i + 1),
                         "eval/dy_loss": dy_losses / (i + 1),
                         "eval/dyaw_loss": dyaw_losses / (i + 1),
+                        "tsne_plot": wandb.Image(plt),
                     }, step=epoch
                 )
+            plt.close()
 
     # Save policy
     if not os.path.exists(config.model_path):

@@ -125,4 +125,4 @@ class HeadConfig:
     action_dim: int = 3
     n_components: int = 10
     time_dim: int = 91
-    clip_value: float = -1.609
+    clip_value: float = -20.0
