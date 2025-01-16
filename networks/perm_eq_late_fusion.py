@@ -11,7 +11,7 @@ from torch import nn
 import numpy as np
 
 from pygpudrive.env import constants
-from networks.norms import SetNorm
+from networks.norms import SetNorm, SetBatchNorm
 
 def init(module, weight_init, bias_init, gain=1):
     '''
@@ -52,6 +52,7 @@ class CustomLateFusionNet(nn.Module):
             lambda dim: nn.LayerNorm(dim) if self.net_config.norm == "LN" else
             lambda dim: nn.BatchNorm1d(dim) if self.net_config.norm == "BN" else
             lambda dim: SetNorm(dim, feature_dim=dim) if self.net_config.norm == "SN" else
+            lambda dim: SetBatchNorm(dim, feature_dim=dim) if self.net_config.norm == "SN" else
             lambda dim: nn.Identity()
         )
         self.dropout = self.net_config.dropout
