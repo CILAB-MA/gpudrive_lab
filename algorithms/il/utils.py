@@ -23,20 +23,9 @@ def visualize_partner_obs_final(obs, partner_mask):
     relative_positions = relative_positions[valid_mask]
     speeds = speeds[valid_mask]
     headings = headings[valid_mask]
-
+    headings *= 2 * np.pi
     # Relative position scatter plot
     fig = plt.figure(figsize=(10, 8))
-    scatter = plt.scatter(
-        relative_positions[:, 0],
-        relative_positions[:, 1],
-        c=speeds,
-        cmap="viridis",
-        alpha=0.8,
-        edgecolors="k",
-        s=80,  # Increased marker size
-        label="Speed",
-    )
-    plt.colorbar(scatter, label="Speed")
     plt.quiver(
         relative_positions[:, 0],
         relative_positions[:, 1],
@@ -44,10 +33,24 @@ def visualize_partner_obs_final(obs, partner_mask):
         np.sin(headings),
         angles="xy",
         scale_units="xy",
-        scale=100,  # Further reduced scale for shorter arrows
+        scale=100,
+        width=0.002,
+        headwidth=3,
+        headlength=3,
         color="red",
         label="Heading",
     )
+    scatter = plt.scatter(
+        relative_positions[:, 0],
+        relative_positions[:, 1],
+        c=speeds,
+        cmap="viridis",
+        alpha=0.8,
+        edgecolors="k",
+        s=100,  # Increased marker size
+        label="Speed",
+    )
+    plt.colorbar(scatter, label="Speed")
     plt.xlabel("Relative X Position")
     plt.ylabel("Relative Y Position")
     plt.title("Final Refined Relative Positions of Partner Agents")

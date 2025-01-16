@@ -133,6 +133,8 @@ def train():
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
     tsne_obs = train_expert_obs[0][0][2:7]
     tsne_mask = train_other_info[0][0][6][:, -1] #todo: index 임의 지정
+    # raw_fig = visualize_partner_obs_final(tsne_obs, tsne_mask)
+    # plt.savefig('test.jpg', dpi=300)
     # Training loop
     if config.use_wandb:
         raw_fig = visualize_partner_obs_final(tsne_obs, tsne_mask)
