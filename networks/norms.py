@@ -29,14 +29,14 @@ class SetBatchNorm(nn.Module):
     def forward(self, x):   # (B, S, D)
         # Masked Batch Normalization
         alive_mask = (~self.mask).unsqueeze(-1)  # (B, S) -> (B, S, 1)
-        valid_counts = alive_mask.sum(dim=1, keepdim=True)  # (B, 1, 1)
+        valid_counts = alive_mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, 1, 1)
         batch_mask = valid_counts > 1   # (B, 1, 1)
         
         x = x * alive_mask  # (B, S, D)
         
         sum_x = x.sum(dim=1, keepdim=True)  # (B, 1, D)
         mean = torch.where(batch_mask, sum_x / valid_counts, sum_x) # (B, 1, D)
-        variance = ((x - mean) ** 2 * alive_mask).sum(dim=1, keepdim=True) / valid_counts  # (B, 1, D)
+        variance = ((x - mean) ** 2).sum(dim=1, keepdim=True) / valid_counts  # (B, 1, D)
         variance = torch.where(batch_mask, variance, torch.zeros_like(sum_x))
         std = torch.where(batch_mask, torch.sqrt(variance + 1e-6), torch.ones_like(sum_x))
 
