@@ -152,15 +152,18 @@ class LateFusionBCNet(CustomLateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
+        _, max_indices = torch.max(road_objects.permute(0, 2, 1), dim=-1)
+        selected_mask = torch.gather(partner_mask.squeeze(-1), 1, max_indices)  # (B, D)
+        mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
         road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.max_pool1d(
             road_graph.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
-        
+
         context = torch.cat((ego_state, road_objects, road_graph), dim=1)
-        return context
+        return context, mask_zero_ratio
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -168,7 +171,7 @@ class LateFusionBCNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context = self.get_context(obs, masks)
+        context, _ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
 
         return actions

@@ -192,6 +192,7 @@ def train():
         dyaw_losses = 0
         max_norms = 0
         max_names = []
+        partner_ratios = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             
@@ -222,9 +223,9 @@ def train():
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 loss = pred_loss + tom_a_loss + tom_g_loss
             else:
-                context = bc_policy.get_context(obs, all_masks[1:])
+                context, partner_ratio = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-            
+                partner_ratios += (1 - partner_ratio)
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
@@ -252,9 +253,10 @@ def train():
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
-                    "train/max_grad_norm": max_norms / (i + 1),
-                    "train/max_component_probs": max(component_probs),
-                    "train/min_component_probs": min(component_probs),
+                    "train/max_pool_ratio": partner_ratios / (i + 1),
+                    "gmm/max_grad_norm": max_norms / (i + 1),
+                    "gmm/max_component_probs": max(component_probs),
+                    "gmm/min_component_probs": min(component_probs),
                 }, step=epoch
             )
         # Evaluation loop
