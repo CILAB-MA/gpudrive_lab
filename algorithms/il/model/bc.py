@@ -132,10 +132,11 @@ class LateFusionBCNet(CustomLateFusionNet):
 
     def get_tsne(self, obs, mask):
         obs = obs.unsqueeze(0)
-        mask = (1 - mask).unsqueeze(0).unsqueeze(-1).bool()
+        mask = mask.unsqueeze(0).bool()
         _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
         road_objects = self.road_object_net(road_objects)
-        masked_road_objects = road_objects[mask.expand_as(road_objects)].view(-1, road_objects.size(-1))
+        masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         return masked_road_objects
     
     def get_context(self, obs, masks=None):

@@ -300,7 +300,8 @@ def train():
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
-                    others_tsne = bc_policy.get_tsne(tsne_obs, tsne_mask).squeeze(0).detach().cpu().numpy()
+            with torch.no_grad():
+                others_tsne = bc_policy.get_tsne(tsne_obs, tsne_mask).squeeze(0).detach().cpu().numpy()
             tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
             emb_tsne = tsne.fit_transform(others_tsne)
             x = emb_tsne[:, 0]
