@@ -6,6 +6,7 @@ import numpy as np
 from typing import List
 
 from networks.perm_eq_late_fusion import CustomLateFusionNet
+from networks.norms import *
 from algorithms.il.model.bc_utils.wayformer import SelfAttentionBlock, PerceiverEncoder
 from algorithms.il.model.bc_utils.head import *
 
@@ -57,12 +58,12 @@ class LateFusionBCNet(CustomLateFusionNet):
     def __init__(self, env_config, net_config, head_config, loss, num_stack=5, use_tom=None):
         super(LateFusionBCNet, self).__init__(env_config, net_config)
         self.num_stack = num_stack
+        
         # Scene encoder
-
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
         )
-        self.road_object_net = self._build_network(
+        self.road_object_net = self._build_partner_network(
             input_dim=self.ro_input_dim * num_stack,
         )
         self.road_graph_net = self._build_network(
@@ -139,10 +140,12 @@ class LateFusionBCNet(CustomLateFusionNet):
     
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
-        partner_mask = masks[1]
+        # Set mask for road_object_net (for SetNorm)
+        partner_mask = masks[1][:,-1,:]
+        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+        
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
-        partner_mask = (1 - partner_mask).unsqueeze(-1)
-        road_objects = road_objects * partner_mask
+
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
