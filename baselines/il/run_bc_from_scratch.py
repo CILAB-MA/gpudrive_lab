@@ -11,6 +11,8 @@ import wandb, yaml, argparse
 from tqdm import tqdm
 from datetime import datetime
 from sklearn.manifold import TSNE
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # GPUDrive
@@ -133,15 +135,15 @@ def train():
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
     tsne_obs = train_expert_obs[0][0][2:7]
     tsne_mask = train_other_info[0][0][6][:, -1] #todo: index 임의 지정
-    # raw_fig = visualize_partner_obs_final(tsne_obs, tsne_mask)
-    # plt.savefig('test.jpg', dpi=300)
+
     # Training loop
     if config.use_wandb:
         raw_fig = visualize_partner_obs_final(tsne_obs, tsne_mask)
-        wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)})
-        plt.close()
+        wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
+        plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
     tsne_mask = torch.from_numpy(tsne_mask).to(config.device)
+
     # Combine data (no changes)
     num_cpus = os.cpu_count()
     train_expert_obs = np.concatenate(train_expert_obs)
@@ -225,7 +227,7 @@ def train():
             else:
                 context, partner_ratio = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += (1 - partner_ratio)
+                partner_ratios += partner_ratio
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
@@ -308,8 +310,6 @@ def train():
             y = emb_tsne[:, 1]
             plt.figure(figsize=(6,6))
             plt.scatter(x, y, s=5, alpha=0.7)
-            plt.xlim(-150, 150)
-            plt.ylim(-150, 150)
             plt.title("TSNE Visualization")
             if config.use_wandb:
                 wandb.log(

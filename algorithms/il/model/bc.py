@@ -42,7 +42,7 @@ class ContFeedForward(CustomLateFusionNet):
         """Get the embedded observation."""
         if obs.dim() == 3:
             obs = obs.reshape(-1, obs.shape[1]*obs.shape[2])
-        return self.nn(obs)
+        return self.nn(obs), 0
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -50,7 +50,7 @@ class ContFeedForward(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context = self.get_context(obs)
+        context, _ = self.get_context(obs)
         actions = self.get_action(context, deterministic)
         return actions
 
@@ -153,7 +153,7 @@ class LateFusionBCNet(CustomLateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-        _, max_indices = torch.max(road_objects.permute(0, 2, 1), dim=-1)
+        max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
         selected_mask = torch.gather(partner_mask.squeeze(-1), 1, max_indices)  # (B, D)
         mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
         road_objects = F.max_pool1d(
@@ -267,6 +267,15 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
 
+    def get_tsne(self, obs, mask):
+        obs = obs.unsqueeze(0)
+        mask = mask.unsqueeze(0).bool()
+        _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+        road_objects = self.road_object_net(road_objects)
+        masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        return masked_road_objects
+
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
         batch = obs.shape[0]
@@ -287,7 +296,9 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-
+        max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
+        selected_mask = torch.gather(ro_masks.squeeze(-1), 1, max_indices)  # (B, D)
+        mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
         ro_pool_dim = int(self.ro_max / 4)
         rg_pool_dim = int(self.rg_max / 4)
         road_objects = F.avg_pool1d(
@@ -298,8 +309,8 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         ).squeeze(-1)
         road_objects = road_objects.reshape(batch, -1)
         road_graph = road_graph.reshape(batch, -1)
-        embedding_vector = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects, road_graph), dim=1)
-        return embedding_vector
+        context = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects, road_graph), dim=1)
+        return context, mask_zero_ratio
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -307,7 +318,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context = self.get_context(obs, masks)
+        context, _ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
         return actions
 
@@ -412,7 +423,7 @@ class WayformerEncoder(CustomLateFusionNet):
         context = self.timestep_linear(context)
         context = context.transpose(1, 2)
 
-        return context    
+        return context, 0
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -420,6 +431,6 @@ class WayformerEncoder(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context = self.get_context(obs, masks)
+        context, _ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
         return actions
