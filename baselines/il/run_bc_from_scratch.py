@@ -47,6 +47,7 @@ def parse_args():
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--use-wandb', action='store_true')
+    parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-mask', action='store_true')
     parser.add_argument('--use-tom', '-ut', default='None', choices=['None', 'oracle', 'aux_head'])
     args = parser.parse_args()
@@ -338,7 +339,11 @@ if __name__ == "__main__":
         with open("private.yaml") as f:
             private_info = yaml.load(f, Loader=yaml.FullLoader)
         wandb.login(key=private_info["wandb_key"])
-        sweep_id = wandb.sweep(exp_config, project=private_info['main_project'], entity=private_info['entity'])
-        wandb.agent(sweep_id, function=train)
+        
+        if args.sweep_id is not None:
+            wandb.agent(args.sweep_id, function=train, project=private_info['main_project'], entity=private_info['entity'])
+        else:
+            sweep_id = wandb.sweep(exp_config, project=private_info['main_project'], entity=private_info['entity'])
+            wandb.agent(sweep_id, function=train)
     else:
         train()
