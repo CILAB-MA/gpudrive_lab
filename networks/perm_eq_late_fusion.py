@@ -1,6 +1,7 @@
 import copy
 from typing import Callable, List, Optional, Tuple, Type
 from abc import ABC, abstractmethod
+from functools import partial
 
 import torch
 import torch.nn.functional as F
@@ -20,6 +21,15 @@ def init(module, weight_init, bias_init, gain=1):
     weight_init(module.weight.data, gain=gain)
     bias_init(module.bias.data)
     return module
+
+class PermuteLayer(nn.Module):
+    def __init__(self, dim1, dim2):
+        super().__init__()
+        self.dim1 = dim1
+        self.dim2 = dim2
+
+    def forward(self, x):
+        return x.transpose(self.dim1, self.dim2)
 
 class CustomLateFusionNet(nn.Module):
     """Processes the env observation using a late fusion architecture."""
@@ -50,16 +60,14 @@ class CustomLateFusionNet(nn.Module):
         )
         
         # Norm layer
-        if self.net_config.norm == "LN":
-            self.norm = nn.LayerNorm
-        elif self.net_config.norm == "BN":
-            self.norm = nn.BatchNorm1d
-        elif self.net_config.norm == "SN":
-            self.norm = lambda dim: SetNorm(dim, feature_dim=dim)
-        elif self.net_config.norm == "SBN":
-            self.norm = lambda dim: SetBatchNorm(dim)
-        else:
-            self.norm = nn.Identity
+        norm_dict = {
+            "LN": nn.LayerNorm,
+            "BN": nn.BatchNorm1d,
+            "SN": partial(SetNorm, feature_dim=self.hidden_dim),
+            "SBN": partial(SetBatchNorm),
+            "None": nn.Identity
+        }
+        self.norm = norm_dict.get(self.net_config.norm, nn.Identity)
 
         self.dropout = self.net_config.dropout
 
@@ -98,7 +106,9 @@ class CustomLateFusionNet(nn.Module):
         for layer_dim in net_arch:
             layers.append(init_(nn.Linear(prev_dim, layer_dim)))
             layers.append(nn.Dropout(self.dropout))
+            layers.append(PermuteLayer(1, 2)) if self.norm == nn.BatchNorm1d else nn.Identity()
             layers.append(self.norm(layer_dim))
+            layers.append(PermuteLayer(1, 2)) if self.norm == nn.BatchNorm1d else nn.Identity()
             layers.append(self.act_func)
             prev_dim = layer_dim
         
