@@ -1,4 +1,4 @@
-program: run_bc_from_scratch.py
+program: baselines/il/run_bc_from_scratch.py
 method: grid
 name: sweep
 metric:
