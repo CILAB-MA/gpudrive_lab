@@ -160,10 +160,15 @@ if __name__ == "__main__":
             f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate}\n")
 
     if args.make_video:
-        time = datetime.now().strftime("%Y%m%d%H%M")
+        video_path = os.path.join(args.video_path, args.dataset, args.model_name)
+        if not os.path.exists(video_path):
+            os.makedirs(video_path)
         for world_render_idx in range(NUM_WORLDS):
-            if world_render_idx in torch.where(veh_collision + off_road >= 1)[0].tolist():
-                video_path = os.path.join(args.video_path, args.dataset, args.model_name)
-                if not os.path.exists(video_path):
-                    os.makedirs(video_path)
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx}_{time}.mp4', np.array(frames[world_render_idx]), fps=30)
+            if world_render_idx in torch.where(veh_collision >= 1)[0].tolist():
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=30)
+            elif world_render_idx in torch.where(off_road >= 1)[0].tolist():
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=30)
+            elif world_render_idx in torch.where(goal_achieved >= 1)[0].tolist():
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=30)
+            else:
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=30)
