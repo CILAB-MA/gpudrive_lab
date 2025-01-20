@@ -56,7 +56,7 @@ class CustomLateFusionNet(nn.Module):
         self.hidden_dim = self.net_config.network_dim
         self.hidden_num = self.net_config.network_num_layers
         self.act_func = (
-            nn.Tanh(inplace=True) if self.net_config.act_func == "tanh" else nn.SELU(inplace=True)
+            nn.Tanh() if self.net_config.act_func == "tanh" else nn.SELU(inplace=True)
         )
         
         # Norm layer

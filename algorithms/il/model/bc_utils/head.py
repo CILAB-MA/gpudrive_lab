@@ -108,6 +108,8 @@ class GMM(nn.Module):
         ])
         self.relu = nn.ReLU()
         self.head = nn.Linear(head_config.head_dim, head_config.n_components * (2 * head_config.action_dim + 1))
+        torch.nn.init.xavier_uniform_(self.head.weight)
+        torch.nn.init.zeros_(self.head.bias)
         self.n_components = head_config.n_components
         self.action_dim = head_config.action_dim
         self.time_dim = time_dim

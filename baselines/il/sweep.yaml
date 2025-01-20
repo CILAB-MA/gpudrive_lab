@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: attn_restore
+name: lf_reg
 metric:
   goal: minimize
   name: eval/loss
@@ -11,7 +11,7 @@ parameters:
   epochs:
     value: 500
   lr:
-    values: [0.0003]
+    values: [0.0005]
   sample_per_epoch:
     value: 438763
 
@@ -21,10 +21,10 @@ parameters:
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
   network_num_layers:
-    values: [2]
+    values: [4]
   network_dim:
     values: [128]
   n_components:
-    values: [10]
+    values: [6]
   norm:
     values: ['SBN', 'BN', 'SN', 'LN', 'None'] # ['LN', 'BN', 'SN', 'SBN', 'None']
