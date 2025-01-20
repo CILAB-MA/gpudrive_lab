@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: sweep
+name: attn_restore
 metric:
   goal: minimize
   name: eval/loss
@@ -17,14 +17,14 @@ parameters:
 
   # MODEL
   model_name:
-    values: ["late_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer']
+    values: ["attention"] # ['bc', 'late_fusion', 'attention', 'wayformer']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
   network_num_layers:
     values: [2]
   network_dim:
-    values: [256]
+    values: [128]
   n_components:
-    values: [6]
+    values: [10]
   norm:
-    values: ['LN', 'BN', 'SN', 'SBN', 'None'] # ['LN', 'BN', 'SN', 'SBN', 'None']
+    values: ['SBN', 'BN', 'SN', 'LN', 'None'] # ['LN', 'BN', 'SN', 'SBN', 'None']

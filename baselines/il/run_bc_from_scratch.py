@@ -307,10 +307,13 @@ def train():
                 others_tsne = bc_policy.get_tsne(tsne_obs, tsne_mask).squeeze(0).detach().cpu().numpy()
             tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
             emb_tsne = tsne.fit_transform(others_tsne)
+            indices = np.arange(len(emb_tsne))
+            norm = plt.Normalize(vmin=min(indices), vmax=max(indices))  # Normalize indices to [0, 1]
+            colors = plt.cm.viridis(norm(indices))  # Map indices to 'viridis' colormap
             x = emb_tsne[:, 0]
             y = emb_tsne[:, 1]
             plt.figure(figsize=(6,6))
-            plt.scatter(x, y, s=5, alpha=0.7)
+            plt.scatter(x, y, s=5, c=colors, cmap='viridis', alpha=0.7)
             plt.title("TSNE Visualization")
             if config.use_wandb:
                 wandb.log(
