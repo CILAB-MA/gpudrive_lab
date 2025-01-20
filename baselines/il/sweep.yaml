@@ -17,7 +17,7 @@ parameters:
 
   # MODEL
   model_name:
-    values: ["attention"] # ['bc', 'late_fusion', 'attention', 'wayformer']
+    values: ["late_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
   network_num_layers:

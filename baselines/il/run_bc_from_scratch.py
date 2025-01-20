@@ -235,6 +235,7 @@ def train():
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
+            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), max_norm=10)
             optimizer.step()
 
             with torch.no_grad():
@@ -313,7 +314,7 @@ def train():
             x = emb_tsne[:, 0]
             y = emb_tsne[:, 1]
             plt.figure(figsize=(6,6))
-            plt.scatter(x, y, s=5, c=colors, cmap='viridis', alpha=0.7)
+            plt.scatter(x, y, s=5, c=colors, alpha=0.7)
             plt.title("TSNE Visualization")
             if config.use_wandb:
                 wandb.log(
