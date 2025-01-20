@@ -104,24 +104,24 @@ class EnvConfig:
 @dataclass
 class ExperimentConfig:
     # Hyperparameters
-    batch_size: int = 256
-    epochs: int = 1000
+    batch_size: int = 512
+    epochs: int = 500
     lr: float = 5e-4
     sample_per_epoch: int = 438763
     
 @dataclass
 class NetworkConfig:
     # BASE LATEFUSION
-    network_dim: int = 256
-    network_num_layers: int = 2
-    act_func: str = "selu"
-    dropout: float = 0.1
+    network_dim: int = 128
+    network_num_layers: int = 4
+    act_func: str = "tanh"
+    dropout: float = 0.0
     norm: str = "LN" # LN, BN, SN, SBN, None
 
 @dataclass
 class HeadConfig:
     head_dim: int = 128
-    head_num_layers: int = 3
+    head_num_layers: int = 2
     action_dim: int = 3
     n_components: int = 10
     time_dim: int = 91

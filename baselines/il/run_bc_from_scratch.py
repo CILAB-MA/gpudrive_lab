@@ -101,6 +101,8 @@ def train():
     bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
                                           config.use_tom).to(config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=config.lr, eps=0.0001)
+    print(bc_policy)
+    
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
     non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
@@ -313,7 +315,7 @@ def train():
             x = emb_tsne[:, 0]
             y = emb_tsne[:, 1]
             plt.figure(figsize=(6,6))
-            plt.scatter(x, y, s=5, c=colors, cmap='viridis', alpha=0.7)
+            plt.scatter(x, y, s=5, c=colors, alpha=0.7)
             plt.title("TSNE Visualization")
             if config.use_wandb:
                 wandb.log(

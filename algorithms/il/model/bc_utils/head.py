@@ -96,14 +96,12 @@ class GMM(nn.Module):
         self.input_layer = nn.Sequential(
             nn.Linear(input_dim, head_config.head_dim),
             nn.ReLU(),
-            nn.LayerNorm(head_config.head_dim)
         )
         
         self.residual_block = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(head_config.head_dim, head_config.head_dim),
                 nn.ReLU(),
-                nn.Linear(head_config.head_dim, head_config.head_dim),
             ) for _ in range(head_config.head_num_layers)
         ])
         self.relu = nn.ReLU()
@@ -124,7 +122,7 @@ class GMM(nn.Module):
         for layer in self.residual_block:
             residual = x
             x = layer(x)
-            x = self.relu(x + residual)
+            x = x + residual
         
         params = self.head(x)
         
