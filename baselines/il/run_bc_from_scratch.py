@@ -306,11 +306,13 @@ def train():
             with torch.no_grad():
                 others_tsne = bc_policy.get_tsne(tsne_obs, tsne_mask).squeeze(0).detach().cpu().numpy()
             tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
+            indices = np.arange(len(emb_tsne))
+            colors = plt.cm.jet(indices / max(indices))
             emb_tsne = tsne.fit_transform(others_tsne)
             x = emb_tsne[:, 0]
             y = emb_tsne[:, 1]
             plt.figure(figsize=(6,6))
-            plt.scatter(x, y, s=5, alpha=0.7)
+            plt.scatter(x, y, s=5, c=colors, alpha=0.7)
             plt.title("TSNE Visualization")
             if config.use_wandb:
                 wandb.log(
