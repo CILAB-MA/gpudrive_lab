@@ -221,14 +221,14 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
-                input_dim= 2 * 4 * net_config.network_dim + net_config.network_dim,
+                input_dim= 2 * net_config.network_dim + net_config.network_dim,
                 head_config=head_config,
                 time_dim=1
             )
         elif loss == 'new_gmm':
             self.head = NewGMM(
                 network_type=self.__class__.__name__,
-                input_dim= 2 * 4 * net_config.network_dim + net_config.network_dim,
+                input_dim= 2 * net_config.network_dim + net_config.network_dim,
                 head_config=head_config,
                 time_dim=1
             )
@@ -299,13 +299,11 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
         selected_mask = torch.gather(ro_masks.squeeze(-1), 1, max_indices)  # (B, D)
         mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
-        ro_pool_dim = int(self.ro_max / 4)
-        rg_pool_dim = int(self.rg_max / 4)
         road_objects = F.avg_pool1d(
-            objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=ro_pool_dim
+            objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.avg_pool1d(
-            road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=rg_pool_dim
+            road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
         road_objects = road_objects.reshape(batch, -1)
         road_graph = road_graph.reshape(batch, -1)
