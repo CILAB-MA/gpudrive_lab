@@ -158,9 +158,13 @@ class LateFusionBCNet(CustomLateFusionNet):
         mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
         road_objects_masked = road_objects.clone()
         road_objects_masked = road_objects_masked.masked_fill(partner_mask.unsqueeze(-1) == 1, -float('inf'))
+        valid_mask = (road_objects_masked > -float('inf')).sum(dim=1, keepdim=True)
+        if (valid_mask == 0).any():
+            road_objects_masked = road_objects_masked.masked_fill(valid_mask == 0, 0)
         road_objects = F.max_pool1d(
             road_objects_masked.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
+        road_objects = torch.where(road_objects == -float('inf'), torch.zeros_like(road_objects), road_objects)
         road_graph = F.max_pool1d(
             road_graph.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)

@@ -104,7 +104,7 @@ class EnvConfig:
 @dataclass
 class ExperimentConfig:
     # Hyperparameters
-    batch_size: int = 256
+    batch_size: int = 64
     epochs: int = 1000
     lr: float = 5e-4
     sample_per_epoch: int = 438763
@@ -120,7 +120,7 @@ class NetworkConfig:
 
 @dataclass
 class HeadConfig:
-    head_dim: int = 128
+    head_dim: int = 256
     head_num_layers: int = 3
     action_dim: int = 3
     n_components: int = 10
