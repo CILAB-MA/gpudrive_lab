@@ -157,7 +157,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         selected_mask = torch.gather(partner_mask.squeeze(-1), 1, max_indices)  # (B, D)
         mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
         road_objects_masked = road_objects.clone()
-        road_objects_masked[partner_mask == 0] = -float('inf')
+        road_objects_masked = road_objects_masked.masked_fill(partner_mask.unsqueeze(-1) == 1, -float('inf'))
         road_objects = F.max_pool1d(
             road_objects_masked.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
