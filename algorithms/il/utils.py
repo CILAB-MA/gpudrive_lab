@@ -24,6 +24,7 @@ def visualize_partner_obs_final(obs, partner_mask):
     speeds = speeds[valid_mask]
     headings = headings[valid_mask]
     headings *= 2 * np.pi
+    indices = np.arange(partner_obs.shape[0])[valid_mask]
     # Relative position scatter plot
     fig = plt.figure(figsize=(10, 8))
     plt.quiver(
@@ -56,4 +57,16 @@ def visualize_partner_obs_final(obs, partner_mask):
     plt.title("Final Refined Relative Positions of Partner Agents")
     plt.grid(True)
     plt.legend()
+
+    # Add index labels to the scatter plot
+    for i, (x, y) in enumerate(relative_positions):
+        plt.text(
+            x, y, str(indices[i]),
+            fontsize=8,
+            color="black",
+            ha="center",
+            va="center",
+            bbox=dict(facecolor="white", alpha=0.5, edgecolor="none")
+        )
+
     return fig
