@@ -272,11 +272,19 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
     def get_tsne(self, obs, mask):
         obs = obs.unsqueeze(0)
+        ego_mask = torch.zeros(1, 1, dtype=torch.bool).to(mask.device)
         mask = mask.unsqueeze(0).bool()
-        _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+        all_mask = torch.cat([ego_mask, mask], dim=-1)
+
+        ego_state, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+
+        ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
-        masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
+        objects_attn = self.ro_attn(all_objects, pad_mask=all_mask)
+
+        masked_road_objects = objects_attn["last_hidden_state"][:,1:][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         return masked_road_objects
 
     def get_context(self, obs, masks=None):
@@ -294,8 +302,6 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         
         road_graph = self.road_graph_net(road_graph)
         road_graph_attn = self.rg_attn(road_graph, pad_mask=rg_masks)
-
-        self.log_road_objects = road_objects[0].detach().cpu().numpy()
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
