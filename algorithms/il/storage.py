@@ -216,7 +216,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
     expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 7), device=device) # after t-step distance diff (1), after t-step heading (1), vel value(1), actions (3), mask (1)
+    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 8), device=device) # after t-step pos (2), after t-step heading (1), vel value(1), actions (3), mask (1)
     after_t = 3
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
@@ -236,8 +236,8 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                 current_heading = other_agent_info_no_diag[:, :, 3]  # Heading
 
                 # Save current data at time_step + after_t
-                if time_step + after_t < env.episode_len:
-                    expert_other_info_lst[idx][time_step + after_t, :, :4] = torch.cat([
+                if time_step >= after_t:
+                    expert_other_info_lst[idx][time_step - after_t, :, :4] = torch.cat([
                         current_speed.unsqueeze(-1),
                         current_relative_coords,
                         current_heading.unsqueeze(-1)
