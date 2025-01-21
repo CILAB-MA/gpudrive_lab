@@ -113,7 +113,7 @@ class ExperimentConfig:
 class NetworkConfig:
     # BASE LATEFUSION
     network_dim: int = 128
-    network_num_layers: int = 4
+    network_num_layers: int = 2
     act_func: str = "tanh"
     dropout: float = 0.0
     norm: str = "LN" # LN, BN, SN, SBN, None
