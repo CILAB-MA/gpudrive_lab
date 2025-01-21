@@ -26,6 +26,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.partner_mask = other_info[..., -1]
         partner_mask_pad = np.zeros((self.partner_mask.shape[0], rollout_len - 1, *self.partner_mask.shape[2:]), dtype=np.float32)
         self.partner_mask = np.concatenate([partner_mask_pad, self.partner_mask], axis=1).astype('bool')
+        self.partner_mask = np.where(self.partner_mask == 2, 1, 0).astype('bool')
         if tom_time == 'only_pred':
             self.tom_timestep = self.pred_len
         elif tom_time == 'understand_pred':
