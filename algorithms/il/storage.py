@@ -216,22 +216,38 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
     expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 4), device=device)
-    
+    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 8), device=device) # after t-step pos (2), after t-step heading (1), vel value(1), actions (3), mask (1)
+    after_t = 3
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
     road_mask = env.get_road_mask()
-    
+    diagonal_mask = torch.eye(127, dtype=torch.bool, device=device)
     for time_step in tqdm(range(env.episode_len)):
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
                 action_for_other_info = env.get_other_infos(time_step)
                 partner_mask = env.get_partner_mask().unsqueeze(-1)
+                
+                other_agent_obs = obs[world_idx, :, 6:1276].reshape(-1, 10)  # Reshape to (127, 10)
+                other_agent_info_no_diag = other_agent_obs[~diagonal_mask].view(-1, other_agent_obs.shape[0] - 1, 10)  # (o, o-1, 10)
+
+                current_speed = other_agent_obs[:, 0]  # Speed
+                current_relative_coords = other_agent_obs[:, 1:3]
+                current_heading = other_agent_info_no_diag[:, :, 3]  # Heading
+
+                # Save current data at time_step + after_t
+                if time_step >= after_t:
+                    expert_other_info_lst[idx][time_step - after_t, :, :4] = torch.cat([
+                        current_speed.unsqueeze(-1),
+                        current_relative_coords,
+                        current_heading.unsqueeze(-1)
+                    ], dim=-1)
+
                 other_info = torch.cat([action_for_other_info, partner_mask], dim=-1)
                 
                 expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
-                expert_other_info_lst[idx][time_step] = other_info[world_idx, agent_idx]
+                expert_other_info_lst[idx][time_step, :, 4:] = other_info[world_idx, agent_idx]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
             expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
         
