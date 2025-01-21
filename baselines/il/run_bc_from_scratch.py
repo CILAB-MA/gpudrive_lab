@@ -138,6 +138,7 @@ def train():
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
     tsne_obs = train_expert_obs[0][0][2:7]
     tsne_mask = train_other_info[0][0][6][:, -1] #todo: index 임의 지정
+    data_mask =  np.where(tsne_mask== 2, 1, 0).astype('bool')
 
     # Training loop
     if config.use_wandb:
@@ -145,7 +146,7 @@ def train():
         wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
         plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
-    tsne_mask = torch.from_numpy(tsne_mask).to(config.device)
+    data_mask = torch.from_numpy(data_mask).to(config.device)
 
     # Combine data (no changes)
     num_cpus = os.cpu_count()
@@ -306,12 +307,11 @@ def train():
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
             with torch.no_grad():
-                others_tsne = bc_policy.get_tsne(tsne_obs, tsne_mask).squeeze(0).detach().cpu().numpy()
+                others_tsne = bc_policy.get_tsne(tsne_obs, data_mask).squeeze(0).detach().cpu().numpy()
             tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
+            filtered_tsne_mask = tsne_mask[data_mask.detach().cpu().numpy()]
+            colors = ['red' if val == 0 else 'blue' for val in filtered_tsne_mask] 
             emb_tsne = tsne.fit_transform(others_tsne)
-            indices = np.arange(len(emb_tsne))
-            norm = plt.Normalize(vmin=min(indices), vmax=max(indices))  # Normalize indices to [0, 1]
-            colors = plt.cm.viridis(norm(indices))  # Map indices to 'viridis' colormap
             x = emb_tsne[:, 0]
             y = emb_tsne[:, 1]
             plt.figure(figsize=(6,6))
