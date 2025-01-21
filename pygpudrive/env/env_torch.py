@@ -77,9 +77,20 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
     def get_other_infos(self, step):
         b, o, t, d = self.expert_action.shape  # (batch_size, agents, timesteps, dimensions)
         step_expert_action = self.expert_action[:, :, step, :]  # (b, o, 3)
-        step_expert_action_expanded = step_expert_action.unsqueeze(1).expand(b, o, o, d)  # (b, o, o, 3)
-        diagonal_mask = torch.eye(o, device=self.expert_action.device).bool().unsqueeze(0).expand(b, -1, -1)  # (b, o, o)
-        step_expert_action_no_diag = step_expert_action_expanded[~diagonal_mask].view(b, o, o - 1, d)  # (b, o, o-1, 3)
+        step_expert_action_expanded = step_expert_action.unsqueeze(1).expand(-1, o, -1, -1)  # (b, o, o, d)
+        filtered_partner_id = self.partner_id.clone() 
+        cont_mask = self.cont_agent_mask.clone()
+
+        gathered_actions = torch.gather(
+            step_expert_action_expanded,
+            2,  # Gather along the second dimension of agents
+            filtered_partner_id.clamp(min=0).long().unsqueeze(-1).expand(-1, -1, -1, d)  # Expand partner_id for features
+        ) 
+        filtered_partner_id[..., 1:][filtered_partner_id[..., 1:] <= 0] = -2
+        filtered_partner_id[..., 0][filtered_partner_id[..., 0] < 0] = -2
+        not_existed = filtered_partner_id == -2
+        gathered_actions[not_existed] = 0
+        
         return step_expert_action_no_diag
 
 
@@ -421,16 +432,16 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         filtered_partner_id = self.partner_id.clone() 
         cont_mask = self.cont_agent_mask.clone()
         filtered_partner_id[..., 1:][filtered_partner_id[..., 1:] <= 0] = -2
+        filtered_partner_id[..., 0][filtered_partner_id[..., 0] < 0] = -2
         b, o, _ = filtered_partner_id.shape
-        cont_mask = cont_mask.unsqueeze(1).expand(b, o, o)  
-        diagonal_mask = ~torch.eye(o, device=cont_mask.device).bool()
-        diagonal_mask = diagonal_mask.unsqueeze(0).expand(b, o, o)
-        cont_mask = cont_mask[diagonal_mask].view(b, o, o - 1)
-        self.partner_mask = torch.ones_like(filtered_partner_id).to(filtered_partner_id.device)
-        self.partner_mask[filtered_partner_id == -2] = 2
-        non_minus_two_mask = filtered_partner_id != -2 
-        self.partner_mask[non_minus_two_mask & cont_mask] = 0
-        self.filtered_partner_id = filtered_partner_id
+        not_existed = filtered_partner_id == -2
+        partner_mask_values = torch.gather(
+        ~cont_mask.unsqueeze(1).expand(-1, o, -1),  # Expand to (b, o, o)
+        2,
+        filtered_partner_id.long().clamp(min=0, max=o - 1),  # Clamp invalid indices
+        ).long()
+        partner_mask_values[not_existed] = 2
+        self.partner_mask = partner_mask_values
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
