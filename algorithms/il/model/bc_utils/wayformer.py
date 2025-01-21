@@ -1,10 +1,12 @@
 from collections import OrderedDict
 from typing import List, Optional, Tuple
+from functools import partial
 
 import torch
 from einops import rearrange
 from torch import nn as nn
 
+from networks.norms import SetNorm, SetBatchNorm
 
 class QueryProvider:
     """Provider of cross-attention query input."""
@@ -337,10 +339,19 @@ class SelfAttention(nn.Module):
             dropout: float = 0.0,
             qkv_bias: bool = True,
             out_bias: bool = True,
+            norm: str = None,
     ):
         """Pre-layer norm self-attention (see `MultiHeadAttention` and for attention details)."""
         super().__init__()
-        self.norm = nn.LayerNorm(num_channels)
+        # Norm layer
+        norm_dict = {
+            "LN": nn.LayerNorm,
+            "BN": nn.BatchNorm1d,
+            "SN": partial(SetNorm, feature_dim=num_channels),
+            "SBN": partial(SetBatchNorm),
+            "None": nn.Identity
+        }
+        self.norm = norm_dict.get(norm, nn.LayerNorm)(num_channels)
         self.attention = MultiHeadAttention(
             num_heads=num_heads,
             num_q_input_channels=num_channels,
@@ -362,7 +373,9 @@ class SelfAttention(nn.Module):
             kv_cache: Optional[KVCache] = None,
     ):
         """Pre-layer-norm self-attention of input `x`."""
+        x = x.transpose(1, 2) if self.norm == nn.BatchNorm1d else x
         x = self.norm(x)
+        x = x.transpose(1, 2) if self.norm == nn.BatchNorm1d else x
         return self.attention(
             x,
             x,
@@ -440,6 +453,7 @@ class SelfAttentionLayer(AbstractAttentionLayer):
             qkv_bias: bool = True,
             out_bias: bool = True,
             mlp_bias: bool = True,
+            norm: str = None,
     ):
         self_attn = SelfAttention(
             num_heads=num_heads,
@@ -451,6 +465,7 @@ class SelfAttentionLayer(AbstractAttentionLayer):
             dropout=dropout,
             qkv_bias=qkv_bias,
             out_bias=out_bias,
+            norm=norm
         )
 
         self.num_qk_channels = self_attn.attention.num_qk_channels
@@ -458,7 +473,7 @@ class SelfAttentionLayer(AbstractAttentionLayer):
 
         super().__init__(
             Residual(self_attn, residual_dropout),
-            Residual(MLP(num_channels, widening_factor, bias=mlp_bias), residual_dropout),
+            Residual(MLP(num_channels, widening_factor, bias=mlp_bias, norm=norm), residual_dropout),
         )
 
 
@@ -479,6 +494,7 @@ class SelfAttentionBlock(nn.Sequential):
             qkv_bias: bool = True,
             out_bias: bool = True,
             mlp_bias: bool = True,
+            norm: str = None,
     ):
         layers = [
             SelfAttentionLayer(
@@ -494,6 +510,7 @@ class SelfAttentionBlock(nn.Sequential):
                 qkv_bias=qkv_bias,
                 out_bias=out_bias,
                 mlp_bias=mlp_bias,
+                norm=norm,
             )
             for _ in range(num_layers)
         ]
@@ -532,13 +549,27 @@ class SelfAttentionBlock(nn.Sequential):
 
 
 class MLP(nn.Sequential):
-    def __init__(self, num_channels: int, widening_factor: int, bias: bool = True):
-        super().__init__(
-            nn.LayerNorm(num_channels),
+    def __init__(self, num_channels: int, widening_factor: int, bias: bool = True, norm: str = None):
+        super().__init__()
+        
+        norm_dict = {
+            "LN": nn.LayerNorm,
+            "BN": nn.BatchNorm1d,
+            "SN": partial(SetNorm, feature_dim=num_channels),
+            "SBN": partial(SetBatchNorm),
+            "None": nn.Identity
+        }
+        
+        self.norm = norm_dict.get(norm, nn.LayerNorm)(num_channels)
+        
+        layers = [
+            self.norm,
             nn.Linear(num_channels, widening_factor * num_channels, bias=bias),
             nn.GELU(),
             nn.Linear(widening_factor * num_channels, num_channels, bias=bias),
-        )
+        ]
+        
+        super().__init__(*layers)
 
     def forward(self, x):
         return ModuleOutput(last_hidden_state=super().forward(x))

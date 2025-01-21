@@ -188,7 +188,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
         )
-        self.road_object_net = self._build_network(
+        self.road_object_net = self._build_partner_network(
             input_dim=self.ro_input_dim * num_stack,
         )
         self.road_graph_net = self._build_network(
@@ -202,6 +202,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
         )
 
         self.rg_attn = SelfAttentionBlock(
@@ -273,39 +274,58 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
     def get_tsne(self, obs, mask):
         obs = obs.unsqueeze(0)
         mask = mask.unsqueeze(0).bool()
-        _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+
+        ego_state, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
-        masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        
+        ego_mask = torch.zeros(1, 1, dtype=torch.bool).to(mask.device)
+        all_mask = torch.cat([ego_mask, mask], dim=-1)
+        for norm_layer in self.ro_attn.modules():
+            if isinstance(norm_layer, SetBatchNorm):
+                setattr(norm_layer, 'mask', all_mask)
+        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
+        objects_attn = self.ro_attn(all_objects, pad_mask=all_mask)
+
+        masked_road_objects = objects_attn["last_hidden_state"][:,1:][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         return masked_road_objects
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
         batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
+        partner_mask = masks[1][:,-1,:]
+        
+        # Ego state and road object encoding
+        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
+        
+        # Road object attention
         ego_masks = masks[0][:, -1]
         ro_masks = masks[1][:, -1]
         rg_masks = masks[2][:, -1]
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
         obj_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks], dim=-1)
+        for norm_layer in self.ro_attn.modules():
+            if isinstance(norm_layer, SetBatchNorm):
+                setattr(norm_layer, 'mask', obj_masks)
         objects_attn = self.ro_attn(all_objects, pad_mask=obj_masks)
         
+        # Road graph attention
         road_graph = self.road_graph_net(road_graph)
         road_graph_attn = self.rg_attn(road_graph, pad_mask=rg_masks)
-
-        self.log_road_objects = road_objects[0].detach().cpu().numpy()
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
         max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
         selected_mask = torch.gather(ro_masks.squeeze(-1), 1, max_indices)  # (B, D)
         mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
-        road_objects = F.avg_pool1d(
+        road_objects = F.max_pool1d(
             objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
-        road_graph = F.avg_pool1d(
+        road_graph = F.max_pool1d(
             road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
         road_objects = road_objects.reshape(batch, -1)
