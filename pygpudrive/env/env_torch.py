@@ -398,10 +398,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Speed
         obs[:, :, :, 0] /= constants.MAX_SPEED
 
-        # Sort by distance
-        relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
-        relative_distance[obs.sum(-1) == 0] = 99999
-        sorted_indices = torch.argsort(relative_distance, dim=2)
         # Relative position
         obs[:, :, :, 1] = self.normalize_tensor(
             obs[:, :, :, 1],
@@ -427,13 +423,20 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         # Concat the one-hot encoding with the rest of the features
         obs = torch.concat((obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1)
-        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
-        
-        # Get Mask for sorted partner agents
-        #TODO: obs.sum(-1) == 0 is not a good mask
-        self.partner_id = torch.gather(self.partner_id, dim=2, index=sorted_indices)
-        self.partner_mask = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))
-        
+
+        filtered_partner_id = self.partner_id.clone() 
+        cont_mask = self.cont_agent_mask.clone()
+        filtered_partner_id[..., 1:][filtered_partner_id[..., 1:] <= 0] = -2
+        b, o, _ = filtered_partner_id.shape
+        cont_mask = cont_mask.unsqueeze(1).expand(b, o, o)  
+        diagonal_mask = ~torch.eye(o, device=cont_mask.device).bool()
+        diagonal_mask = diagonal_mask.unsqueeze(0).expand(b, o, o)
+        cont_mask = cont_mask[diagonal_mask].view(b, o, o - 1)
+        self.partner_mask = torch.ones_like(filtered_partner_id).to(filtered_partner_id.device)
+        self.partner_mask[filtered_partner_id == -2] = 2
+        non_minus_two_mask = filtered_partner_id != -2 
+        self.partner_mask[non_minus_two_mask & cont_mask] = 0
+
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
