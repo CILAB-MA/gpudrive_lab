@@ -91,7 +91,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         not_existed = filtered_partner_id == -2
         gathered_actions[not_existed] = 0
         
-        return step_expert_action_no_diag
+        return gathered_actions
 
 
     def get_rewards(
