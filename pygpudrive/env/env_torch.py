@@ -59,6 +59,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
     def reset(self):
         """Reset the worlds and return the initial observations."""
         self.sim.reset(list(range(self.num_worlds)))
+        self.expert_action, _, _ = self.get_expert_actions()
         return self.get_obs(reset=True)
 
     def get_dones(self):
@@ -74,20 +75,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         
     def get_other_infos(self, step):
-        not_me = ~torch.eye(self.max_agent_count, dtype=torch.bool).to(self.device)
-        
-        # extract the other_action_info (3)
-        expert_action, _, _ = self.get_expert_actions()
-        action_for_other_info = expert_action[:, :, step, :].unsqueeze(1).repeat(1, self.max_agent_count, 1, 1)
-        action_for_other_info = action_for_other_info[:, not_me].view(self.num_worlds, self.max_agent_count, self.max_agent_count - 1, -1)
+        b, o, t, d = self.expert_action.shape  # (batch_size, agents, timesteps, dimensions)
+        step_expert_action = self.expert_action[:, :, step, :]  # (b, o, 3)
+        step_expert_action_expanded = step_expert_action.unsqueeze(1).expand(b, o, o, d)  # (b, o, o, 3)
+        diagonal_mask = torch.eye(o, device=self.expert_action.device).bool().unsqueeze(0).expand(b, -1, -1)  # (b, o, o)
+        step_expert_action_no_diag = step_expert_action_expanded[~diagonal_mask].view(b, o, o - 1, d)  # (b, o, o-1, 3)
+        return step_expert_action_no_diag
 
-        # extract the other_goal_info (2)
-        partner_goal = self.get_partner_goal()
-        goal_for_other_info = partner_goal.unsqueeze(1).repeat(1, self.max_agent_count, 1, 1)
-        goal_for_other_info = goal_for_other_info[:, not_me].view(self.num_worlds, self.max_agent_count, self.max_agent_count - 1, -1)
-        
-        other_info = torch.cat([action_for_other_info , goal_for_other_info], dim=-1)
-        return other_info
 
     def get_rewards(
         self, collision_weight=0, goal_achieved_weight=1.0, off_road_weight=0
@@ -398,10 +392,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Speed
         obs[:, :, :, 0] /= constants.MAX_SPEED
 
-        # Sort by distance
-        relative_distance = torch.sqrt(obs[:, :, :, 1] ** 2 + obs[:, :, :, 2] ** 2)
-        relative_distance[obs.sum(-1) == 0] = 99999
-        sorted_indices = torch.argsort(relative_distance, dim=2)
         # Relative position
         obs[:, :, :, 1] = self.normalize_tensor(
             obs[:, :, :, 1],
@@ -427,13 +417,20 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         # Concat the one-hot encoding with the rest of the features
         obs = torch.concat((obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1)
-        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
-        
-        # Get Mask for sorted partner agents
-        #TODO: obs.sum(-1) == 0 is not a good mask
-        self.partner_id = torch.gather(self.partner_id, dim=2, index=sorted_indices)
-        self.partner_mask = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))
-        
+
+        filtered_partner_id = self.partner_id.clone() 
+        cont_mask = self.cont_agent_mask.clone()
+        filtered_partner_id[..., 1:][filtered_partner_id[..., 1:] <= 0] = -2
+        b, o, _ = filtered_partner_id.shape
+        cont_mask = cont_mask.unsqueeze(1).expand(b, o, o)  
+        diagonal_mask = ~torch.eye(o, device=cont_mask.device).bool()
+        diagonal_mask = diagonal_mask.unsqueeze(0).expand(b, o, o)
+        cont_mask = cont_mask[diagonal_mask].view(b, o, o - 1)
+        self.partner_mask = torch.ones_like(filtered_partner_id).to(filtered_partner_id.device)
+        self.partner_mask[filtered_partner_id == -2] = 2
+        non_minus_two_mask = filtered_partner_id != -2 
+        self.partner_mask[non_minus_two_mask & cont_mask] = 0
+        self.filtered_partner_id = filtered_partner_id
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
@@ -766,7 +763,7 @@ if __name__ == "__main__":
     # CONFIGURE
     TOTAL_STEPS = 90
     MAX_CONTROLLED_AGENTS = 128
-    NUM_WORLDS = 1
+    NUM_WORLDS = 2
 
     env_config = EnvConfig(dynamics_model="delta_local")
     render_config = RenderConfig()
