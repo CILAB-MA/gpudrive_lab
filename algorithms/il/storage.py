@@ -228,14 +228,15 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                 action_for_other_info = env.get_other_infos(time_step)
                 partner_mask = env.get_partner_mask().unsqueeze(-1)
                 
-                other_agent_obs = obs[world_idx, :, 6:1276].reshape(-1, 127, 10)  # Reshape to (127, 10)
+                other_agent_obs = obs[world_idx, agent_idx, 6:1276].reshape(127, 10)  # Reshape to (128, 127, 10)
 
-                current_speed = other_agent_obs[:, :, 0]  # (o, o-1)
-                current_relative_coords = other_agent_obs[:, :, 1:3]  # (o, o-1, 2)
-                current_heading = other_agent_obs[:, :, 3]  # (o, o-1)
+                current_speed = other_agent_obs[:, 0]  # (o, o-1)
+                current_relative_coords = other_agent_obs[:, 1:3]  # (o, o-1, 2)
+                current_heading = other_agent_obs[:, 3]  # (o, o-1)
 
                 # Save current data at time_step + after_t
                 if time_step >= after_t:
+                    print(f"step {time_step} : speed({current_speed.unsqueeze(-1).shape}), coord({current_relative_coords.shape}), head({current_heading.unsqueeze(-1).shape})")
                     expert_other_info_lst[idx][time_step - after_t, :, :4] = torch.cat([
                         current_speed.unsqueeze(-1),
                         current_relative_coords,
@@ -281,7 +282,7 @@ if __name__ == "__main__":
     from pygpudrive.registration import make
     from pygpudrive.env.config import DynamicsModel, ActionSpace
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_worlds', type=int, default=7)
+    parser.add_argument('--num_worlds', type=int, default=2)
     parser.add_argument('--num_stack', type=int, default=5)
     parser.add_argument('--save_path', type=str, default='/')
     parser.add_argument('--save_index', type=int, default=0)
