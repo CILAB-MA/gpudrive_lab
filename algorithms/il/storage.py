@@ -236,7 +236,6 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
 
                 # Save current data at time_step + after_t
                 if time_step >= after_t:
-                    print(f"step {time_step} : speed({current_speed.unsqueeze(-1).shape}), coord({current_relative_coords.shape}), head({current_heading.unsqueeze(-1).shape})")
                     expert_other_info_lst[idx][time_step - after_t, :, :4] = torch.cat([
                         current_speed.unsqueeze(-1),
                         current_relative_coords,
