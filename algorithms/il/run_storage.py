@@ -11,10 +11,10 @@ def arg_parse():
     parser.add_argument("--python_path", type=str, default="/root/anaconda3/envs/gpudrive/bin/python")
     parser.add_argument("--store_path", type=str, default="algorithms/il/storage.py")
     parser.add_argument("--total_file_count", type=int, default=1000)
-    parser.add_argument("--learn_file_count", type=int, default=100)
+    parser.add_argument("--learn_file_count", type=int, default=20)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     
-    parser.add_argument('--num_worlds', type=int, default=100)
+    parser.add_argument('--num_worlds', type=int, default=20)
     parser.add_argument('--num_stack', type=int, default=5)
     parser.add_argument('--save_index', type=int, default=0)
     parser.add_argument('--save_path', type=str, default='/data/trajectories')
