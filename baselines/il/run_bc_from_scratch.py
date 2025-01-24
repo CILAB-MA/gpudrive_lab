@@ -14,6 +14,8 @@ from sklearn.manifold import TSNE
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from types import SimpleNamespace
+
 
 # GPUDrive
 from baselines.il.config import *
@@ -77,22 +79,22 @@ def train():
         current_time = datetime.now().strftime("%Y%m%d_%H%M")
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(current_time)
-        for key, value in wandb.config.items():
+        for key, value in wandb.config.experiments.items():
             wandb_tags.append(f"{key}_{value}")
         wandb.run.tags = tuple(wandb_tags)
         # Config Update
         for key, value in vars(args).items():
-            if key not in wandb.config:
-                wandb.config[key] = value
-        config = wandb.config
-        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
-        wandb.run.save()
+            if key not in wandb.config.experiments:
+                wandb.config.experiments[key] = value
         # NetConfig, HeadConfig Update (if sweep parameter is used)
-        for key, value in config.items():
+        for key, value in wandb.config.experiments.items():
             if key in net_config.__dict__.keys():
                 setattr(net_config, key, value)
             if key in head_config.__dict__.keys():
                 setattr(head_config, key, value)
+        config = SimpleNamespace(**wandb.config.experiments)
+        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
+        wandb.run.save()
     else:
         config = ExperimentConfig()
         config.__dict__.update(vars(args))
