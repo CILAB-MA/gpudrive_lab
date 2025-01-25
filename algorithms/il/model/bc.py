@@ -134,7 +134,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         obs = obs.unsqueeze(0)
         mask = mask.unsqueeze(0).bool()
         _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
-        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         road_objects = self.road_object_net(road_objects)
         masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         return masked_road_objects
@@ -143,7 +143,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         """Get the embedded observation."""
         # Set mask for road_object_net (for SetNorm)
         partner_mask = masks[1][:,-1,:]
-        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
 
@@ -156,8 +156,6 @@ class LateFusionBCNet(CustomLateFusionNet):
         max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
         selected_mask = torch.gather(partner_mask.squeeze(-1), 1, max_indices)  # (B, D)
         mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
-        # road_objects_masked = road_objects.clone()
-        # road_objects_masked = road_objects_masked.masked_fill(partner_mask.unsqueeze(-1) == 1, -float('inf'))
         
         road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
@@ -274,7 +272,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
     def get_tsne(self, obs, mask):
         obs = obs.unsqueeze(0)
         mask = mask.unsqueeze(0).bool()
-        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
 
         ego_state, road_objects, _ = self._unpack_obs(obs, self.num_stack)
         ego_state = self.ego_state_net(ego_state)
@@ -283,7 +281,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         ego_mask = torch.zeros(1, 1, dtype=torch.bool).to(mask.device)
         all_mask = torch.cat([ego_mask, mask], dim=-1)
         for norm_layer in self.ro_attn.modules():
-            if isinstance(norm_layer, SetBatchNorm):
+            if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_mask)
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
         objects_attn = self.ro_attn(all_objects, pad_mask=all_mask)
@@ -298,7 +296,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         partner_mask = masks[1][:,-1,:]
         
         # Ego state and road object encoding
-        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm)]
+        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         
@@ -309,7 +307,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
         obj_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks], dim=-1)
         for norm_layer in self.ro_attn.modules():
-            if isinstance(norm_layer, SetBatchNorm):
+            if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', obj_masks)
         objects_attn = self.ro_attn(all_objects, pad_mask=obj_masks)
         

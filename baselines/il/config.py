@@ -116,7 +116,7 @@ class NetworkConfig:
     network_num_layers: int = 2
     act_func: str = "tanh"
     dropout: float = 0.0
-    norm: str = "LN" # LN, BN, SN, SBN, None
+    norm: str = "LN" # LN, BN, MBN, SN, SBN, None
 
 @dataclass
 class HeadConfig:

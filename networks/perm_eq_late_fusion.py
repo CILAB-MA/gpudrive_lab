@@ -12,7 +12,8 @@ from torch import nn
 import numpy as np
 
 from pygpudrive.env import constants
-from networks.norms import SetNorm, SetBatchNorm
+from networks.norms import *
+
 
 def init(module, weight_init, bias_init, gain=1):
     '''
@@ -21,15 +22,6 @@ def init(module, weight_init, bias_init, gain=1):
     weight_init(module.weight.data, gain=gain)
     bias_init(module.bias.data)
     return module
-
-class PermuteLayer(nn.Module):
-    def __init__(self, dim1, dim2):
-        super().__init__()
-        self.dim1 = dim1
-        self.dim2 = dim2
-
-    def forward(self, x):
-        return x.transpose(self.dim1, self.dim2)
 
 class CustomLateFusionNet(nn.Module):
     """Processes the env observation using a late fusion architecture."""
@@ -61,13 +53,14 @@ class CustomLateFusionNet(nn.Module):
         
         # Norm layer
         norm_dict = {
-            "LN": nn.LayerNorm,
-            "BN": nn.BatchNorm1d,
-            "SN": partial(SetNorm, feature_dim=self.hidden_dim),
-            "SBN": partial(SetBatchNorm),
-            "None": nn.Identity
+            "LN": nn.LayerNorm(self.hidden_dim),
+            "BN": CustomBatchNorm(seq_len=self.ro_max, feature_dim=self.hidden_dim),
+            "MBN": MaskedBatchNorm1d(seq_len=self.ro_max, feature_dim=self.hidden_dim),
+            "SN": SetNorm(self.hidden_dim, feature_dim=self.hidden_dim),
+            "SBN": SetBatchNorm(self.hidden_dim),
+            "None": nn.Identity()
         }
-        self.norm = norm_dict.get(self.net_config.norm, nn.Identity)
+        self.norm = norm_dict.get(self.net_config.norm, nn.Identity())
 
         self.dropout = self.net_config.dropout
 
@@ -106,9 +99,7 @@ class CustomLateFusionNet(nn.Module):
         for layer_dim in net_arch:
             layers.append(init_(nn.Linear(prev_dim, layer_dim)))
             layers.append(nn.Dropout(self.dropout))
-            layers.append(PermuteLayer(1, 2)) if self.norm == nn.BatchNorm1d else nn.Identity()
-            layers.append(self.norm(layer_dim))
-            layers.append(PermuteLayer(1, 2)) if self.norm == nn.BatchNorm1d else nn.Identity()
+            layers.append(self.norm)
             layers.append(self.act_func)
             prev_dim = layer_dim
         
