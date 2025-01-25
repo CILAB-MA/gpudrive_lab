@@ -6,7 +6,8 @@ import torch
 from einops import rearrange
 from torch import nn as nn
 
-from networks.norms import SetNorm, SetBatchNorm
+from networks.norms import *
+
 
 class QueryProvider:
     """Provider of cross-attention query input."""
@@ -345,13 +346,14 @@ class SelfAttention(nn.Module):
         super().__init__()
         # Norm layer
         norm_dict = {
-            "LN": nn.LayerNorm,
-            "BN": nn.BatchNorm1d,
-            "SN": partial(SetNorm, feature_dim=num_channels),
-            "SBN": partial(SetBatchNorm),
-            "None": nn.Identity
+            "LN": nn.LayerNorm(num_channels),
+            "BN": CustomBatchNorm(seq_len=num_channels, feature_dim=num_channels),
+            "MBN": MaskedBatchNorm1d(seq_len=num_channels, feature_dim=num_channels),
+            "SN": SetNorm(num_channels, feature_dim=num_channels),
+            "SBN": SetBatchNorm(feature_dim=num_channels),
+            "None": nn.Identity()
         }
-        self.norm = norm_dict.get(norm, nn.LayerNorm)(num_channels)
+        self.norm = norm_dict.get(norm, nn.LayerNorm(num_channels))
         self.attention = MultiHeadAttention(
             num_heads=num_heads,
             num_q_input_channels=num_channels,
@@ -373,9 +375,7 @@ class SelfAttention(nn.Module):
             kv_cache: Optional[KVCache] = None,
     ):
         """Pre-layer-norm self-attention of input `x`."""
-        x = x.transpose(1, 2) if self.norm == nn.BatchNorm1d else x
         x = self.norm(x)
-        x = x.transpose(1, 2) if self.norm == nn.BatchNorm1d else x
         return self.attention(
             x,
             x,
@@ -553,15 +553,15 @@ class MLP(nn.Sequential):
         super().__init__()
         
         norm_dict = {
-            "LN": nn.LayerNorm,
-            "BN": nn.BatchNorm1d,
-            "SN": partial(SetNorm, feature_dim=num_channels),
-            "SBN": partial(SetBatchNorm),
-            "None": nn.Identity
+            "LN": nn.LayerNorm(num_channels),
+            "BN": CustomBatchNorm(seq_len=num_channels, feature_dim=num_channels),
+            "MBN": MaskedBatchNorm1d(seq_len=num_channels, feature_dim=num_channels),
+            "SN": SetNorm(num_channels, feature_dim=num_channels),
+            "SBN": SetBatchNorm(feature_dim=num_channels),
+            "None": nn.Identity()
         }
-        
-        self.norm = norm_dict.get(norm, nn.LayerNorm)(num_channels)
-        
+        self.norm = norm_dict.get(norm, nn.LayerNorm(num_channels))
+      
         layers = [
             self.norm,
             nn.Linear(num_channels, widening_factor * num_channels, bias=bias),

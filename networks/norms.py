@@ -43,3 +43,53 @@ class SetBatchNorm(nn.Module):
         normalized_x = torch.where(batch_mask, (x - mean) / std, x)
         out = normalized_x * self.weights + self.biases  # (B, S, D)
         return out
+
+class CustomBatchNorm(nn.BatchNorm1d):
+    def __init__(self, seq_len, feature_dim):
+        super().__init__(num_features=feature_dim)
+        self.seq_len = seq_len
+        
+    def forward(self, input):
+        x = input.view(-1, self.num_features) # (B * S, D)
+        x = super().forward(x)
+        x = x.view(-1, self.seq_len, self.num_features)
+        return x
+
+class MaskedBatchNorm1d(nn.Module):
+    def __init__(self, seq_len, feature_dim, momentum=0.1):
+        super().__init__()
+        self.seq_len = seq_len
+        self.feature_dim = feature_dim
+        self.momentum = momentum
+        self.eps = 1e-5
+
+        self.register_buffer("running_mean", torch.zeros(feature_dim))
+        self.register_buffer("running_var", torch.ones(feature_dim))
+
+        self.mask = None
+
+    @staticmethod
+    def _check_input_dim(x):
+        if x.dim() != 3:
+            raise ValueError('expected 3D input (got {}D input)'.format(x.dim()))
+
+    def forward(self, x):   # x : (B, S, D)
+        self._check_input_dim(x)
+        
+        if self.training:
+            if self.mask.all():
+                masked_mean = self.running_mean
+                masked_var = self.running_var
+            else:
+                masked_mean = x[~self.mask].mean(dim=0) # (D)
+                masked_var = x[~self.mask].var(dim=0)   # (D)
+                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * masked_mean.detach()  # (D)
+                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * masked_var.detach() # (D)
+                
+        else:
+            masked_mean = self.running_mean # (D)
+            masked_var = self.running_var # (D)
+
+        x = (x - masked_mean) / torch.sqrt(masked_var + self.eps)
+        x = x.masked_fill(self.mask.unsqueeze(-1), -1e9)
+        return x
