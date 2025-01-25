@@ -15,7 +15,7 @@ parameters:
           sample_per_epoch: 438763,
           # NetworkConfig
           network_dim: 128,
-          network_dim_layers: 2,
+          network_num_layers: 2,
           act_func: "tanh",
           dropout: 0.0,
           norm: "LN",
