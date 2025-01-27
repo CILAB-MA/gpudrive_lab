@@ -22,6 +22,7 @@ class SetBatchNorm(nn.Module):
         super().__init__()
         self.weights = nn.Parameter(torch.empty(feature_dim))
         self.biases = nn.Parameter(torch.empty(feature_dim))
+        self.set = nn.Linear(feature_dim * 2, 2)
         self.mask = None
         torch.nn.init.constant_(self.weights, 1.)
         torch.nn.init.constant_(self.biases, 0.)
@@ -38,10 +39,12 @@ class SetBatchNorm(nn.Module):
         mean = torch.where(batch_mask, sum_x / valid_counts, sum_x) # (B, 1, D)
         variance = ((x - mean) ** 2).sum(dim=1, keepdim=True) / valid_counts  # (B, 1, D)
         variance = torch.where(batch_mask, variance, torch.zeros_like(sum_x))
+        set_stats = self.set(torch.cat([mean, variance], dim=-1))
         std = torch.where(batch_mask, torch.sqrt(variance + 1e-6), torch.ones_like(sum_x))
 
-        normalized_x = torch.where(batch_mask, (x - mean) / std, x)
-        out = normalized_x * self.weights + self.biases  # (B, S, D)
+        normalized_x = (x - mean) / std
+        normalized_x = set_stats[:, 0] * normalized_x + set_stats[:, 1]
+        out = F.linear(normalized_x, torch.diag_embed(self.weights), self.biases)
         return out
 
 class CustomBatchNorm(nn.BatchNorm1d):

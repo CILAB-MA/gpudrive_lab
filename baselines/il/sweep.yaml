@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: AUX
+name: increase_file
 metric:
   goal: minimize
   name: eval/loss
@@ -15,10 +15,10 @@ parameters:
           sample_per_epoch: 438763,
           # NetworkConfig
           network_dim: 128,
-          network_num_layers: 2,
+          network_num_layers: 4,
           act_func: "tanh",
           dropout: 0.0,
-          norm: "SBN",
+          norm: "LN",
           # HeadConfig
           head_dim: 128,
           head_num_layers: 2,
@@ -27,6 +27,6 @@ parameters:
           time_dim: 91,
           clip_values: -20.0,
           # Args
-          model_name : "aux_fusion",
+          model_name : "late_fusion",
           loss_name: "gmm"
       }
