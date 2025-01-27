@@ -198,14 +198,18 @@ def train():
         dx_losses = 0
         dy_losses = 0
         dyaw_losses = 0
+        aux_a_losses = 0
+        aux_p_losses = 0
+        aux_s_losses = 0
+        aux_h_losses = 0
         max_norms = 0
         max_names = []
         partner_ratios = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             
-            if len(batch) == 7:
-                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
+            if len(batch) == 8:
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch
             elif len(batch) == 6:
                 obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
             elif len(batch) == 3:
@@ -225,15 +229,19 @@ def train():
                 context, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
             elif config.use_tom == 'aux_head':
-                context, other_embeds = bc_policy.get_context(obs, all_masks[1:], other_info=None)
-                tom_a_loss = LOSS[config.loss_name](bc_policy, other_embeds, other_info[...,:3], all_masks, aux_head='action')
-                tom_g_loss = LOSS[config.loss_name](bc_policy, other_embeds, other_info[...,3:], all_masks, aux_head='goal')
+                context, partner_ratio, other_embeds = bc_policy.get_context(obs, all_masks[1:])
+                tom_speed_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 0], aux_mask, aux_head='speed')
+                tom_pos_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,1:3], aux_mask, aux_head='pos')
+                tom_head_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,3], aux_mask, aux_head='heading')
+                tom_act_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 4:7], aux_mask, aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                loss = pred_loss + tom_a_loss + tom_g_loss
+                loss = pred_loss + 0.5 * (tom_act_loss + tom_pos_loss + tom_head_loss + tom_speed_loss)
+                
             else:
                 context, partner_ratio = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += partner_ratio
+                pred_loss = loss
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
@@ -253,10 +261,14 @@ def train():
                 dy_losses += dy_loss
                 dyaw_losses += dyaw_loss
                 
-            losses += loss.mean().item()
+            losses += pred_loss.mean().item()
+            if 'aux' in config.model_name:
+                aux_a_losses += tom_act_loss.mean().item()
+                aux_p_losses += tom_pos_loss.mean().item()
+                aux_h_losses += tom_head_loss.mean().item()
+                aux_s_losses += tom_speed_loss.mean().item()
         if config.use_wandb:
-            wandb.log(
-                {   
+            log_dict = {   
                     "train/loss": losses / (i + 1),
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
@@ -265,8 +277,16 @@ def train():
                     "gmm/max_grad_norm": max_norms / (i + 1),
                     "gmm/max_component_probs": max(component_probs),
                     "gmm/min_component_probs": min(component_probs),
-                }, step=epoch
-            )
+                }
+            if 'aux' in config.model_name:
+                aux_dict = {
+                    "aux/action_loss": aux_a_losses / (i + 1),
+                    "aux/speed_loss": aux_s_losses / (i + 1),
+                    "aux/heading_loss": aux_h_losses / (i + 1),
+                    "aux/position_loss": aux_p_losses / (i + 1),
+                }
+                log_dict.update(aux_dict)
+            wandb.log(log_dict, step=epoch)
         # Evaluation loop
         if epoch % 5 == 0:
             bc_policy.eval()
