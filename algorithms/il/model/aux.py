@@ -6,6 +6,7 @@ import numpy as np
 from typing import List
 
 from networks.perm_eq_late_fusion import CustomLateFusionNet
+from networks.norms import *
 from algorithms.il.model.bc_utils.head import *
 from algorithms.il.model.bc_utils.wayformer import SelfAttentionBlock
 
@@ -18,24 +19,34 @@ class LateFusionAuxNet(CustomLateFusionNet):
         # Aux head
         self.use_tom = use_tom
         if use_tom == 'aux_head':
-            self.aux_action_head = GMM(
-                network_type=self.__class__.__name__,
+            self.aux_speed_head = AuxHead(
                 input_dim=self.hidden_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
-                time_dim=self.ro_max
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=1
             )
-            self.aux_goal_head = GMM(
-                network_type=self.__class__.__name__,
+            
+            self.aux_pos_head = AuxHead(
                 input_dim=self.hidden_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=2,
-                n_components=head_config.n_components,
-                time_dim=self.ro_max
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=2
             )
+            
+            self.aux_heading_head = AuxHead(
+                input_dim=self.hidden_dim,
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=1
+            )
+            
+            self.aux_action_head = AuxHead(
+                input_dim=self.hidden_dim,
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=3
+            )
+
         elif use_tom == 'oracle':
             other_input_dim += 5 * 5
         else:
@@ -54,15 +65,12 @@ class LateFusionAuxNet(CustomLateFusionNet):
 
         self.head = GMM(
             network_type=self.__class__.__name__,
-            input_dim=self.shared_net_input_dim,
-            hidden_dim=head_config.head_dim,
-            hidden_num=head_config.head_num_layers,
-            action_dim=head_config.action_dim,
-            n_components=head_config.n_components,
+            input_dim= 2 * net_config.network_dim + net_config.network_dim,
+            head_config=head_config,
             time_dim=1
         )
    
-    def _unpack_obs(self, obs_flat, num_stack=1):
+    def _unpack_obs(self, obs_flat, num_stack):
         """
         Unpack the flattened observation into the ego state and visible state.
         Args:
@@ -94,48 +102,51 @@ class LateFusionAuxNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
 
-    def get_context(self, obs, masks=None, other_info=None):
+    def get_tsne(self, obs, mask):
+        obs = obs.unsqueeze(0)
+        mask = mask.unsqueeze(0).bool()
+        _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
+        road_objects = self.road_object_net(road_objects)
+        masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        return masked_road_objects
+    
+    def get_context(self, obs, masks=None):
         """Get the embedded observation."""
-        batch = obs.shape[0]
-        ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=5)
-        if other_info != None:
-            other_info = other_info.transpose(1, 2).reshape(batch, self.ro_max, -1)
-            road_objects = torch.cat([road_objects, other_info], dim=-1)
-            
+        # Set mask for road_object_net (for SetNorm)
+        partner_mask = masks[1][:,-1,:]
+        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
+        
+        ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
+
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-        road_objects_max = F.max_pool1d(
+        max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
+        selected_mask = torch.gather(partner_mask.squeeze(-1), 1, max_indices)  # (B, D)
+        mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
+        max_road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.max_pool1d(
             road_graph.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
-        context = torch.cat((ego_state, road_objects_max, road_graph), dim=1)
-        if self.use_tom == 'aux_head':
-            return context, road_objects
-        else:
-            return context, None
+        context = torch.cat((ego_state, max_road_objects, road_graph), dim=1)
+        return context, mask_zero_ratio, road_objects
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
         return self.head(context, deterministic)
 
-    def get_tom(self, road_objects, deterministic=False):
-        """Get the tom info from the context."""
-        other_actions = self.aux_action_head(road_objects, deterministic)
-        other_goals = self.aux_goal_head(road_objects, deterministic)
-        return other_actions, other_goals
-    
-    def forward(self, obs, masks=None, deterministic=False, other_info=None):
-
+    def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, road_objects = self.get_context(obs, other_info=other_info)
+        context, _, _ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
+
         return actions
 
 class LateFusionAttnAuxNet(CustomLateFusionNet):

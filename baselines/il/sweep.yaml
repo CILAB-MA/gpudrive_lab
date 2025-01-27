@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: norm_ablation2
+name: AUX
 metric:
   goal: minimize
   name: eval/loss
@@ -18,7 +18,7 @@ parameters:
           network_num_layers: 2,
           act_func: "tanh",
           dropout: 0.0,
-          norm: "LN",
+          norm: "SBN",
           # HeadConfig
           head_dim: 128,
           head_num_layers: 2,
@@ -27,6 +27,6 @@ parameters:
           time_dim: 91,
           clip_values: -20.0,
           # Args
-          model_name : "late_fusion",
+          model_name : "aux_fusion",
           loss_name: "gmm"
       }

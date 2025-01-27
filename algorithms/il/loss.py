@@ -4,19 +4,59 @@ from torch.distributions import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import numpy as np
 
-def l1_loss(model, context, expert_actions, masks=None):
+def l1_loss(model, context, expert_actions, masks=None, aux_head=None):
     '''
     compute the l1 loss between the predicted and expert actions
     '''
-    pred_actions = model.get_action(context)
+    if aux_head == 'action':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_action_head(context, partner_masks)
+        expert_actions[..., :2] /= 6 
+        expert_actions[..., 2] /= np.pi 
+    elif aux_head == 'pos':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_pos_head(context, partner_masks)
+    elif aux_head == 'heading':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_heading_head(context, partner_masks)
+    elif aux_head == 'speed':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_speed_head(context, partner_masks)
+    else:
+        pred_actions = model.get_action(context)
+    
+    pred_actions = pred_actions[partner_masks]
+    expert_actions = expert_actions[partner_masks]
+    if pred_actions.shape[-1] == 1:
+        expert_actions = expert_actions.unsqueeze(-1)
     loss = F.smooth_l1_loss(pred_actions, expert_actions)
     return loss
 
-def mse_loss(model, context, expert_actions, masks=None):
+def mse_loss(model, context, expert_actions, masks=None, aux_head=None):
     '''
     Compute the mean squared error loss between the predicted and expert actions
     '''
-    pred_actions = model.get_action(context)
+    if aux_head == 'action':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_action_head(context, partner_masks)
+        expert_actions[..., :2] /= 6 
+        expert_actions[..., 2] /= np.pi 
+    elif aux_head == 'pos':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_pos_head(context, partner_masks)
+    elif aux_head == 'heading':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_heading_head(context, partner_masks)
+    elif aux_head == 'speed':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_speed_head(context, partner_masks)
+    else:
+        pred_actions = model.get_action(context)
+    
+    pred_actions = pred_actions[partner_masks]
+    expert_actions = expert_actions[partner_masks]
+    if pred_actions.shape[-1] == 1:
+        expert_actions = expert_actions.unsqueeze(-1)
     loss = F.mse_loss(pred_actions, expert_actions)
     return loss
 

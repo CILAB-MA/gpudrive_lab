@@ -5,6 +5,35 @@ import numpy as np
 
 from typing import List
 
+class AuxHead(nn.Module):
+    def __init__(self, input_dim, head_config, num_ro, aux_action_dim=2):
+        super(AuxHead, self).__init__()
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, head_config.head_dim),
+            nn.ReLU()
+        )
+        self.residual_block = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(head_config.head_dim, head_config.head_dim),
+                nn.ReLU(),
+            ) for _ in range(head_config.head_num_layers)
+        ])
+        self.num_ro = num_ro
+        self.relu = nn.ReLU()
+        self.head = nn.Linear(head_config.head_dim, aux_action_dim)
+        self.aux_action_dim = aux_action_dim
+    def forward(self, x, mask, deterministic=None):
+        x = x.reshape(x.size(0), self.num_ro, x.size(-1))
+        x = self.input_layer(x)
+        
+        for layer in self.residual_block:
+            residual = x
+            x = layer(x)
+            x = x + residual
+        
+        aux_preds = self.head(x)
+        # aux_preds = aux_preds.reshape(x.size(0) * self.num_ro, self.aux_action_dim)
+        return aux_preds
 
 class ContHead(nn.Module):
     def __init__(self, input_dim, head_config):

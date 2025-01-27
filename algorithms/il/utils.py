@@ -18,6 +18,7 @@ def visualize_partner_obs_final(obs, partner_mask):
     headings = partner_obs[:, 3]
 
     # Apply mask
+    partner_mask = np.where((partner_mask == 0) | (partner_mask == 1), 0, 1)
     partner_mask = partner_mask.astype('bool')
     valid_mask = ~partner_mask
     relative_positions = relative_positions[valid_mask]
@@ -69,4 +70,4 @@ def visualize_partner_obs_final(obs, partner_mask):
             bbox=dict(facecolor="white", alpha=0.5, edgecolor="none")
         )
 
-    return fig
+    return fig, indices
