@@ -102,34 +102,6 @@ class LateFusionAuxNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
 
-
-    def get_context(self, obs, masks=None, other_info=None):
-        """Get the embedded observation."""
-        batch = obs.shape[0]
-        ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=5)
-        if other_info != None:
-            other_info = other_info.transpose(1, 2).reshape(batch, self.ro_max, -1)
-            road_objects = torch.cat([road_objects, other_info], dim=-1)
-            
-        ego_state = self.ego_state_net(ego_state)
-        road_objects = self.road_object_net(road_objects)
-        road_graph = self.road_graph_net(road_graph)
-
-        # Max pooling across the object dimension
-        # (M, E) -> (1, E) (max pool across features)
-        road_objects_max = F.max_pool1d(
-            road_objects.permute(0, 2, 1), kernel_size=self.ro_max
-        ).squeeze(-1)
-        road_graph = F.max_pool1d(
-            road_graph.permute(0, 2, 1), kernel_size=self.rg_max
-        ).squeeze(-1)
-
-        context = torch.cat((ego_state, road_objects_max, road_graph), dim=1)
-        if self.use_tom == 'aux_head':
-            return context, road_objects
-        else:
-            return context, None
-
     def get_tsne(self, obs, mask):
         obs = obs.unsqueeze(0)
         mask = mask.unsqueeze(0).bool()
@@ -156,16 +128,15 @@ class LateFusionAuxNet(CustomLateFusionNet):
         max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
         selected_mask = torch.gather(partner_mask.squeeze(-1), 1, max_indices)  # (B, D)
         mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
-        road_objects_embeds = road_objects.clone()
-        road_objects = F.max_pool1d(
+        max_road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.max_pool1d(
             road_graph.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
 
-        context = torch.cat((ego_state, road_objects, road_graph), dim=1)
-        return context, mask_zero_ratio, road_objects_embeds
+        context = torch.cat((ego_state, max_road_objects, road_graph), dim=1)
+        return context, mask_zero_ratio, road_objects
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""

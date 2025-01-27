@@ -18,7 +18,7 @@ parameters:
           network_num_layers: 2,
           act_func: "tanh",
           dropout: 0.0,
-          norm: "LN",
+          norm: "SBN",
           # HeadConfig
           head_dim: 128,
           head_num_layers: 2,

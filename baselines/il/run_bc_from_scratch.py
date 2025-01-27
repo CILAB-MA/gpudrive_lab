@@ -144,7 +144,7 @@ def train():
 
     # Training loop
     if config.use_wandb:
-        raw_fig = visualize_partner_obs_final(tsne_obs, tsne_mask)
+        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_mask)
         wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
         plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
@@ -235,6 +235,7 @@ def train():
                 tom_head_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,3], aux_mask, aux_head='heading')
                 tom_act_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 4:7], aux_mask, aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                partner_ratios += partner_ratio
                 loss = pred_loss + 0.5 * (tom_act_loss + tom_pos_loss + tom_head_loss + tom_speed_loss)
                 
             else:
@@ -301,8 +302,8 @@ def train():
                     break
                 total_samples += batch_size
                 
-                if len(batch) == 7:
-                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch  
+                if len(batch) == 8:
+                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch  
                 elif len(batch) == 6:
                     obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch  
                 elif len(batch) == 3:
@@ -338,7 +339,23 @@ def train():
                 x = emb_tsne[:, 0]
                 y = emb_tsne[:, 1]
                 plt.figure(figsize=(6,6))
-                plt.scatter(x, y, s=5, c=colors, alpha=0.7)
+                plt.scatter(
+                    x,
+                    y,
+                    c=colors,
+                    alpha=0.8,
+                    edgecolors="k",
+                    s=100,  # Increased marker size
+                )
+                for i in range(len(x)):
+                    plt.text(
+                        x[i], y[i], str(tsne_indices[i]),
+                        fontsize=8,
+                        color="black",
+                        ha="center",
+                        va="center",
+                        bbox=dict(facecolor="white", alpha=0.5, edgecolor="none")
+                    )
                 plt.title("TSNE Visualization")
                 wandb.log(
                     {
