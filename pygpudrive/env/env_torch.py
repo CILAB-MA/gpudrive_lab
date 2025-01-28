@@ -490,11 +490,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def normalize_and_flatten_map_obs(self, obs):
         """Normalize map observation features."""
-        # Sort by distance
-        relative_distance = torch.sqrt(obs[:, :, :, 0] ** 2 + obs[:, :, :, 1] ** 2)
-        relative_distance[obs.sum(-1) == 0] = 99999
-        sorted_indices = torch.argsort(relative_distance, dim=2)
-
         # Road point coordinates
         obs[:, :, :, 0] = self.normalize_tensor(
             obs[:, :, :, 0],
@@ -522,8 +517,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
         # Concatenate the one-hot encoding with the rest of the features
         obs = torch.cat((obs[:, :, :, :6], one_hot_road_types), dim=-1)
-        obs = torch.gather(obs, 2, sorted_indices.unsqueeze(-1).expand_as(obs))
-        
         # Get Mask for sorted road points
         #TODO: obs.sum(-1) == 0 is not a good mask
         self.road_mask = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))

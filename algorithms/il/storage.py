@@ -302,7 +302,6 @@ if __name__ == "__main__":
     print("save_index : ", args.save_index)
     print("dataset : ", args.dataset)
     print("function : ", args.function)
-    
     # Initialize configurations
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
                                num_scenes=args.num_worlds,
@@ -312,8 +311,8 @@ if __name__ == "__main__":
         dynamics_model='delta_local',
         steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
         accel_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dx=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dy=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
+        dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
+        dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
     )
 
