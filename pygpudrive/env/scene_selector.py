@@ -65,5 +65,5 @@ def select_scenes(config):
     ] 
     
     print(f'\n--- Ratio unique scenes / number of worlds = {len(np.unique(scene_paths))} / {len(scene_paths)} ---\n')
-        
+    print(f'Scene names" {scene_paths}')
     return scene_paths
