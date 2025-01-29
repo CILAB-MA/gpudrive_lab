@@ -42,8 +42,8 @@ def parse_args():
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/new_tom')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_10.npz')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/fix_tom')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     
     # EXPERIMENT
@@ -56,7 +56,7 @@ def parse_args():
     
     return args
 
-def get_grad_norm(params):
+def get_grad_norm(params, step=None):
     max_grad_norm = 0
     grad_name = None
     for name, param in params:
@@ -246,6 +246,7 @@ def train():
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
+            # torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), max_norm=10.0)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
