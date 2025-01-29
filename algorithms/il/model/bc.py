@@ -66,8 +66,8 @@ class LateFusionBCNet(CustomLateFusionNet):
         self.road_object_net = self._build_partner_network(
             input_dim=self.ro_input_dim * num_stack,
         )
-        self.road_graph_net = self._build_network(
-            input_dim=self.rg_input_dim * num_stack,
+        self.road_graph_net = self._build_partner_network(
+            input_dim=self.rg_input_dim * num_stack, is_ro=False
         )
 
         # Action head
@@ -143,8 +143,9 @@ class LateFusionBCNet(CustomLateFusionNet):
         """Get the embedded observation."""
         # Set mask for road_object_net (for SetNorm)
         partner_mask = masks[1][:,-1,:]
+        road_mask = masks[2][:,-1,:]
         [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
-        
+        [norm_layer.__setattr__('mask', road_mask) for norm_layer in self.road_graph_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
 
         ego_state = self.ego_state_net(ego_state)
@@ -153,10 +154,18 @@ class LateFusionBCNet(CustomLateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-        max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
-        selected_mask = torch.gather(partner_mask.squeeze(-1), 1, max_indices)  # (B, D)
-        mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
+        max_indices_ro = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
+        selected_mask_ro = torch.gather(partner_mask.squeeze(-1), 1, max_indices_ro)  # (B, D)
+        mask_zero_ratio_ro = (selected_mask_ro == 0).sum().item() / selected_mask_ro.numel()
         
+        max_indices_rg = torch.argmax(road_graph.permute(0, 2, 1), dim=-1)
+        selected_mask_rg = torch.gather(road_mask.squeeze(-1), 1, max_indices_rg)  # (B, D)
+        mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
+        mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
+
+        road_objects.masked_fill_(partner_mask.unsqueeze(-1), 0)
+        road_graph.masked_fill_(road_mask.unsqueeze(-1), 0)
+
         road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
@@ -293,22 +302,25 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         """Get the embedded observation."""
         batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
-        partner_mask = masks[1][:,-1,:]
-        
+        ego_masks = masks[0][:, -1]
+        ro_masks = masks[1][:, -1]
+        rg_masks = masks[2][:, -1]
+
         # Ego state and road object encoding
-        [norm_layer.__setattr__('mask', partner_mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
+        [norm_layer.__setattr__('mask', ro_masks) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
+        [norm_layer.__setattr__('mask', rg_masks) for norm_layer in self.road_graph_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         
         # Road object attention
-        ego_masks = masks[0][:, -1]
-        ro_masks = masks[1][:, -1]
-        rg_masks = masks[2][:, -1]
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
         obj_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks], dim=-1)
         for norm_layer in self.ro_attn.modules():
             if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', obj_masks)
+        for norm_layer in self.rg_attn.modules():
+            if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
+                setattr(norm_layer, 'mask', rg_masks)
         objects_attn = self.ro_attn(all_objects, pad_mask=obj_masks)
         
         # Road graph attention
@@ -317,9 +329,18 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-        max_indices = torch.argmax(road_objects.permute(0, 2, 1), dim=-1)
-        selected_mask = torch.gather(ro_masks.squeeze(-1), 1, max_indices)  # (B, D)
-        mask_zero_ratio = (selected_mask == 0).sum().item() / selected_mask.numel()
+        max_indices_ro = torch.argmax(objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), dim=-1)
+        selected_mask_ro = torch.gather(ro_masks.squeeze(-1), 1, max_indices_ro)  # (B, D)
+        mask_zero_ratio_ro = (selected_mask_ro == 0).sum().item() / selected_mask_ro.numel()
+        
+        max_indices_rg = torch.argmax(road_graph_attn['last_hidden_state'].permute(0, 2, 1), dim=-1)
+        selected_mask_rg = torch.gather(rg_masks.squeeze(-1), 1, max_indices_rg)  # (B, D)
+        mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
+        mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
+
+        objects_attn['last_hidden_state'][:, 1:].masked_fill_(ro_masks.unsqueeze(-1), 0)
+        road_graph_attn['last_hidden_state'].masked_fill_(rg_masks.unsqueeze(-1), 0)
+
         road_objects = F.max_pool1d(
             objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)

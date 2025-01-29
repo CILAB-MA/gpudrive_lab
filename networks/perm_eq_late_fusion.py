@@ -52,7 +52,7 @@ class CustomLateFusionNet(nn.Module):
         )
         
         # Norm layer
-        norm_dict = {
+        partner_norm_dict = {
             "LN": nn.LayerNorm(self.hidden_dim),
             "BN": CustomBatchNorm(seq_len=self.ro_max, feature_dim=self.hidden_dim),
             "MBN": MaskedBatchNorm1d(seq_len=self.ro_max, feature_dim=self.hidden_dim),
@@ -60,7 +60,16 @@ class CustomLateFusionNet(nn.Module):
             "SBN": SetBatchNorm(self.hidden_dim),
             "None": nn.Identity()
         }
-        self.norm = norm_dict.get(self.net_config.norm, nn.Identity())
+        road_norm_dict = {
+            "LN": nn.LayerNorm(self.hidden_dim),
+            "BN": CustomBatchNorm(seq_len=self.rg_max, feature_dim=self.hidden_dim),
+            "MBN": MaskedBatchNorm1d(seq_len=self.rg_max, feature_dim=self.hidden_dim),
+            "SN": SetNorm(self.hidden_dim, feature_dim=self.hidden_dim),
+            "SBN": SetBatchNorm(self.hidden_dim),
+            "None": nn.Identity()
+        }
+        self.partner_norm = partner_norm_dict.get(self.net_config.norm, nn.Identity())
+        self.road_norm = road_norm_dict.get(self.net_config.norm, nn.Identity())
 
         self.dropout = self.net_config.dropout
 
@@ -90,22 +99,26 @@ class CustomLateFusionNet(nn.Module):
         return network
 
     @abstractmethod
-    def _build_partner_network(self, input_dim: int) -> nn.Module:
+    def _build_partner_network(self, input_dim: int, is_ro=True) -> nn.Module:
         """Build a network with the specified architecture."""
         init_ = lambda m: init(m, nn.init.xavier_normal_, lambda x: nn.init.constant_(x, 0), np.sqrt(2))
         layers = []
         prev_dim = input_dim
+        if is_ro:
+            norm = self.partner_norm
+        else:
+            norm = self.road_norm
         net_arch = [self.hidden_dim] * self.hidden_num
         for layer_dim in net_arch:
             layers.append(init_(nn.Linear(prev_dim, layer_dim)))
             layers.append(nn.Dropout(self.dropout))
-            layers.append(self.norm)
+            layers.append(norm)
             layers.append(self.act_func)
             prev_dim = layer_dim
         
         network = nn.Sequential(*layers)
         network.last_layer_dim = prev_dim
-        network.norm = self.norm
+        network.norm = norm
 
         return network
 

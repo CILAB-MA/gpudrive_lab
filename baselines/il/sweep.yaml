@@ -24,9 +24,79 @@ parameters:
           head_num_layers: 2,
           action_dim: 3,
           n_components: 10,
-          time_dim: 91,
+          time_dim: 1,
           clip_values: -20.0,
           # Args
           model_name : "late_fusion",
           loss_name: "gmm"
       }
+      - {
+          # ExperimentConfig
+          batch_size: 512,
+          epochs: 500,
+          lr: 0.0005,
+          sample_per_epoch: 438763,
+          # NetworkConfig
+          network_dim: 128,
+          network_num_layers: 4,
+          act_func: "tanh",
+          dropout: 0.0,
+          norm: "SBN",
+          # HeadConfig
+          head_dim: 128,
+          head_num_layers: 2,
+          action_dim: 3,
+          n_components: 10,
+          time_dim: 1,
+          clip_values: -20.0,
+          # Args
+          model_name : "late_fusion",
+          loss_name: "gmm"
+      }
+      - {
+          # ExperimentConfig
+          batch_size: 512,
+          epochs: 500,
+          lr: 0.0005,
+          sample_per_epoch: 438763,
+          # NetworkConfig
+          network_dim: 128,
+          network_num_layers: 2,
+          act_func: "tanh",
+          dropout: 0.0,
+          norm: "LN",
+          # HeadConfig
+          head_dim: 128,
+          head_num_layers: 2,
+          action_dim: 3,
+          n_components: 10,
+          time_dim: 1,
+          clip_values: -20.0,
+          # Args
+          model_name : "attention",
+          loss_name: "gmm"
+      }
+      - {
+          # ExperimentConfig
+          batch_size: 512,
+          epochs: 500,
+          lr: 0.0005,
+          sample_per_epoch: 438763,
+          # NetworkConfig
+          network_dim: 128,
+          network_num_layers: 2,
+          act_func: "tanh",
+          dropout: 0.0,
+          norm: "SBN",
+          # HeadConfig
+          head_dim: 128,
+          head_num_layers: 2,
+          action_dim: 3,
+          n_components: 10,
+          time_dim: 1,
+          clip_values: -20.0,
+          # Args
+          model_name : "attention",
+          loss_name: "gmm"
+      }
+      

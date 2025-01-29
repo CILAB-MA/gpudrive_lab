@@ -35,7 +35,7 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='attention', choices=['bc', 'late_fusion', 'attention', 'wayformer',
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
@@ -205,6 +205,7 @@ def train():
         max_norms = 0
         max_names = []
         partner_ratios = 0
+        road_ratios = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             
@@ -229,19 +230,21 @@ def train():
                 context, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
             elif config.use_tom == 'aux_head':
-                context, partner_ratio, other_embeds = bc_policy.get_context(obs, all_masks[1:])
+                context, all_ratio, other_embeds = bc_policy.get_context(obs, all_masks[1:])
                 tom_speed_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 0], aux_mask, aux_head='speed')
                 tom_pos_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,1:3], aux_mask, aux_head='pos')
                 tom_head_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,3], aux_mask, aux_head='heading')
                 tom_act_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 4:7], aux_mask, aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += partner_ratio
+                partner_ratios += all_ratio[0]
+                road_ratios += all_ratio[1]
                 loss = pred_loss + 0.5 * (tom_act_loss + tom_pos_loss + tom_head_loss + tom_speed_loss)
                 
             else:
-                context, partner_ratio = bc_policy.get_context(obs, all_masks[1:])
+                context, all_ratio = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += partner_ratio
+                partner_ratios += all_ratio[0]
+                road_ratios += all_ratio[1]
                 pred_loss = loss
             # Backward pass
             optimizer.zero_grad()
@@ -275,7 +278,8 @@ def train():
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
-                    "train/max_pool_ratio": partner_ratios / (i + 1),
+                    "train/max_partner_ratio": partner_ratios / (i + 1),
+                    "train/max_road_ratio": road_ratios / (i + 1),
                     "gmm/max_grad_norm": max_norms / (i + 1),
                     "gmm/max_component_probs": max(component_probs),
                     "gmm/min_component_probs": min(component_probs),
