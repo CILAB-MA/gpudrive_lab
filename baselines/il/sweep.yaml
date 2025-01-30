@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: increase_file
+name: early_attention
 metric:
   goal: minimize
   name: eval/loss
@@ -27,7 +27,7 @@ parameters:
           time_dim: 1,
           clip_values: -20.0,
           # Args
-          model_name : "attention",
+          model_name : "early_fusion",
           loss_name: "gmm"
       }
       - {

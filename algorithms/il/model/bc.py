@@ -130,7 +130,7 @@ class LateFusionBCNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
 
-    def get_tsne(self, obs, mask):
+    def get_tsne(self, obs, mask, road_mask=None):
         obs = obs.unsqueeze(0)
         mask = mask.unsqueeze(0).bool()
         _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
@@ -278,7 +278,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
 
-    def get_tsne(self, obs, mask):
+    def get_tsne(self, obs, mask, road_mask=None):
         obs = obs.unsqueeze(0)
         mask = mask.unsqueeze(0).bool()
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
@@ -446,24 +446,26 @@ class EarltFusionAttnBCNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
 
-    def get_tsne(self, obs, mask):
+    def get_tsne(self, obs, mask, road_mask=None):
         obs = obs.unsqueeze(0)
         mask = mask.unsqueeze(0).bool()
+        road_mask = road_mask.unsqueeze(0).bool()
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
 
-        ego_state, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
+        road_graph = self.road_graph_net(road_graph)
         
         ego_mask = torch.zeros(1, 1, dtype=torch.bool).to(mask.device)
-        all_mask = torch.cat([ego_mask, mask], dim=-1)
-        for norm_layer in self.ro_attn.modules():
+        all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
+        for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_mask)
-        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
-        objects_attn = self.ro_attn(all_objects, pad_mask=all_mask)
+        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
+        all_attn = self.fusion_attn(all_objects, pad_mask=all_mask)
 
-        masked_road_objects = objects_attn["last_hidden_state"][:,1:][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        masked_road_objects = all_attn["last_hidden_state"][:,1: 1 + self.ro_max][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         return masked_road_objects
 
     def get_context(self, obs, masks=None):

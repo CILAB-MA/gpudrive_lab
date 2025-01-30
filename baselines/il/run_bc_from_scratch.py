@@ -35,7 +35,7 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'early_attn',
+    parser.add_argument('--model-name', '-m', type=str, default='early_attn', choices=['bc', 'late_fusion', 'attention', 'early_attn',
                                                                                          'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
@@ -44,7 +44,7 @@ def parse_args():
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/fix_tom')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz') # train_trajectory_1000
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     
     # EXPERIMENT
@@ -141,6 +141,7 @@ def train():
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
     tsne_obs = train_expert_obs[0][0][2:7]
     tsne_mask = train_other_info[0][0][6][:, -1] #todo: index 임의 지정
+    tsne_road_mask = train_road_mask[0][0][6]
     data_mask =  np.where(tsne_mask== 2, 1, 0).astype('bool')
 
     # Training loop
@@ -150,6 +151,7 @@ def train():
         plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
     data_mask = torch.from_numpy(data_mask).to(config.device)
+    tsne_road_mask = torch.from_numpy(tsne_road_mask).to(config.device)
 
     # Combine data (no changes)
     num_cpus = os.cpu_count()
@@ -335,9 +337,10 @@ def train():
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
+            others_tsne = bc_policy.get_tsne(tsne_obs, data_mask, tsne_road_mask).squeeze(0).detach().cpu().numpy()
             if config.use_wandb:
                 with torch.no_grad():
-                    others_tsne = bc_policy.get_tsne(tsne_obs, data_mask).squeeze(0).detach().cpu().numpy()
+                    others_tsne = bc_policy.get_tsne(tsne_obs, data_mask, tsne_road_mask).squeeze(0).detach().cpu().numpy()
                 tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
                 filtered_tsne_mask = tsne_mask[(~data_mask).detach().cpu().numpy()]
                 colors = ['red' if val == 0 else 'blue' for val in filtered_tsne_mask]

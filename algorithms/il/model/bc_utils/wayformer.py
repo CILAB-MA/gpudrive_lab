@@ -132,6 +132,7 @@ class MultiHeadAttention(nn.Module):
             dropout: float = 0.0,
             qkv_bias: bool = True,
             out_bias: bool = True,
+            separate_attn_weights: bool = False,
     ):
         """Multi-head attention as specified in https://arxiv.org/abs/2107.14795 Appendix E plus support for rotary
         position embeddings (https://arxiv.org/abs/2104.09864) and causal attention. Causal attention requires
@@ -255,7 +256,7 @@ class MultiHeadAttention(nn.Module):
             if self.causal_attention:
                 attn.masked_fill_(causal_mask, attn_max_neg)
 
-            attn = attn.softmax(dim=-1)
+            attn = attn.softmax(dim=-1) # torch.Size([512, 4, 328, 328])
             attn = self.dropout(attn)
 
             o_chunk = torch.einsum("b h i j, b h j c -> b h i c", attn, v_chunk)
@@ -266,8 +267,7 @@ class MultiHeadAttention(nn.Module):
         o = self.o_proj(o)
 
         return ModuleOutput(last_hidden_state=o, kv_cache=kv_cache)
-
-
+    
 class CrossAttention(nn.Module):
     def __init__(
             self,
