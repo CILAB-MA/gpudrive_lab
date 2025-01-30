@@ -385,6 +385,7 @@ class EarltFusionAttnBCNet(CustomLateFusionNet):
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
             norm=net_config.norm,
+            separate_attn_weights=True
         )
 
         if loss in ['l1', 'mse', 'twohot']: # make head module

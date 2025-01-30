@@ -27,7 +27,7 @@ parameters:
           time_dim: 1,
           clip_values: -20.0,
           # Args
-          model_name : "early_fusion",
+          model_name : "early_attn",
           loss_name: "gmm"
       }
       - {

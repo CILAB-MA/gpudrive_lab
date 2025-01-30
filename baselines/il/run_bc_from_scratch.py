@@ -44,7 +44,7 @@ def parse_args():
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/fix_tom')
-    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz') # train_trajectory_1000
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz') # train_trajectory_1000
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     
     # EXPERIMENT
@@ -337,7 +337,6 @@ def train():
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
-            others_tsne = bc_policy.get_tsne(tsne_obs, data_mask, tsne_road_mask).squeeze(0).detach().cpu().numpy()
             if config.use_wandb:
                 with torch.no_grad():
                     others_tsne = bc_policy.get_tsne(tsne_obs, data_mask, tsne_road_mask).squeeze(0).detach().cpu().numpy()
