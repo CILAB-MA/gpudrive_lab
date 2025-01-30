@@ -379,13 +379,33 @@ class EarltFusionAttnBCNet(CustomLateFusionNet):
         
         # Attention
         self.fusion_attn = SelfAttentionBlock(
-            num_layers=3,
+            num_layers=2,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
             norm=net_config.norm,
-            separate_attn_weights=True
+            separate_attn_weights=False
+        )
+
+        self.ro_attn = SelfAttentionBlock(
+            num_layers=1,
+            num_heads=4,
+            num_channels=net_config.network_dim,
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
+            separate_attn_weights=False
+        )
+
+        self.rg_attn = SelfAttentionBlock(
+            num_layers=1,
+            num_heads=4,
+            num_channels=net_config.network_dim,
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
+            separate_attn_weights=False
         )
 
         if loss in ['l1', 'mse', 'twohot']: # make head module
@@ -492,12 +512,18 @@ class EarltFusionAttnBCNet(CustomLateFusionNet):
                 setattr(norm_layer, 'mask', all_masks)
         all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
 
-
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-        ego_attn = all_attn['last_hidden_state'][:, 0]
-        objects_attn = all_attn['last_hidden_state'][:, 1:self.ro_max + 1]
+
+        objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
         road_graph_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
+
+        all_objects_attn = self.ro_attn(objects_attn)
+        road_graph_attn = self.rg_attn(road_graph_attn)
+
+        ego_attn = all_objects_attn['last_hidden_state'][:, 0]
+        objects_attn = all_objects_attn['last_hidden_state'][:, 1:]
+        road_graph_attn = road_graph_attn['last_hidden_state']
 
         max_indices_ro = torch.argmax(objects_attn.permute(0, 2, 1), dim=-1)
         selected_mask_ro = torch.gather(ro_masks.squeeze(-1), 1, max_indices_ro)  # (B, D)
