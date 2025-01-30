@@ -6,6 +6,7 @@ from algorithms.il.model.aux import *
 
 MODELS = dict(bc=ContFeedForward, late_fusion=LateFusionBCNet,
               attention=LateFusionAttnBCNet, wayformer=WayformerEncoder,
+              early_attn=EarltFusionAttnBCNet,
               aux_fusion=LateFusionAuxNet, aux_attn=LateFusionAttnAuxNet)
 
 LOSS = dict(
