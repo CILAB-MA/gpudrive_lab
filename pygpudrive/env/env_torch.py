@@ -430,7 +430,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         obs = torch.concat((obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1)
 
         filtered_partner_id = self.partner_id.clone() 
-        cont_mask = self.cont_agent_mask.clone()
+        cont_mask = self.get_controlled_agents_mask().clone()
         filtered_partner_id[..., 1:][filtered_partner_id[..., 1:] <= 0] = -2
         filtered_partner_id[..., 0][filtered_partner_id[..., 0] < 0] = -2
         b, o, _ = filtered_partner_id.shape
