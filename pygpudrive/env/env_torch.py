@@ -440,8 +440,12 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         2,
         filtered_partner_id.long().clamp(min=0, max=o - 1),  # Clamp invalid indices
         ).long()
+        partner_mask2 = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))
+        not_existed = torch.logical_or(not_existed, partner_mask2)
         partner_mask_values[not_existed] = 2
         self.partner_mask = partner_mask_values
+        new_mask = torch.where(partner_mask_values == 2, 1, 0)
+        print((new_mask - partner_mask2.int()).abs().sum())
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
