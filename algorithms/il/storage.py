@@ -214,7 +214,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_trajectory_lst = torch.zeros((alive_agent_num, env.episode_len, obs.shape[-1]), device=device)
     expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
     expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
-    expert_partner_mask_lst = torch.ones((alive_agent_num, env.episode_len, 127), device=device, dtype=torch.bool)
+    expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
     expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 7), device=device) # after t-step pos (2), after t-step heading (1), vel value(1), actions (3), mask (1)
     after_t = 3
