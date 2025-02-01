@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: increase_file
+name: early_attention
 metric:
   goal: minimize
   name: eval/loss
@@ -15,7 +15,7 @@ parameters:
           sample_per_epoch: 438763,
           # NetworkConfig
           network_dim: 128,
-          network_num_layers: 4,
+          network_num_layers: 2,
           act_func: "tanh",
           dropout: 0.0,
           norm: "LN",
@@ -24,9 +24,9 @@ parameters:
           head_num_layers: 2,
           action_dim: 3,
           n_components: 10,
-          time_dim: 91,
+          time_dim: 1,
           clip_values: -20.0,
           # Args
-          model_name : "late_fusion",
+          model_name : "early_attn",
           loss_name: "gmm"
       }

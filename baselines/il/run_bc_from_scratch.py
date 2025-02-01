@@ -35,15 +35,16 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='attention', choices=['bc', 'late_fusion', 'attention', 'wayformer',
+    parser.add_argument('--model-name', '-m', type=str, default='early_attn', choices=['bc', 'late_fusion', 'attention', 'early_attn',
+                                                                                         'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/new_tom')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_10.npz')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/fix_tom')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz') # train_trajectory_1000
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     
     # EXPERIMENT
@@ -56,7 +57,7 @@ def parse_args():
     
     return args
 
-def get_grad_norm(params):
+def get_grad_norm(params, step=None):
     max_grad_norm = 0
     grad_name = None
     for name, param in params:
@@ -140,6 +141,7 @@ def train():
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
     tsne_obs = train_expert_obs[0][0][2:7]
     tsne_mask = train_other_info[0][0][6][:, -1] #todo: index 임의 지정
+    tsne_road_mask = train_road_mask[0][0][6]
     data_mask =  np.where(tsne_mask== 2, 1, 0).astype('bool')
 
     # Training loop
@@ -149,6 +151,7 @@ def train():
         plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
     data_mask = torch.from_numpy(data_mask).to(config.device)
+    tsne_road_mask = torch.from_numpy(tsne_road_mask).to(config.device)
 
     # Combine data (no changes)
     num_cpus = os.cpu_count()
@@ -205,6 +208,7 @@ def train():
         max_norms = 0
         max_names = []
         partner_ratios = 0
+        road_ratios = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             
@@ -229,23 +233,26 @@ def train():
                 context, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
             elif config.use_tom == 'aux_head':
-                context, partner_ratio, other_embeds = bc_policy.get_context(obs, all_masks[1:])
+                context, all_ratio, other_embeds = bc_policy.get_context(obs, all_masks[1:])
                 tom_speed_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 0], aux_mask, aux_head='speed')
                 tom_pos_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,1:3], aux_mask, aux_head='pos')
                 tom_head_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,3], aux_mask, aux_head='heading')
                 tom_act_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 4:7], aux_mask, aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += partner_ratio
+                partner_ratios += all_ratio[0]
+                road_ratios += all_ratio[1]
                 loss = pred_loss + 0.5 * (tom_act_loss + tom_pos_loss + tom_head_loss + tom_speed_loss)
                 
             else:
-                context, partner_ratio = bc_policy.get_context(obs, all_masks[1:])
+                context, all_ratio = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += partner_ratio
+                partner_ratios += all_ratio[0]
+                road_ratios += all_ratio[1]
                 pred_loss = loss
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
+            # torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), max_norm=10.0)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
@@ -274,7 +281,8 @@ def train():
                     "train/dx_loss": dx_losses / (i + 1),
                     "train/dy_loss": dy_losses / (i + 1),
                     "train/dyaw_loss": dyaw_losses / (i + 1),
-                    "train/max_pool_ratio": partner_ratios / (i + 1),
+                    "train/max_partner_ratio": partner_ratios / (i + 1),
+                    "train/max_road_ratio": road_ratios / (i + 1),
                     "gmm/max_grad_norm": max_norms / (i + 1),
                     "gmm/max_component_probs": max(component_probs),
                     "gmm/min_component_probs": min(component_probs),
@@ -331,7 +339,7 @@ def train():
                     losses += action_loss.mean().item()
             if config.use_wandb:
                 with torch.no_grad():
-                    others_tsne = bc_policy.get_tsne(tsne_obs, data_mask).squeeze(0).detach().cpu().numpy()
+                    others_tsne = bc_policy.get_tsne(tsne_obs, data_mask, tsne_road_mask).squeeze(0).detach().cpu().numpy()
                 tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
                 filtered_tsne_mask = tsne_mask[(~data_mask).detach().cpu().numpy()]
                 colors = ['red' if val == 0 else 'blue' for val in filtered_tsne_mask]

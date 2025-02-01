@@ -132,6 +132,7 @@ class MultiHeadAttention(nn.Module):
             dropout: float = 0.0,
             qkv_bias: bool = True,
             out_bias: bool = True,
+            separate_attn_weights: bool = False,
     ):
         """Multi-head attention as specified in https://arxiv.org/abs/2107.14795 Appendix E plus support for rotary
         position embeddings (https://arxiv.org/abs/2104.09864) and causal attention. Causal attention requires
@@ -173,6 +174,7 @@ class MultiHeadAttention(nn.Module):
         self.num_qk_channels = num_qk_channels
         self.num_v_channels = num_v_channels
         self.causal_attention = causal_attention
+        self.separate_attn_weights = separate_attn_weights
 
         if max_heads_parallel is None:
             self.max_heads_parallel = num_heads
@@ -254,9 +256,16 @@ class MultiHeadAttention(nn.Module):
 
             if self.causal_attention:
                 attn.masked_fill_(causal_mask, attn_max_neg)
-
-            attn = attn.softmax(dim=-1)
-            attn = self.dropout(attn)
+            if self.separate_attn_weights:
+                ro_attn = attn[..., :128] # todo: change it to params
+                rg_attn = attn[..., 128:]
+                ro_attn = ro_attn.softmax(dim=-1)
+                rg_attn = rg_attn.softmax(dim=-1)
+                attn = torch.cat([ro_attn, rg_attn], dim=-1)
+                attn = self.dropout(attn)
+            else:
+                attn = attn.softmax(dim=-1) # torch.Size([512, 4, 328, 328])
+                attn = self.dropout(attn)
 
             o_chunk = torch.einsum("b h i j, b h j c -> b h i c", attn, v_chunk)
             o_chunks.append(o_chunk)
@@ -266,8 +275,7 @@ class MultiHeadAttention(nn.Module):
         o = self.o_proj(o)
 
         return ModuleOutput(last_hidden_state=o, kv_cache=kv_cache)
-
-
+    
 class CrossAttention(nn.Module):
     def __init__(
             self,
@@ -341,6 +349,7 @@ class SelfAttention(nn.Module):
             qkv_bias: bool = True,
             out_bias: bool = True,
             norm: str = None,
+            separate_attn_weights: bool = False
     ):
         """Pre-layer norm self-attention (see `MultiHeadAttention` and for attention details)."""
         super().__init__()
@@ -365,6 +374,7 @@ class SelfAttention(nn.Module):
             dropout=dropout,
             qkv_bias=qkv_bias,
             out_bias=out_bias,
+            separate_attn_weights=separate_attn_weights
         )
 
     def forward(
@@ -454,6 +464,7 @@ class SelfAttentionLayer(AbstractAttentionLayer):
             out_bias: bool = True,
             mlp_bias: bool = True,
             norm: str = None,
+            separate_attn_weights: bool = False
     ):
         self_attn = SelfAttention(
             num_heads=num_heads,
@@ -465,7 +476,8 @@ class SelfAttentionLayer(AbstractAttentionLayer):
             dropout=dropout,
             qkv_bias=qkv_bias,
             out_bias=out_bias,
-            norm=norm
+            norm=norm,
+            separate_attn_weights=separate_attn_weights
         )
 
         self.num_qk_channels = self_attn.attention.num_qk_channels
@@ -495,6 +507,7 @@ class SelfAttentionBlock(nn.Sequential):
             out_bias: bool = True,
             mlp_bias: bool = True,
             norm: str = None,
+            separate_attn_weights: bool = False
     ):
         layers = [
             SelfAttentionLayer(
@@ -511,6 +524,7 @@ class SelfAttentionBlock(nn.Sequential):
                 out_bias=out_bias,
                 mlp_bias=mlp_bias,
                 norm=norm,
+                separate_attn_weights=separate_attn_weights
             )
             for _ in range(num_layers)
         ]

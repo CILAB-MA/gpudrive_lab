@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 class SetNorm(nn.LayerNorm):
     def __init__(self, *args, feature_dim=None, **kwargs):
@@ -22,13 +23,14 @@ class SetBatchNorm(nn.Module):
         super().__init__()
         self.weights = nn.Parameter(torch.empty(feature_dim))
         self.biases = nn.Parameter(torch.empty(feature_dim))
-        self.set = nn.Linear(feature_dim * 2, 2)
         self.mask = None
         torch.nn.init.constant_(self.weights, 1.)
         torch.nn.init.constant_(self.biases, 0.)
+        self.ln = nn.LayerNorm(feature_dim)  # Feature-wise LN
 
     def forward(self, x):   # (B, S, D)
         # Masked Batch Normalization
+        x = self.ln(x)
         alive_mask = (~self.mask).unsqueeze(-1)  # (B, S) -> (B, S, 1)
         valid_counts = alive_mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, 1, 1)
         batch_mask = valid_counts > 1   # (B, 1, 1)
@@ -39,11 +41,9 @@ class SetBatchNorm(nn.Module):
         mean = torch.where(batch_mask, sum_x / valid_counts, sum_x) # (B, 1, D)
         variance = ((x - mean) ** 2).sum(dim=1, keepdim=True) / valid_counts  # (B, 1, D)
         variance = torch.where(batch_mask, variance, torch.zeros_like(sum_x))
-        set_stats = self.set(torch.cat([mean, variance], dim=-1))
         std = torch.where(batch_mask, torch.sqrt(variance + 1e-6), torch.ones_like(sum_x))
 
         normalized_x = (x - mean) / std
-        normalized_x = set_stats[:, 0] * normalized_x + set_stats[:, 1]
         out = F.linear(normalized_x, torch.diag_embed(self.weights), self.biases)
         return out
 
