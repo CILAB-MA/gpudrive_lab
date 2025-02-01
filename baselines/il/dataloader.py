@@ -14,9 +14,9 @@ class ExpertDataset(torch.utils.data.Dataset):
         
         # masks
         self.valid_masks = 1 - masks
-        dead_masks_pad = np.zeros((self.masks.shape[0], rollout_len - 1, *self.masks.shape[2:]), dtype=np.float32)
-        self.valid_masks = np.concatenate([dead_masks_pad, self.masks], axis=1).astype('bool')
-        self.use_mask = True if self.masks is not None else False
+        dead_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32)
+        self.valid_masks = np.concatenate([dead_masks_pad, self.valid_masks], axis=1).astype('bool')
+        self.use_mask = True if self.valid_masks is not None else False
 
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)

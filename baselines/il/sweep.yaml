@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: sweep_name
+name: test_data_good
 metric:
   goal: minimize
   name: eval/loss
@@ -22,7 +22,7 @@ parameters:
     values: [438763]
   seed:
     values: [42]
-  
+    
   # NETWORKCONFIG
   network_dim:
     values: [128]
@@ -33,7 +33,7 @@ parameters:
   dropout:
     values: [0.0]
   norm:
-    values: ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
+    values: ['LN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
   
   # HEADCONFIG
   head_dim:
