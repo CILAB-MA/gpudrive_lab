@@ -169,7 +169,7 @@ def train():
     expert_data_loader = DataLoader(
         ExpertDataset(
             train_expert_obs, train_expert_actions, 
-            train_expert_masks, train_road_mask, train_partner_mask, train_other_info, 
+            train_expert_masks, train_partner_mask, train_road_mask, train_other_info, 
             rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
         ),
         batch_size=config.batch_size,
