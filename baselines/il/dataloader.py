@@ -30,11 +30,13 @@ class ExpertDataset(torch.utils.data.Dataset):
         
         # other_info
         self.other_info = other_info
-        other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
-        self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
-        
-        # ToM
-        self.aux_valid_mask = np.where(partner_mask == 0, 1, 0).astype('bool')
+        self.aux_valid_mask  = None
+        if other_info != None:
+            other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
+            self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
+            # ToM
+            self.aux_valid_mask = np.where(partner_mask == 0, 1, 0).astype('bool')
+
         if tom_time == 'only_pred':
             self.tom_timestep = pred_len
         elif tom_time == 'understand_pred':
@@ -45,7 +47,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
-                         'other_info', 'aux_mask']
+                         'other_info', 'aux_valid_mask']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -64,7 +66,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         if self.num_timestep > 1:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
-                    if var_name in ['obs', 'road_mask', 'partner_mask', 'aux_mask']:
+                    if var_name in ['obs', 'road_mask', 'partner_mask', 'aux_valid_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
