@@ -2,42 +2,49 @@ import torch
 import numpy as np
 
 class ExpertDataset(torch.utils.data.Dataset):
-    def __init__(self, obs, actions, masks=None, other_info=None, road_mask=None,
-                 rollout_len=1, pred_len=1, tom_time='only_pred'):
+    def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
+                 rollout_len=5, pred_len=1, tom_time='only_pred'):
         # obs
         self.obs = obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
         self.obs = np.concatenate([obs_pad, self.obs], axis=1)
+        
+        # actions
+        self.actions = actions
+        
+        # masks
         self.masks = 1 - masks
         dead_masks_pad = np.ones((self.masks.shape[0], rollout_len - 1, *self.masks.shape[2:]), dtype=np.float32)
         self.masks = np.concatenate([dead_masks_pad, self.masks], axis=1).astype('bool')
+        self.use_mask = True if self.masks is not None else False
 
+        # partner_mask
+        partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
+        partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
+        self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
+        
+        # road_mask
         self.road_mask = road_mask
         road_mask_pad = np.zeros((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32)
         self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
         
-        self.actions = actions
-        self.other_info = other_info[..., :-1]
+        # other_info
+        self.other_info = other_info
+        other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
+        self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
+        
+        # ToM
+        self.aux_mask = np.where(partner_mask == 0, 1, 0).astype('bool')
+        if tom_time == 'only_pred':
+            self.tom_timestep = pred_len
+        elif tom_time == 'understand_pred':
+            self.tom_timestep = rollout_len
+        
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len
-        self.use_mask = False
-
-        self.partner_mask = other_info[..., -1]
-        partner_mask_pad = np.full((self.partner_mask.shape[0], rollout_len - 1, *self.partner_mask.shape[2:]), 2, dtype=np.float32)
-        self.partner_mask = np.concatenate([partner_mask_pad, self.partner_mask], axis=1)
-        self.aux_mask = np.where(self.partner_mask == 0, 1, 0).astype('bool')
-        self.partner_mask = np.where(self.partner_mask == 2, 1, 0).astype('bool')
-        if tom_time == 'only_pred':
-            self.tom_timestep = self.pred_len
-        elif tom_time == 'understand_pred':
-            self.tom_timestep = self.rollout_len
-        other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
-        self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
-        if self.masks is not None:
-            self.use_mask = True
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'actions', 'masks', 'partner_mask', 'road_mask' ,
+        self.full_var = ['obs', 'actions', 'masks', 'partner_mask', 'road_mask',
                          'other_info', 'aux_mask']
 
     def __len__(self):
