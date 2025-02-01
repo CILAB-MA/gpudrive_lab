@@ -160,8 +160,9 @@ def train():
     tsne_road_mask = train_road_mask[0][0][6].copy()
 
     # Training loop
+    raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_data_mask)
     if config.use_wandb:
-        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_partner_mask)
+        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_data_mask)
         wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
         plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
