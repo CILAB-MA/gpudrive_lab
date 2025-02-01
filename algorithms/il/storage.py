@@ -13,7 +13,6 @@ def save_obs_action_mean_std_mask_by_veh(env, save_path, save_index=0):
     Args:
         env (GPUDriveTorchEnv): Initialized environment class.
         
-        
     Returns:
         obs : (alive_agent_num, episode_len, 3876 * num_stack)
         actions : (alive_agent_num, episode_len, 3)
@@ -215,18 +214,20 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_trajectory_lst = torch.zeros((alive_agent_num, env.episode_len, obs.shape[-1]), device=device)
     expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
     expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
+    expert_partner_mask_lst = torch.ones((alive_agent_num, env.episode_len, 127), device=device, dtype=torch.bool)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 8), device=device) # after t-step pos (2), after t-step heading (1), vel value(1), actions (3), mask (1)
+    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 7), device=device) # after t-step pos (2), after t-step heading (1), vel value(1), actions (3), mask (1)
     after_t = 3
+    
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
     road_mask = env.get_road_mask()
-    diagonal_mask = torch.eye(128, dtype=torch.bool, device=device)
+
     for time_step in tqdm(range(env.episode_len)):
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
-                action_for_other_info = env.get_other_infos(time_step)
-                partner_mask = env.get_partner_mask().unsqueeze(-1)
+                other_info = env.get_other_infos(time_step)
+                partner_mask = env.get_partner_mask()
                 
                 other_agent_obs = obs[world_idx, agent_idx, 6:1276].reshape(127, 10)  # Reshape to (128, 127, 10)
 
@@ -241,13 +242,12 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                         current_relative_coords,
                         current_heading.unsqueeze(-1)
                     ], dim=-1)
-
-                other_info = torch.cat([action_for_other_info, partner_mask], dim=-1)
                 
                 expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
                 expert_other_info_lst[idx][time_step, :, 4:] = other_info[world_idx, agent_idx]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
+            expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
             expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
         
         env.step_dynamics(expert_actions[:, :, time_step, :])
@@ -264,16 +264,18 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_trajectory_lst = expert_trajectory_lst.to('cpu')
     expert_actions_lst = expert_actions_lst.to('cpu')
     expert_dead_mask_lst = expert_dead_mask_lst.to('cpu')
-    expert_other_info_lst = expert_other_info_lst.to('cpu')
+    expert_partner_mask_lst = expert_partner_mask_lst.to('cpu')
     expert_road_mask_lst = expert_road_mask_lst.to('cpu')
+    expert_other_info_lst = expert_other_info_lst.to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
     np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
                         obs=expert_trajectory_lst,
                         actions=expert_actions_lst,
                         dead_mask=expert_dead_mask_lst,
-                        other_info=expert_other_info_lst,
-                        road_mask=expert_road_mask_lst)
+                        partner_mask=expert_partner_mask_lst,
+                        road_mask=expert_road_mask_lst,
+                        other_info=expert_other_info_lst)
 
 
 if __name__ == "__main__":
