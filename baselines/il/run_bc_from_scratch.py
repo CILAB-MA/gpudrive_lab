@@ -43,12 +43,13 @@ def parse_args():
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/fix_tom')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom')
     parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
+    parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-mask', action='store_true')
@@ -56,6 +57,16 @@ def parse_args():
     args = parser.parse_args()
     
     return args
+
+def set_seed(seed=42, deterministic=False):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False 
 
 def get_grad_norm(params, step=None):
     max_grad_norm = 0
@@ -99,7 +110,7 @@ def train():
     else:
         config = ExperimentConfig()
         config.__dict__.update(vars(args))
-    
+    set_seed(config.seed)    
     # Initialize model and optimizer
     bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
                                           config.use_tom).to(config.device)
@@ -149,8 +160,9 @@ def train():
     tsne_road_mask = train_road_mask[0][0][6].copy()
 
     # Training loop
+    raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_data_mask)
     if config.use_wandb:
-        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_partner_mask)
+        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_data_mask)
         wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
         plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
@@ -174,7 +186,8 @@ def train():
         ),
         batch_size=config.batch_size,
         shuffle=True,
-        num_workers=int(num_cpus / 2),
+        num_workers=num_cpus,
+        prefetch_factor=4,
         pin_memory=True
     )
     del train_expert_obs
@@ -196,7 +209,8 @@ def train():
         ),
         batch_size=config.batch_size,
         shuffle=False,
-        num_workers=int(num_cpus / 2),
+        num_workers=num_cpus,
+        prefetch_factor=4,
         pin_memory=True
     )
     del eval_expert_obs
@@ -397,7 +411,6 @@ def train():
 
 if __name__ == "__main__":
     args = parse_args()
-
     if args.use_wandb:
         with open("baselines/il/sweep.yaml") as f:
             exp_config = yaml.load(f, Loader=yaml.FullLoader)
