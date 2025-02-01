@@ -6,6 +6,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 import os, sys, torch
+torch.backends.cudnn.benchmark = True
 sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from tqdm import tqdm
@@ -14,17 +15,16 @@ from sklearn.manifold import TSNE
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from types import SimpleNamespace
-
 
 # GPUDrive
 from baselines.il.config import *
 from baselines.il.dataloader import ExpertDataset
 from algorithms.il import MODELS, LOSS
 from algorithms.il.utils import visualize_partner_obs_final
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-torch.backends.cudnn.benchmark = True
+
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -80,22 +80,22 @@ def train():
         current_time = datetime.now().strftime("%Y%m%d_%H%M")
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(current_time)
-        for key, value in wandb.config.experiments.items():
+        for key, value in wandb.config.items():
             wandb_tags.append(f"{key}_{value}")
         wandb.run.tags = tuple(wandb_tags)
         # Config Update
         for key, value in vars(args).items():
-            if key not in wandb.config.experiments:
-                wandb.config.experiments[key] = value
+            if key not in wandb.config:
+                wandb.config[key] = value
+        config = wandb.config
+        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
+        wandb.run.save()
         # NetConfig, HeadConfig Update (if sweep parameter is used)
-        for key, value in wandb.config.experiments.items():
+        for key, value in config.items():
             if key in net_config.__dict__.keys():
                 setattr(net_config, key, value)
             if key in head_config.__dict__.keys():
                 setattr(head_config, key, value)
-        config = SimpleNamespace(**wandb.config.experiments)
-        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
-        wandb.run.save()
     else:
         config = ExperimentConfig()
         config.__dict__.update(vars(args))
@@ -110,7 +110,7 @@ def train():
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
     non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
     print(f'Total params: {trainable_params + non_trainable_params}')
-    if args.use_wandb:
+    if config.use_wandb:
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb_tags.append(f"non_trainable_params_{non_trainable_params}")
