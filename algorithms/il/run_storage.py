@@ -16,7 +16,7 @@ def arg_parse():
     
     parser.add_argument('--num_stack', type=int, default=1)
     parser.add_argument('--world_start_index', type=int, default=0)
-    parser.add_argument('--save_path', type=str, default='/data/tom/train_subset')
+    parser.add_argument('--save_path', type=str, default='/data/tom_v2/test_subset')
     parser.add_argument('--function', type=str, default='save_trajectory_and_three_mask_by_scenes', choices=[
                                                                             'save_obs_action_mean_std_mask_by_veh',
                                                                             'save_trajectory',
