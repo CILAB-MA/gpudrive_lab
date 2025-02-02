@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: test_data_good
+name: test_tom_v2_lf
 metric:
   goal: minimize
   name: eval/loss
@@ -33,7 +33,7 @@ parameters:
   dropout:
     values: [0.0]
   norm:
-    values: ['LN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
+    values: ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
   
   # HEADCONFIG
   head_dim:
@@ -43,9 +43,9 @@ parameters:
   action_dim:
     values: [3]
   n_components:
-    values: [10]
+    values: [6]
   time_dim:
-    values: [91]
+    values: [1]
   clip_value:
     values: [-20.0]
   
