@@ -8,7 +8,6 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.obs = obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
         self.obs = np.concatenate([obs_pad, self.obs], axis=1)
-        
         # actions
         self.actions = actions
         
@@ -31,7 +30,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         # other_info
         self.other_info = other_info
         self.aux_valid_mask  = None
-        if other_info != None:
+        if other_info is not None:
             other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
             self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
             # ToM
