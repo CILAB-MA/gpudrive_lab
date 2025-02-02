@@ -75,21 +75,17 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         
     def get_other_infos(self, step):
-        b, o, t, d = self.expert_action.shape  # (batch_size, agents, timesteps, dimensions)
+        _, o, _, d = self.expert_action.shape  # (batch_size, agents, timesteps, dimensions)
         step_expert_action = self.expert_action[:, :, step, :]  # (b, o, 3)
         step_expert_action_expanded = step_expert_action.unsqueeze(1).expand(-1, o, -1, -1)  # (b, o, o, d)
         filtered_partner_id = self.partner_id.clone() 
-        cont_mask = self.cont_agent_mask.clone()
 
         gathered_actions = torch.gather(
             step_expert_action_expanded,
             2,  # Gather along the second dimension of agents
             filtered_partner_id.clamp(min=0).long().unsqueeze(-1).expand(-1, -1, -1, d)  # Expand partner_id for features
-        ) 
-        filtered_partner_id[..., 1:][filtered_partner_id[..., 1:] <= 0] = -2
-        filtered_partner_id[..., 0][filtered_partner_id[..., 0] < 0] = -2
-        not_existed = filtered_partner_id == -2
-        gathered_actions[not_existed] = 0
+        )
+        gathered_actions[self.partner_mask == 0] = 0
         
         return gathered_actions
 
