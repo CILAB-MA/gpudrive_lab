@@ -24,7 +24,7 @@ def parse_args():
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='aux_fusion_gmm_oracle_test_20241227_1836')
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm_all_data_20250202_0215')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
@@ -103,8 +103,9 @@ if __name__ == "__main__":
         road_masks = env.get_stacked_road_mask().to(args.device)
         ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
         partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
+        partner_mask_bool = (partner_masks == 2)
         road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-        all_masks = [ego_masks[~dead_agent_mask], partner_masks[~dead_agent_mask], road_masks[~dead_agent_mask]]
+        all_masks = [ego_masks[~dead_agent_mask], partner_mask_bool[~dead_agent_mask], road_masks[~dead_agent_mask]]
         
         # OTHER INFO
         if hasattr(bc_policy, 'use_tom'):
