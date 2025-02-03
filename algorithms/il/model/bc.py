@@ -362,9 +362,9 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         actions = self.get_action(context, deterministic)
         return actions
 
-class EarltFusionAttnBCNet(CustomLateFusionNet):
+class EarlyFusionAttnBCNet(CustomLateFusionNet):
     def __init__(self, env_config, net_config, head_config, loss, num_stack=5, use_tom=None):
-        super(EarltFusionAttnBCNet, self).__init__(env_config, net_config)
+        super(EarlyFusionAttnBCNet, self).__init__(env_config, net_config)
         self.num_stack = num_stack 
         # Scene encoder
         self.ego_state_net = self._build_network(
