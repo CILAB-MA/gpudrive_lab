@@ -365,6 +365,6 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, _, _  = self.get_context(obs, masks, other_info=other_info)
+        context, _, _, _  = self.get_context(obs, masks, other_info=other_info)
         actions = self.get_action(context, deterministic)
         return actions

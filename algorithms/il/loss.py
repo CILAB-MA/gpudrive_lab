@@ -55,9 +55,12 @@ def mse_loss(model, context, expert_actions, masks=None, attn_weights=None, aux_
     
     pred_actions = pred_actions[partner_masks]
     expert_actions = expert_actions[partner_masks]
+    masked_weights = attn_weights[partner_masks]
     if pred_actions.shape[-1] == 1:
         expert_actions = expert_actions.unsqueeze(-1)
-    loss = F.mse_loss(pred_actions, expert_actions)
+    loss = F.mse_loss(pred_actions, expert_actions, reduction='none')
+    weighted_mse = loss * masked_weights.unsqueeze(-1)
+    loss = weighted_mse.sum() / masked_weights.sum()
     return loss
 
 def two_hot_loss(model, context, expert_actions, masks=None):

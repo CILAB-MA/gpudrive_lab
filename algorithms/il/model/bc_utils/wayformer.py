@@ -265,7 +265,7 @@ class MultiHeadAttention(nn.Module):
                 attn = self.dropout(attn)
             else:
                 attn = attn.softmax(dim=-1) # torch.Size([512, 4, 328, 328])
-                ego_attn = attn[..., 0].detach().cpu() # valid only if attn of road objects
+                ego_attn = attn[..., 0, 1:128].detach() # valid only if attn of road objects
                 attn = self.dropout(attn)
 
             o_chunk = torch.einsum("b h i j, b h j c -> b h i c", attn, v_chunk)
