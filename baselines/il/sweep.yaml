@@ -7,7 +7,7 @@ metric:
 parameters:
   # ARGS
   model_name:
-    values: ["aux_fusion"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+    values: ["aux_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
 

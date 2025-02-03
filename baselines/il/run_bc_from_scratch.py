@@ -257,11 +257,15 @@ def train():
                 context, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
             elif config.use_tom == 'aux_head':
-                context, all_ratio, other_embeds = bc_policy.get_context(obs, all_masks[1:])
-                tom_speed_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 0], aux_mask, aux_head='speed')
-                tom_pos_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,1:3], aux_mask, aux_head='pos')
-                tom_head_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,3], aux_mask, aux_head='heading')
-                tom_act_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 4:7], aux_mask, aux_head='action')
+                context, all_ratio, other_embeds, other_weights = bc_policy.get_context(obs, all_masks[1:])
+                tom_speed_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 0], aux_mask, 
+                                             attn_weights=other_weights[:, 0], aux_head='speed')
+                tom_pos_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,1:3], aux_mask, 
+                                           attn_weights=other_weights[:, 1],aux_head='pos')
+                tom_head_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,3], aux_mask,
+                                            attn_weights=other_weights[:, 2], aux_head='heading')
+                tom_act_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 4:7], aux_mask,
+                                           attn_weights=other_weights[:, 3], aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += all_ratio[0]
                 road_ratios += all_ratio[1]
