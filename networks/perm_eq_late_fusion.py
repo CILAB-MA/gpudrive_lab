@@ -25,7 +25,6 @@ def init(module, weight_init, bias_init, gain=1):
 
 class CustomLateFusionNet(nn.Module):
     """Processes the env observation using a late fusion architecture."""
-
     def __init__(
         self,
         env_config,
@@ -50,27 +49,6 @@ class CustomLateFusionNet(nn.Module):
         self.act_func = (
             nn.Tanh() if self.net_config.act_func == "tanh" else nn.SELU(inplace=True)
         )
-        
-        # Norm layer
-        partner_norm_dict = {
-            "LN": nn.LayerNorm(self.hidden_dim),
-            "BN": CustomBatchNorm(seq_len=self.ro_max, feature_dim=self.hidden_dim),
-            "MBN": MaskedBatchNorm1d(seq_len=self.ro_max, feature_dim=self.hidden_dim),
-            "SN": SetNorm(self.hidden_dim, feature_dim=self.hidden_dim),
-            "SBN": SetBatchNorm(self.hidden_dim),
-            "None": nn.Identity()
-        }
-        road_norm_dict = {
-            "LN": nn.LayerNorm(self.hidden_dim),
-            "BN": CustomBatchNorm(seq_len=self.rg_max, feature_dim=self.hidden_dim),
-            "MBN": MaskedBatchNorm1d(seq_len=self.rg_max, feature_dim=self.hidden_dim),
-            "SN": SetNorm(self.hidden_dim, feature_dim=self.hidden_dim),
-            "SBN": SetBatchNorm(self.hidden_dim),
-            "None": nn.Identity()
-        }
-        self.partner_norm = partner_norm_dict.get(self.net_config.norm, nn.Identity())
-        self.road_norm = road_norm_dict.get(self.net_config.norm, nn.Identity())
-
         self.dropout = self.net_config.dropout
 
         # If using max pool across object dim
@@ -99,28 +77,46 @@ class CustomLateFusionNet(nn.Module):
         return network
 
     @abstractmethod
-    def _build_partner_network(self, input_dim: int, is_ro=True) -> nn.Module:
+    def _build_network_v2(self, input_dim: int, is_ro=True) -> nn.Module:
         """Build a network with the specified architecture."""
         init_ = lambda m: init(m, nn.init.xavier_normal_, lambda x: nn.init.constant_(x, 0), np.sqrt(2))
         layers = []
         prev_dim = input_dim
-        if is_ro:
-            norm = self.partner_norm
-        else:
-            norm = self.road_norm
+
+        norm_type = self.net_config.norm
         net_arch = [self.hidden_dim] * self.hidden_num
         for layer_dim in net_arch:
             layers.append(init_(nn.Linear(prev_dim, layer_dim)))
             layers.append(nn.Dropout(self.dropout))
-            layers.append(norm)
+            norm_layer = self._norm_factory(norm_type, is_ro)
+            layers.append(norm_layer)
             layers.append(self.act_func)
             prev_dim = layer_dim
         
         network = nn.Sequential(*layers)
         network.last_layer_dim = prev_dim
-        network.norm = norm
 
         return network
+
+    def _norm_factory(self, norm_type, is_ro=True):
+        """Create the normalization layer."""
+        hidden_dim = self.hidden_dim
+        seq_len = self.ro_max if is_ro else self.rg_max
+
+        norm_classes = {
+            "LN": lambda: nn.LayerNorm(hidden_dim),
+            "BN": lambda: CustomBatchNorm(seq_len=seq_len, feature_dim=hidden_dim),
+            "MBN": lambda: MaskedBatchNorm1d(seq_len=seq_len, feature_dim=hidden_dim),
+            "SN": lambda: SetNorm(hidden_dim, feature_dim=hidden_dim),
+            "SBN": lambda: SetBatchNorm(hidden_dim),
+            "None": lambda: nn.Identity()
+        }
+
+        if norm_type not in norm_classes:
+            raise ValueError(f"Unsupported normalization type: {norm_type}")
+
+        return norm_classes[norm_type]()
+
 
     @abstractmethod
     def _unpack_obs(self, obs_flat, time_dim):
