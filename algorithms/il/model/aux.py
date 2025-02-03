@@ -56,10 +56,10 @@ class LateFusionAuxNet(CustomLateFusionNet):
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack
         )
-        self.road_object_net = self._build_partner_network(
+        self.road_object_net = self._build_network_v2(
             input_dim=self.ro_input_dim * num_stack,
         )
-        self.road_graph_net = self._build_partner_network(
+        self.road_graph_net = self._build_network_v2(
             input_dim=self.rg_input_dim * num_stack, is_ro=False
         )
 
@@ -135,8 +135,8 @@ class LateFusionAuxNet(CustomLateFusionNet):
         mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
         mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
 
-        road_objects.masked_fill_(partner_mask.unsqueeze(-1), 0)
-        road_graph.masked_fill_(road_mask.unsqueeze(-1), 0)
+        road_objects.masked_fill(partner_mask.unsqueeze(-1), 0)
+        road_graph.masked_fill(road_mask.unsqueeze(-1), 0)
 
         max_road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
@@ -202,10 +202,10 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
         )
-        self.road_object_net = self._build_partner_network(
+        self.road_object_net = self._build_network_v2(
             input_dim=other_input_dim,
         )
-        self.road_graph_net = self._build_partner_network(
+        self.road_graph_net = self._build_network_v2(
             input_dim=self.rg_input_dim * num_stack, is_ro=False
         )
         
@@ -339,8 +339,8 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
         mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
 
-        objects_attn.masked_fill_(ro_masks.unsqueeze(-1), 0)
-        road_attn.masked_fill_(rg_masks.unsqueeze(-1), 0)
+        objects_attn.masked_fill(ro_masks.unsqueeze(-1), 0)
+        road_attn.masked_fill(rg_masks.unsqueeze(-1), 0)
         other_objects = objects_attn
         other_weights = all_attn['ego_attn']
 

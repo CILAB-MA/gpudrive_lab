@@ -13,7 +13,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         
         # masks
         self.valid_masks = 1 - masks
-        dead_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32)
+        dead_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32).astype('bool')
         self.valid_masks = np.concatenate([dead_masks_pad, self.valid_masks], axis=1).astype('bool')
         self.use_mask = True if self.valid_masks is not None else False
 
@@ -24,7 +24,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         
         # road_mask
         self.road_mask = road_mask
-        road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32)
+        road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
         self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
         
         # other_info
@@ -60,6 +60,8 @@ class ExpertDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
+        idx1 = int(idx1)
+        idx2 = int(idx2)
         # row, column -> 
         batch = ()
         if self.num_timestep > 1:
