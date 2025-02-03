@@ -167,23 +167,32 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         # Aux head
         self.use_tom = use_tom
         if use_tom == 'aux_head':
-            self.aux_action_head = GMM(
-                network_type=self.__class__.__name__,
+            self.aux_speed_head = AuxHead(
                 input_dim=self.hidden_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
-                time_dim=self.ro_max
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=1
             )
-            self.aux_goal_head = GMM(
-                network_type=self.__class__.__name__,
+            
+            self.aux_pos_head = AuxHead(
                 input_dim=self.hidden_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=2,
-                n_components=head_config.n_components,
-                time_dim=self.ro_max
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=2
+            )
+            
+            self.aux_heading_head = AuxHead(
+                input_dim=self.hidden_dim,
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=1
+            )
+            
+            self.aux_action_head = AuxHead(
+                input_dim=self.hidden_dim,
+                head_config=head_config,
+                num_ro=self.ro_max,
+                aux_action_dim=3
             )
         elif use_tom == 'oracle':
             other_input_dim += 5 * 5
@@ -193,50 +202,46 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
         )
-        self.road_object_net = self._build_network(
+        self.road_object_net = self._build_partner_network(
             input_dim=other_input_dim,
         )
-        self.road_graph_net = self._build_network(
-            input_dim=self.rg_input_dim * num_stack,
+        self.road_graph_net = self._build_partner_network(
+            input_dim=self.rg_input_dim * num_stack, is_ro=False
         )
         
         # Attention
-        self.ro_attn = SelfAttentionBlock(
-            num_layers=3,
+        self.fusion_attn = SelfAttentionBlock(
+            num_layers=2,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
             num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
+            separate_attn_weights=False
         )
 
-        self.rg_attn = SelfAttentionBlock(
-            num_layers=3,
-            num_heads=4,
-            num_channels=net_config.network_dim,
-            num_qk_channels=net_config.network_dim,
-            num_v_channels=net_config.network_dim,
-        )
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers
+                head_config=head_config
             )
         elif loss == 'nll':
             self.head = DistHead(
                 input_dim=self.shared_net_input_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
+                head_config=head_config
             )
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
-                input_dim= 2 * 4 * net_config.network_dim + net_config.network_dim,
-                hidden_dim=head_config.head_dim,
-                hidden_num=head_config.head_num_layers,
-                action_dim=head_config.action_dim,
-                n_components=head_config.n_components,
+                input_dim= 2 * net_config.network_dim + net_config.network_dim,
+                head_config=head_config,
+                time_dim=1
+            )
+        elif loss == 'new_gmm':
+            self.head = NewGMM(
+                network_type=self.__class__.__name__,
+                input_dim= 2 * net_config.network_dim + net_config.network_dim,
+                head_config=head_config,
                 time_dim=1
             )
         else:
@@ -274,49 +279,85 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
         return ego_stack, ro_stack, rg_stack
     
-    def get_tom(self, road_objects, deterministic=False):
-        """Get the tom info from the context."""
-        other_actions = self.aux_action_head(road_objects, deterministic)
-        other_goals = self.aux_goal_head(road_objects, deterministic)
-        return other_actions, other_goals
+    def get_tsne(self, obs, mask, road_mask=None):
+        obs = obs.unsqueeze(0)
+        mask = mask.unsqueeze(0).bool()
+        road_mask = road_mask.unsqueeze(0).bool()
+        [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
+
+        ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
+        ego_state = self.ego_state_net(ego_state)
+        road_objects = self.road_object_net(road_objects)
+        road_graph = self.road_graph_net(road_graph)
+        
+        ego_mask = torch.zeros(1, 1, dtype=torch.bool).to(mask.device)
+        all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
+        for norm_layer in self.fusion_attn.modules():
+            if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
+                setattr(norm_layer, 'mask', all_mask)
+        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
+        all_attn = self.fusion_attn(all_objects, pad_mask=all_mask)
+
+        masked_road_objects = all_attn["last_hidden_state"][:,1: 1 + self.ro_max][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        return masked_road_objects
     
     def get_context(self, obs, masks=None, other_info=None):
         """Get the embedded observation."""
         batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
+
         if other_info != None:
             other_info = other_info.transpose(1, 2).reshape(batch, self.ro_max, -1)
             road_objects = torch.cat([road_objects, other_info], dim=-1)
+
+        [norm_layer.__setattr__('mask', ro_masks) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
+        [norm_layer.__setattr__('mask', rg_masks) for norm_layer in self.road_graph_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
+        road_graph = self.road_graph_net(road_graph)
         ego_masks = masks[0][:, -1]
         ro_masks = masks[1][:, -1]
         rg_masks = masks[2][:, -1]
-        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects], dim=1)
-        obj_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks], dim=-1)
-        objects_attn = self.ro_attn(all_objects, pad_mask=obj_masks)
-        
-        road_graph = self.road_graph_net(road_graph)
-        road_graph_attn = self.rg_attn(road_graph, pad_mask=rg_masks)
 
+        # Road object-map attention
+        all_objs_map = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
+        all_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks, rg_masks], dim=-1)
+        for norm_layer in self.fusion_attn.modules():
+            if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
+                setattr(norm_layer, 'mask', all_masks)
+        all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
+        objects_attn = all_attn['last_hidden_state'][:, 1:self.ro_max + 1]
+        road_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
+        max_indices_ro = torch.argmax(objects_attn.permute(0, 2, 1), dim=-1)
+        selected_mask_ro = torch.gather(ro_masks.squeeze(-1), 1, max_indices_ro)  # (B, D)
+        mask_zero_ratio_ro = (selected_mask_ro == 0).sum().item() / selected_mask_ro.numel()
+        
+        max_indices_rg = torch.argmax(road_attn.permute(0, 2, 1), dim=-1)
+        selected_mask_rg = torch.gather(rg_masks.squeeze(-1), 1, max_indices_rg)  # (B, D)
+        mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
+        mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
 
-        ro_pool_dim = int(self.ro_max / 4)
-        rg_pool_dim = int(self.rg_max / 4)
-        road_objects_avg = F.avg_pool1d(
-            objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=ro_pool_dim
+        objects_attn.masked_fill_(ro_masks.unsqueeze(-1), 0)
+        road_attn.masked_fill_(rg_masks.unsqueeze(-1), 0)
+        other_objects = objects_attn
+        other_weights = all_attn['ego_attn']
+
+        road_objects_max = F.max_pool1d(
+            objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
-        road_graph = F.avg_pool1d(
-            road_graph_attn['last_hidden_state'].permute(0, 2, 1), kernel_size=rg_pool_dim
+        road_graph = F.max_pool1d(
+            road_attn.permute(0, 2, 1), kernel_size=self.rg_max
         ).squeeze(-1)
-        road_objects_avg = road_objects_avg.reshape(batch, -1)
+
+        road_objects_max = road_objects_max.reshape(batch, -1)
         road_graph = road_graph.reshape(batch, -1)
-        embedding_vector = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects_avg, road_graph), dim=1)
+        embedding_vector = torch.cat((all_attn['last_hidden_state'][:, 0], road_objects_max, road_graph), dim=1)
         if self.use_tom == 'aux_head':
-            return embedding_vector, road_objects
+            return embedding_vector, mask_zero_ratio, other_objects, other_weights
         else:
-            return embedding_vector, None
+            return embedding_vector, mask_zero_ratio, None
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -324,6 +365,6 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, _  = self.get_context(obs, masks, other_info=other_info)
+        context, _, _  = self.get_context(obs, masks, other_info=other_info)
         actions = self.get_action(context, deterministic)
         return actions

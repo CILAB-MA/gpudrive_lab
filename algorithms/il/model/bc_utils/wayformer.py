@@ -265,6 +265,7 @@ class MultiHeadAttention(nn.Module):
                 attn = self.dropout(attn)
             else:
                 attn = attn.softmax(dim=-1) # torch.Size([512, 4, 328, 328])
+                ego_attn = attn[..., 0].detach().cpu() # valid only if attn of road objects
                 attn = self.dropout(attn)
 
             o_chunk = torch.einsum("b h i j, b h j c -> b h i c", attn, v_chunk)
@@ -274,7 +275,7 @@ class MultiHeadAttention(nn.Module):
         o = rearrange(o, "b h n c -> b n (h c)", h=self.num_heads)
         o = self.o_proj(o)
 
-        return ModuleOutput(last_hidden_state=o, kv_cache=kv_cache)
+        return ModuleOutput(last_hidden_state=o, kv_cache=kv_cache, ego_attn=ego_attn)
     
 class CrossAttention(nn.Module):
     def __init__(
@@ -405,7 +406,8 @@ class AbstractAttentionLayer(nn.Sequential):
     def forward(self, *args, kv_cache: Optional[KVCache] = None, **kwargs):
         attn_output = self[0](*args, kv_cache=kv_cache, **kwargs)
         mlp_output = self[1](attn_output.last_hidden_state)
-        return ModuleOutput(last_hidden_state=mlp_output.last_hidden_state, kv_cache=attn_output.kv_cache)
+        return ModuleOutput(last_hidden_state=mlp_output.last_hidden_state, kv_cache=attn_output.kv_cache,
+                            ego_attn=attn_output.ego_attn)
 
 
 class CrossAttentionLayer(AbstractAttentionLayer):
@@ -559,7 +561,7 @@ class SelfAttentionBlock(nn.Sequential):
             if kv_cache_updated is not None:
                 kv_cache_updated.append(output.kv_cache)
 
-        return ModuleOutput(last_hidden_state=x, kv_cache=kv_cache_updated)
+        return ModuleOutput(last_hidden_state=x, kv_cache=kv_cache_updated, ego_attn=output.ego_attn)
 
 
 class MLP(nn.Sequential):

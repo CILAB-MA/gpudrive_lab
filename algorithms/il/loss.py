@@ -4,7 +4,7 @@ from torch.distributions import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import numpy as np
 
-def l1_loss(model, context, expert_actions, masks=None, aux_head=None):
+def l1_loss(model, context, expert_actions, masks=None, attn_weights=None, aux_head=None):
     '''
     compute the l1 loss between the predicted and expert actions
     '''
@@ -32,7 +32,7 @@ def l1_loss(model, context, expert_actions, masks=None, aux_head=None):
     loss = F.smooth_l1_loss(pred_actions, expert_actions)
     return loss
 
-def mse_loss(model, context, expert_actions, masks=None, aux_head=None):
+def mse_loss(model, context, expert_actions, masks=None, attn_weights=None, aux_head=None):
     '''
     Compute the mean squared error loss between the predicted and expert actions
     '''
