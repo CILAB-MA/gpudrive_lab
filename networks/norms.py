@@ -79,19 +79,14 @@ class MaskedBatchNorm1d(nn.Module):
     def forward(self, x):   # x : (B, S, D)
         self._check_input_dim(x)
         
-        if self.training:
-            if self.mask.all():
-                masked_mean = self.running_mean
-                masked_var = self.running_var
-            else:
-                masked_mean = x[~self.mask].mean(dim=0) # (D)
-                masked_var = x[~self.mask].var(dim=0)   # (D)
-                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * masked_mean.detach()  # (D)
-                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * masked_var.detach() # (D)
-                
-        else:
+        if self.mask.all() or not self.training:
             masked_mean = self.running_mean # (D)
             masked_var = self.running_var # (D)
+        else:
+            masked_mean = x[~self.mask].mean(dim=0) # (D)
+            masked_var = x[~self.mask].var(dim=0)   # (D)
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * masked_mean.detach()  # (D)
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * masked_var.detach() # (D)
 
         x = (x - masked_mean) / torch.sqrt(masked_var + self.eps)
         x = x.masked_fill(self.mask.unsqueeze(-1), -1e9)
