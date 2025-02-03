@@ -26,11 +26,9 @@ class SetBatchNorm(nn.Module):
         self.mask = None
         torch.nn.init.constant_(self.weights, 1.)
         torch.nn.init.constant_(self.biases, 0.)
-        self.ln = nn.LayerNorm(feature_dim)  # Feature-wise LN
 
     def forward(self, x):   # (B, S, D)
         # Masked Batch Normalization
-        x = self.ln(x)
         alive_mask = (~self.mask).unsqueeze(-1)  # (B, S) -> (B, S, 1)
         valid_counts = alive_mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, 1, 1)
         batch_mask = valid_counts > 1   # (B, 1, 1)
