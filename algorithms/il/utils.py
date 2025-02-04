@@ -101,8 +101,7 @@ def visualize_embedding(
     tsne_indices,
     tsne_data_mask,
     tsne_partner_mask,
-    num_scenes,
-    num_points
+    num_scenes=10,
 ):
     filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).cpu().numpy()]
 
@@ -179,7 +178,7 @@ def visualize_embedding(
     scene_indices_2d = (
         torch.arange(num_scenes)
         .unsqueeze(1)
-        .expand(num_scenes, num_points)
+        .expand(num_scenes, 127)
         .to(tsne_partner_mask.device)
     )
     scene_indices_masked = scene_indices_2d[~tsne_partner_mask]
