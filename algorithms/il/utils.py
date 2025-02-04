@@ -94,7 +94,7 @@ def visualize_partner_obs_final(obs, partner_mask):
     plt.legend()
     return fig, valid_indices
 
-def visualize_embedding_subplots(
+def visualize_embedding(
     others_tsne,
     other_distance,
     other_speeds,
