@@ -290,6 +290,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
         masked_positions = road_objects[..., 1:3]
+        masked_speed = road_objects[..., 0]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
@@ -304,15 +305,22 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
         masked_road_objects = all_attn["last_hidden_state"][:,1: 1 + self.ro_max][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
+        masked_speed = masked_speed[~mask].view(-1, 1)
         masked_distances = masked_positions.norm(dim=-1)
         dist_min = masked_distances.min()
         dist_max = masked_distances.max()
         dist_range = dist_max - dist_min
+
+        speed_min = masked_speed.min()
+        speed_max = masked_speed.max()
+        speed_range = speed_max - speed_min
         if dist_range == 0:
             normalized_distances = torch.zeros_like(masked_distances)
+            normalized_speed = torch.zeros_like(masked_speed)
         else:
             normalized_distances = (masked_distances - dist_min) / dist_range
-        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy()
+            normalized_speed = (masked_speed - dist_min) / speed_range
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
     
     def get_context(self, obs, masks=None, other_info=None):
         """Get the embedded observation."""

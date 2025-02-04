@@ -131,13 +131,25 @@ class LateFusionBCNet(CustomLateFusionNet):
         return ego_stack, ro_stack, rg_stack
 
     def get_tsne(self, obs, mask, road_mask=None):
-        obs = obs.unsqueeze(0)
-        mask = mask.unsqueeze(0).bool()
+        if len(obs.shape) == 2:
+            obs = obs.unsqueeze(0)
+            mask = mask.unsqueeze(0)
+        mask = mask.bool()
         _, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        masked_positions = road_objects[..., 1:3]
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         road_objects = self.road_object_net(road_objects)
         masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
-        return masked_road_objects
+        masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
+        masked_distances = masked_positions.norm(dim=-1)
+        dist_min = masked_distances.min()
+        dist_max = masked_distances.max()
+        dist_range = dist_max - dist_min
+        if dist_range == 0:
+            normalized_distances = torch.zeros_like(masked_distances)
+        else:
+            normalized_distances = (masked_distances - dist_min) / dist_range
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy()
     
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
@@ -279,11 +291,15 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         return ego_stack, ro_stack, rg_stack
 
     def get_tsne(self, obs, mask, road_mask=None):
-        obs = obs.unsqueeze(0)
-        mask = mask.unsqueeze(0).bool()
+        if len(obs.shape) == 2:
+            obs = obs.unsqueeze(0)
+            mask = mask.unsqueeze(0)
+        mask = mask.bool()
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
 
         ego_state, road_objects, _ = self._unpack_obs(obs, self.num_stack)
+        masked_positions = road_objects[..., 1:3]
+        masked_speed = road_objects[..., 0]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         
@@ -296,7 +312,16 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         objects_attn = self.ro_attn(all_objects, pad_mask=all_mask)
 
         masked_road_objects = objects_attn["last_hidden_state"][:,1:][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
-        return masked_road_objects
+        masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
+        masked_distances = masked_positions.norm(dim=-1)
+        dist_min = masked_distances.min()
+        dist_max = masked_distances.max()
+        dist_range = dist_max - dist_min
+        if dist_range == 0:
+            normalized_distances = torch.zeros_like(masked_distances)
+        else:
+            normalized_distances = (masked_distances - dist_min) / dist_range
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy()
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
@@ -388,25 +413,25 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
             separate_attn_weights=False
         )
 
-        self.ro_attn = SelfAttentionBlock(
-            num_layers=1,
-            num_heads=4,
-            num_channels=net_config.network_dim,
-            num_qk_channels=net_config.network_dim,
-            num_v_channels=net_config.network_dim,
-            norm=net_config.norm,
-            separate_attn_weights=False
-        )
+        # self.ro_attn = SelfAttentionBlock(
+        #     num_layers=1,
+        #     num_heads=4,
+        #     num_channels=net_config.network_dim,
+        #     num_qk_channels=net_config.network_dim,
+        #     num_v_channels=net_config.network_dim,
+        #     norm=net_config.norm,
+        #     separate_attn_weights=False
+        # )
 
-        self.rg_attn = SelfAttentionBlock(
-            num_layers=1,
-            num_heads=4,
-            num_channels=net_config.network_dim,
-            num_qk_channels=net_config.network_dim,
-            num_v_channels=net_config.network_dim,
-            norm=net_config.norm,
-            separate_attn_weights=False
-        )
+        # self.rg_attn = SelfAttentionBlock(
+        #     num_layers=1,
+        #     num_heads=4,
+        #     num_channels=net_config.network_dim,
+        #     num_qk_channels=net_config.network_dim,
+        #     num_v_channels=net_config.network_dim,
+        #     norm=net_config.norm,
+        #     separate_attn_weights=False
+        # )
 
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
@@ -468,26 +493,47 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         return ego_stack, ro_stack, rg_stack
 
     def get_tsne(self, obs, mask, road_mask=None):
-        obs = obs.unsqueeze(0)
-        mask = mask.unsqueeze(0).bool()
-        road_mask = road_mask.unsqueeze(0).bool()
+        if len(obs.shape) == 2:
+            obs = obs.unsqueeze(0)
+            mask = mask.unsqueeze(0)
+            road_mask = road_mask.unsqueeze(0)
+        mask = mask.bool()
+        road_mask = road_mask.bool()
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
 
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
+        masked_positions = road_objects[..., 1:3]
+        masked_speed = road_objects[..., 0]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
         
-        ego_mask = torch.zeros(1, 1, dtype=torch.bool).to(mask.device)
+        ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
         all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_mask)
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
-        all_attn = self.fusion_attn(all_objects, pad_mask=all_mask)
+        all_attn  = self.fusion_attn(all_objects, pad_mask=all_mask)
 
         masked_road_objects = all_attn["last_hidden_state"][:,1: 1 + self.ro_max][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
-        return masked_road_objects
+        masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
+        masked_speed = masked_speed[~mask].view(-1, 1)
+        masked_distances = masked_positions.norm(dim=-1)
+        dist_min = masked_distances.min()
+        dist_max = masked_distances.max()
+        dist_range = dist_max - dist_min
+
+        speed_min = masked_speed.min()
+        speed_max = masked_speed.max()
+        speed_range = speed_max - speed_min
+        if dist_range == 0:
+            normalized_distances = torch.zeros_like(masked_distances)
+            normalized_speed = torch.zeros_like(masked_speed)
+        else:
+            normalized_distances = (masked_distances - dist_min) / dist_range
+            normalized_speed = (masked_speed - dist_min) / speed_range
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
