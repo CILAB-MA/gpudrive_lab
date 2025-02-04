@@ -561,15 +561,15 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
 
-        objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
+        # objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
+        # road_graph_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
+
+        # all_objects_attn = self.ro_attn(objects_attn)
+        # road_graph_attn = self.rg_attn(road_graph_attn)
+
+        ego_attn = all_attn['last_hidden_state'][:, 0]
+        objects_attn = all_attn['last_hidden_state'][:, 1: self.ro_max + 1]
         road_graph_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
-
-        all_objects_attn = self.ro_attn(objects_attn)
-        road_graph_attn = self.rg_attn(road_graph_attn)
-
-        ego_attn = all_objects_attn['last_hidden_state'][:, 0]
-        objects_attn = all_objects_attn['last_hidden_state'][:, 1:]
-        road_graph_attn = road_graph_attn['last_hidden_state']
 
         max_indices_ro = torch.argmax(objects_attn.permute(0, 2, 1), dim=-1)
         selected_mask_ro = torch.gather(ro_masks.squeeze(-1), 1, max_indices_ro)  # (B, D)

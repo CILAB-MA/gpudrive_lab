@@ -7,7 +7,7 @@ metric:
 parameters:
   # ARGS
   model_name:
-    values: ["aux_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+    values: ["aux_attn", "early_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
 
@@ -33,7 +33,7 @@ parameters:
   dropout:
     values: [0.0]
   norm:
-    values: ['LN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
+    values: ['SBN', 'LN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
   
   # HEADCONFIG
   head_dim:

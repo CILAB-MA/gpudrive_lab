@@ -18,7 +18,7 @@ def visualize_partner_obs_final(obs, partner_mask):
     """
     
     partner_obs = obs[-1][6 : 127 * 10 + 6].reshape(127, -1)
-    kMaxAgentCount, num_features = partner_obs.shape
+    _, num_features = partner_obs.shape
     assert num_features >= 6, "partner_obs feature count must be >= 6"
 
     speeds = partner_obs[:, 0]           # speed
