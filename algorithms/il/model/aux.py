@@ -287,14 +287,13 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         mask = mask.bool()
         road_mask = road_mask.bool()
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
-
+        [norm_layer.__setattr__('mask', road_mask) for norm_layer in self.road_graph_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
         masked_positions = road_objects[..., 1:3]
         masked_speed = road_objects[..., 0]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
-        
         ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
         all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():

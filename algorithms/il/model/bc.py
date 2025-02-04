@@ -500,7 +500,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         mask = mask.bool()
         road_mask = road_mask.bool()
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
-
+        [norm_layer.__setattr__('mask', road_mask) for norm_layer in self.road_graph_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
         masked_positions = road_objects[..., 1:3]
         masked_speed = road_objects[..., 0]

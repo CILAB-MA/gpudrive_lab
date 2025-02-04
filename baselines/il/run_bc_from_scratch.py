@@ -370,6 +370,8 @@ def train():
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
                     losses += action_loss.mean().item()
+            with torch.no_grad():
+                    others_tsne, other_distance, other_speeds = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
             if config.use_wandb:
                 with torch.no_grad():
                     others_tsne, other_distance, other_speeds = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
