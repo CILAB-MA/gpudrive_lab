@@ -372,41 +372,53 @@ def train():
             if config.use_wandb:
                 with torch.no_grad():
                     others_tsne, other_distance = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
+                    other_tsne_0 = others_tsne[:len(tsne_indices)]
+                    other_dist_0 = other_distance[:len(tsne_indices)]
                 tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
-                filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).detach().cpu().numpy()]
+                emb_tsne = tsne.fit_transform(other_tsne_0)
+                x, y = emb_tsne[:, 0], emb_tsne[:, 1]
+
+                filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).cpu().numpy()]
                 edge_colors = ['red' if val == 0 else 'blue' for val in filtered_tsne_mask]
-                emb_tsne = tsne.fit_transform(others_tsne)
-                x = emb_tsne[:, 0]
-                y = emb_tsne[:, 1]
+                edge_colors_0 = edge_colors[:len(tsne_indices)]
+
                 plt.figure(figsize=(6,6))
-                tsne_plot = plt.scatter(
-                    x,
-                    y,
+                tsne_plot_1 = plt.scatter(
+                    x, y,
+                    c=other_dist_0,
+                    alpha=0.8,
+                    edgecolors=edge_colors_0,
+                    s=100,
+                )
+                plt.colorbar(tsne_plot_1, label='Relative Distance of Partners')
+                for j in range(len(tsne_indices)):
+                    plt.text(
+                        x[j], y[j], str(tsne_indices[j]),
+                        fontsize=8,
+                        color="black",
+                        ha="center",
+                        va="center",
+                        bbox=dict(facecolor="white", alpha=0.1, edgecolor="none")
+                    )
+                plt.title("TSNE Visualization (First Scene)")
+                wandb.log({"embedding/tsne_scene0": wandb.Image(plt)}, step=epoch)
+                plt.close()
+
+                # Second figure with 10 scenes
+                tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
+                emb_tsne = tsne.fit_transform(others_tsne)
+                x, y = emb_tsne[:, 0], emb_tsne[:, 1]
+                plt.figure(figsize=(6,6))
+                tsne_plot_2 = plt.scatter(
+                    x, y,
                     c=other_distance,
                     alpha=0.8,
                     edgecolors=edge_colors,
-                    s=100,  # Increased marker size
+                    s=50,
                 )
-                plt.colorbar(tsne_plot, label='Relative Position')
-                # for j in range(len(tsne_indices)):
-                #     plt.text(
-                #         x[j], y[j], str(tsne_indices[j]),
-                #         fontsize=8,
-                #         color="black",
-                #         ha="center",
-                #         va="center",
-                #         bbox=dict(facecolor="white", alpha=0.5, edgecolor="none")
-                #     )
-                plt.title("TSNE Visualization")
-                wandb.log(
-                    {
-                        "eval/loss": losses / (i + 1) ,
-                        "eval/dx_loss": dx_losses / (i + 1),
-                        "eval/dy_loss": dy_losses / (i + 1),
-                        "eval/dyaw_loss": dyaw_losses / (i + 1),
-                        "embedding/tsne_plot": wandb.Image(plt),
-                    }, step=epoch
-                )
+                plt.colorbar(tsne_plot_2, label='Relative Distance of Partners')
+                plt.title("TSNE Visualization (10 Scenes)")
+                wandb.log({"embedding/tsne_all": wandb.Image(plt)}, step=epoch)
                 plt.close()
 
     # Save policy
