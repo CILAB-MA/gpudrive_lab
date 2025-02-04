@@ -21,7 +21,7 @@ import matplotlib.patches as mpatches
 from baselines.il.config import *
 from baselines.il.dataloader import ExpertDataset
 from algorithms.il import MODELS, LOSS
-from algorithms.il.utils import visualize_partner_obs_final
+from algorithms.il.utils import visualize_partner_obs_final ,visualize_embedding
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -45,8 +45,8 @@ def parse_args():
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v2')
-    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
-    parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_100.npz')
+    parser.add_argument('--eval-data-file', '-ed', type=str, default='train_trajectory_100.npz')
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
@@ -373,114 +373,9 @@ def train():
             if config.use_wandb:
                 with torch.no_grad():
                     others_tsne, other_distance = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
-                    other_tsne_0 = others_tsne[:len(tsne_indices)]
-                    other_dist_0 = other_distance[:len(tsne_indices)]
-                    # ---------------- 첫 번째 그림 (First Scene) ----------------
-                    tsne = TSNE(
-                        n_components=2,
-                        perplexity=30,
-                        learning_rate='auto',
-                        init='random',
-                        random_state=42
-                    )
-                    emb_tsne_0 = tsne.fit_transform(other_tsne_0)
-                    x_0, y_0 = emb_tsne_0[:, 0], emb_tsne_0[:, 1]
-
-                    filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).cpu().numpy()]
-                    mask_0 = filtered_tsne_mask[:len(tsne_indices)]
-
-                    # 가까울수록 진하게 = 거리 낮을 때 alpha 높음
-                    # alpha 범위 [0.5, 1.0]에서
-                    #   거리 min -> alpha = 1.0
-                    #   거리 max -> alpha = 0.5
-                    dist_min_0 = other_dist_0.min().item()
-                    dist_max_0 = other_dist_0.max().item()
-                    dist_range_0 = dist_max_0 - dist_min_0 if dist_max_0 > dist_min_0 else 1.0
-
-                    alpha_values_0 = 0.5 + (dist_max_0 - other_dist_0) / dist_range_0 * (1.0 - 0.5)
-
-                    face_colors_0 = []
-                    for m, d_alpha in zip(mask_0, alpha_values_0):
-                        if m == 0:
-                            # 빨강 (Moving)
-                            face_colors_0.append((1.0, 0.0, 0.0, d_alpha))
-                        else:
-                            # 파랑 (Static)
-                            face_colors_0.append((0.0, 0.0, 1.0, d_alpha))
-
-                    fig_0, ax_0 = plt.subplots(figsize=(6,6))
-                    sc_0 = ax_0.scatter(
-                        x_0, y_0,
-                        facecolors=face_colors_0,
-                        edgecolors="none",
-                        s=100
-                    )
-
-                    # 각 포인트 인덱스 표시
-                    for j in range(len(tsne_indices)):
-                        ax_0.text(
-                            x_0[j], y_0[j], str(tsne_indices[j]),
-                            fontsize=8,
-                            color="white",
-                            ha="center",
-                            va="center",
-                            bbox=dict(facecolor="white", alpha=0.1, edgecolor="none")
-                        )
-
-                    # 빨강/파랑 레이블
-                    legend_handles = [
-                        mpatches.Patch(color='red', label='Moving'),
-                        mpatches.Patch(color='blue', label='Static'),
-                    ]
-                    ax_0.legend(handles=legend_handles)
-
-                    ax_0.set_title("TSNE Visualization (First Scene)")
-                    wandb.log({"embedding/tsne_scene0": wandb.Image(fig_0)}, step=epoch)
-                    plt.close(fig_0)
-
-
-                    # ---------------- 두 번째 그림 (10 Scenes) ----------------
-                    tsne = TSNE(
-                        n_components=2,
-                        perplexity=30,
-                        learning_rate='auto',
-                        init='random',
-                        random_state=42
-                    )
-                    emb_tsne_all = tsne.fit_transform(others_tsne)
-                    x_all, y_all = emb_tsne_all[:, 0], emb_tsne_all[:, 1]
-
-                    dist_min_all = other_distance.min().item()
-                    dist_max_all = other_distance.max().item()
-                    dist_range_all = dist_max_all - dist_min_all if dist_max_all > dist_min_all else 1.0
-
-                    alpha_values_all = 0.5 + (dist_max_all - other_distance) / dist_range_all * (1.0 - 0.5)
-
-                    face_colors_all = []
-                    for m, d_alpha in zip(filtered_tsne_mask, alpha_values_all):
-                        if m == 0:
-                            face_colors_all.append((1.0, 0.0, 0.0, d_alpha))  # 빨강 (Moving)
-                        else:
-                            face_colors_all.append((0.0, 0.0, 1.0, d_alpha))  # 파랑 (Static)
-
-                    fig_all, ax_all = plt.subplots(figsize=(6,6))
-                    sc_all = ax_all.scatter(
-                        x_all, y_all,
-                        facecolors=face_colors_all,
-                        edgecolors="none",
-                        s=50
-                    )
-
-
-                    legend_handles_all = [
-                        mpatches.Patch(color='red', label='Moving'),
-                        mpatches.Patch(color='blue', label='Static'),
-                    ]
-                    ax_all.legend(handles=legend_handles_all)
-
-                    ax_all.set_title("TSNE Visualization (10 Scenes)")
-                    wandb.log({"embedding/tsne_all": wandb.Image(fig_all)}, step=epoch)
-                    plt.close(fig_all)
+                fig = visualize_embedding(others_tsne, other_distance, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
+                plt.close(fig)
                 wandb.log(
                     {
                         "eval/loss": losses / (i + 1) ,

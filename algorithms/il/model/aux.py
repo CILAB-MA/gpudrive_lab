@@ -305,7 +305,14 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         masked_road_objects = all_attn["last_hidden_state"][:,1: 1 + self.ro_max][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
         masked_distances = masked_positions.norm(dim=-1)
-        return masked_road_objects.detach().cpu().numpy(), masked_distances.detach().cpu().numpy()
+        dist_min = masked_distances.min()
+        dist_max = masked_distances.max()
+        dist_range = dist_max - dist_min
+        if dist_range == 0:
+            normalized_distances = torch.zeros_like(masked_distances)
+        else:
+            normalized_distances = (masked_distances - dist_min) / dist_range
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy()
     
     def get_context(self, obs, masks=None, other_info=None):
         """Get the embedded observation."""

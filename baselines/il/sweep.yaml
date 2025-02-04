@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: test_aux
+name: test_vis
 metric:
   goal: minimize
   name: eval/loss
