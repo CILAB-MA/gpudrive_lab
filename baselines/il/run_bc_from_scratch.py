@@ -44,7 +44,7 @@ def parse_args():
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v2')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     
     # EXPERIMENT
@@ -154,15 +154,14 @@ def train():
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
         eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
         
-    tsne_obs = train_expert_obs[0][0][2:7].copy()
-    tsne_data_mask = train_partner_mask[0][0][6].copy()
+    tsne_obs = train_expert_obs[0][:10, 2:7].copy()
+    tsne_data_mask = train_partner_mask[0][:10, 6].copy()
     tsne_partner_mask = np.where(tsne_data_mask == 2, 1, 0).astype('bool')
-    tsne_road_mask = train_road_mask[0][0][6].copy()
+    tsne_road_mask = train_road_mask[0][:10, 6].copy()
 
     # Training loop
-    raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_data_mask)
     if config.use_wandb:
-        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs, tsne_data_mask)
+        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs[0], tsne_data_mask[0])
         wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
         plt.close(raw_fig)
     tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
@@ -251,20 +250,22 @@ def train():
             road_masks = road_masks.to(config.device) if len(batch) > 3 else None
             other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
-            
             # Forward pass
             if config.use_tom == 'oracle':
-                context, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
+                context, all_ratio, _, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                partner_ratios += all_ratio[0]
+                road_ratios += all_ratio[1]
+                pred_loss = loss
             elif config.use_tom == 'aux_head':
                 context, all_ratio, other_embeds, other_weights = bc_policy.get_context(obs, all_masks[1:])
-                tom_speed_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 0], aux_mask, 
+                tom_speed_loss = LOSS['mse'](bc_policy, other_embeds[..., :32], other_info[..., 0], aux_mask, 
                                              attn_weights=other_weights[:, 0], aux_head='speed')
-                tom_pos_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,1:3], aux_mask, 
+                tom_pos_loss = LOSS['mse'](bc_policy, other_embeds[..., 32:64], other_info[...,1:3], aux_mask, 
                                            attn_weights=other_weights[:, 1],aux_head='pos')
-                tom_head_loss = LOSS['mse'](bc_policy, other_embeds, other_info[...,3], aux_mask,
+                tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
                                             attn_weights=other_weights[:, 2], aux_head='heading')
-                tom_act_loss = LOSS['mse'](bc_policy, other_embeds, other_info[..., 4:7], aux_mask,
+                tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
                                            attn_weights=other_weights[:, 3], aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += all_ratio[0]
@@ -298,7 +299,7 @@ def train():
                 dyaw_losses += dyaw_loss
                 
             losses += pred_loss.mean().item()
-            if 'aux' in config.model_name:
+            if config.use_tom == 'aux_head':
                 aux_a_losses += tom_act_loss.mean().item()
                 aux_p_losses += tom_pos_loss.mean().item()
                 aux_h_losses += tom_head_loss.mean().item()
@@ -370,31 +371,32 @@ def train():
                     losses += action_loss.mean().item()
             if config.use_wandb:
                 with torch.no_grad():
-                    others_tsne = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask).squeeze(0).detach().cpu().numpy()
+                    others_tsne, other_distance = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
                 tsne = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
                 filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).detach().cpu().numpy()]
-                colors = ['red' if val == 0 else 'blue' for val in filtered_tsne_mask]
+                edge_colors = ['red' if val == 0 else 'blue' for val in filtered_tsne_mask]
                 emb_tsne = tsne.fit_transform(others_tsne)
                 x = emb_tsne[:, 0]
                 y = emb_tsne[:, 1]
                 plt.figure(figsize=(6,6))
-                plt.scatter(
+                tsne_plot = plt.scatter(
                     x,
                     y,
-                    c=colors,
+                    c=other_distance,
                     alpha=0.8,
-                    edgecolors="k",
+                    edgecolors=edge_colors,
                     s=100,  # Increased marker size
                 )
-                for j in range(len(x)):
-                    plt.text(
-                        x[j], y[j], str(tsne_indices[j]),
-                        fontsize=8,
-                        color="black",
-                        ha="center",
-                        va="center",
-                        bbox=dict(facecolor="white", alpha=0.5, edgecolor="none")
-                    )
+                plt.colorbar(tsne_plot, label='Relative Position')
+                # for j in range(len(tsne_indices)):
+                #     plt.text(
+                #         x[j], y[j], str(tsne_indices[j]),
+                #         fontsize=8,
+                #         color="black",
+                #         ha="center",
+                #         va="center",
+                #         bbox=dict(facecolor="white", alpha=0.5, edgecolor="none")
+                #     )
                 plt.title("TSNE Visualization")
                 wandb.log(
                     {

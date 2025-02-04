@@ -54,7 +54,7 @@ def visualize_partner_obs_final(obs, partner_mask):
         width=0.002,
         headwidth=3,
         headlength=3,
-        label="Heading=0",
+        label="Moving",
     )
     plt.quiver(
         valid_positions[mask_1, 0],
@@ -68,7 +68,7 @@ def visualize_partner_obs_final(obs, partner_mask):
         width=0.002,
         headwidth=3,
         headlength=3,
-        label="Heading=1",
+        label="Static",
     )
 
     for i, (x, y) in enumerate(valid_positions):

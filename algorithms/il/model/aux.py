@@ -168,34 +168,34 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         self.use_tom = use_tom
         if use_tom == 'aux_head':
             self.aux_speed_head = AuxHead(
-                input_dim=self.hidden_dim,
+                input_dim=int(self.hidden_dim / 4),
                 head_config=head_config,
                 num_ro=self.ro_max,
                 aux_action_dim=1
             )
             
             self.aux_pos_head = AuxHead(
-                input_dim=self.hidden_dim,
+                input_dim=int(self.hidden_dim / 4),
                 head_config=head_config,
                 num_ro=self.ro_max,
                 aux_action_dim=2
             )
             
             self.aux_heading_head = AuxHead(
-                input_dim=self.hidden_dim,
+                input_dim=int(self.hidden_dim / 4),
                 head_config=head_config,
                 num_ro=self.ro_max,
                 aux_action_dim=1
             )
             
             self.aux_action_head = AuxHead(
-                input_dim=self.hidden_dim,
+                input_dim=int(self.hidden_dim / 4),
                 head_config=head_config,
                 num_ro=self.ro_max,
                 aux_action_dim=3
             )
         elif use_tom == 'oracle':
-            other_input_dim += 5 * 5
+            other_input_dim += 7
         else:
             raise ValueError(f'ToM method "{use_tom}" is not implemented yet!!')
         # Scene encoder
@@ -280,26 +280,32 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         return ego_stack, ro_stack, rg_stack
     
     def get_tsne(self, obs, mask, road_mask=None):
-        obs = obs.unsqueeze(0)
-        mask = mask.unsqueeze(0).bool()
-        road_mask = road_mask.unsqueeze(0).bool()
+        if len(obs.shape) == 2:
+            obs = obs.unsqueeze(0)
+            mask = mask.unsqueeze(0)
+            road_mask = road_mask.unsqueeze(0)
+        mask = mask.bool()
+        road_mask = road_mask.bool()
         [norm_layer.__setattr__('mask', mask) for norm_layer in self.road_object_net if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d)]
 
         ego_state, road_objects, road_graph = self._unpack_obs(obs, self.num_stack)
+        masked_positions = road_objects[..., 1:3]
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
         
-        ego_mask = torch.zeros(1, 1, dtype=torch.bool).to(mask.device)
+        ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
         all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_mask)
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
-        all_attn = self.fusion_attn(all_objects, pad_mask=all_mask)
+        all_attn  = self.fusion_attn(all_objects, pad_mask=all_mask)
 
         masked_road_objects = all_attn["last_hidden_state"][:,1: 1 + self.ro_max][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
-        return masked_road_objects
+        masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
+        masked_distances = masked_positions.norm(dim=-1)
+        return masked_road_objects.detach().cpu().numpy(), masked_distances.detach().cpu().numpy()
     
     def get_context(self, obs, masks=None, other_info=None):
         """Get the embedded observation."""
@@ -357,7 +363,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         if self.use_tom == 'aux_head':
             return embedding_vector, mask_zero_ratio, other_objects, other_weights
         else:
-            return embedding_vector, mask_zero_ratio, None
+            return embedding_vector, mask_zero_ratio, None, None
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
