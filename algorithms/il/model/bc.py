@@ -511,7 +511,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
         all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():
-            if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
+            if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_mask)
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
         all_attn  = self.fusion_attn(all_objects, pad_mask=all_mask)
@@ -554,7 +554,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         all_objs_map = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
         all_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks, rg_masks], dim=-1)
         for norm_layer in self.fusion_attn.modules():
-            if isinstance(norm_layer, SetBatchNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
+            if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_masks)
         all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
 

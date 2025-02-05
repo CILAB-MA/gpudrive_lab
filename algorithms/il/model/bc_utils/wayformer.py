@@ -360,7 +360,7 @@ class SelfAttention(nn.Module):
             "BN": CustomBatchNorm(seq_len=num_channels, feature_dim=num_channels),
             "MBN": MaskedBatchNorm1d(seq_len=num_channels, feature_dim=num_channels),
             "SN": SetNorm(num_channels, feature_dim=num_channels),
-            "SBN": SetBatchNorm(feature_dim=num_channels),
+            "SBN": CrossSetNorm(feature_dim=num_channels),
             "None": nn.Identity()
         }
         self.norm = norm_dict.get(norm, nn.LayerNorm(num_channels))
@@ -573,7 +573,7 @@ class MLP(nn.Sequential):
             "BN": CustomBatchNorm(seq_len=num_channels, feature_dim=num_channels),
             "MBN": MaskedBatchNorm1d(seq_len=num_channels, feature_dim=num_channels),
             "SN": SetNorm(num_channels, feature_dim=num_channels),
-            "SBN": SetBatchNorm(feature_dim=num_channels),
+            "SBN": CrossSetNorm(feature_dim=num_channels),
             "None": nn.Identity()
         }
         self.norm = norm_dict.get(norm, nn.LayerNorm(num_channels))

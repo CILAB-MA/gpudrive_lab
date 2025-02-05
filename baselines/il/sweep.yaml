@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: test_vis
+name: test_csn
 metric:
   goal: minimize
   name: eval/loss
@@ -33,7 +33,7 @@ parameters:
   dropout:
     values: [0.0]
   norm:
-    values: ['SBN', 'LN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
+    values: ['SBN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
   
   # HEADCONFIG
   head_dim:
