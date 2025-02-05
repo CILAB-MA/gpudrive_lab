@@ -59,10 +59,10 @@ class CrossSetNorm(nn.Module):
         torch.nn.init.constant_(self.biases_obj, 0.)
         torch.nn.init.constant_(self.weights_road, 1.)
         torch.nn.init.constant_(self.biases_road, 0.)
-        self.ln = nn.LayerNorm(feature_dim)
+        # self.ln = nn.LayerNorm(feature_dim)
     def forward(self, x):   # (B, S, D)
         # Masked Batch Normalization
-        x = self.ln(x)
+        # x = self.ln(x)
         object_alive_mask = (~self.mask[:, :self.ro_max + 1]).unsqueeze(-1)
         road_alive_mask = (~self.mask[:, self.ro_max + 1:]).unsqueeze(-1)
         object_valid_counts = object_alive_mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, 1, 1)
