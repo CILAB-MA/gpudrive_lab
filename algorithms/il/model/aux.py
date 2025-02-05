@@ -359,9 +359,9 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         selected_mask_rg = torch.gather(rg_masks.squeeze(-1), 1, max_indices_rg)  # (B, D)
         mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
         mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
-
-        objects_attn.masked_fill(ro_masks.unsqueeze(-1), 0)
-        road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), 0)
+        max_neg = -torch.finfo(objects_attn.dtype).max
+        objects_attn.masked_fill(ro_masks.unsqueeze(-1), max_neg)
+        road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), max_neg)
         other_objects = objects_attn
         other_weights = all_attn['ego_attn']
 

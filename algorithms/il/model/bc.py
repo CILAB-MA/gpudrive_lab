@@ -141,15 +141,23 @@ class LateFusionBCNet(CustomLateFusionNet):
         road_objects = self.road_object_net(road_objects)
         masked_road_objects = road_objects[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
+        masked_speed = road_objects[..., 0]
+        masked_speed = masked_speed[~mask].view(-1, 1)
         masked_distances = masked_positions.norm(dim=-1)
         dist_min = masked_distances.min()
         dist_max = masked_distances.max()
         dist_range = dist_max - dist_min
+
+        speed_min = masked_speed.min()
+        speed_max = masked_speed.max()
+        speed_range = speed_max - speed_min
         if dist_range == 0:
             normalized_distances = torch.zeros_like(masked_distances)
+            normalized_speed = torch.zeros_like(masked_speed)
         else:
             normalized_distances = (masked_distances - dist_min) / dist_range
-        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy()
+            normalized_speed = (masked_speed - dist_min) / speed_range
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
     
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
@@ -300,6 +308,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         ego_state, road_objects, _ = self._unpack_obs(obs, self.num_stack)
         masked_positions = road_objects[..., 1:3]
         masked_speed = road_objects[..., 0]
+        masked_speed = masked_speed[~mask].view(-1, 1)
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         
@@ -317,11 +326,17 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         dist_min = masked_distances.min()
         dist_max = masked_distances.max()
         dist_range = dist_max - dist_min
+
+        speed_min = masked_speed.min()
+        speed_max = masked_speed.max()
+        speed_range = speed_max - speed_min
         if dist_range == 0:
             normalized_distances = torch.zeros_like(masked_distances)
+            normalized_speed = torch.zeros_like(masked_speed)
         else:
             normalized_distances = (masked_distances - dist_min) / dist_range
-        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy()
+            normalized_speed = (masked_speed - dist_min) / speed_range
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
@@ -363,8 +378,9 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
         mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
 
-        objects_attn['last_hidden_state'][:, 1:].masked_fill(ro_masks.unsqueeze(-1), 0)
-        road_graph_attn['last_hidden_state'].masked_fill(rg_masks.unsqueeze(-1), 0)
+        max_neg = -torch.finfo(objects_attn.dtype).max
+        objects_attn.masked_fill(ro_masks.unsqueeze(-1), max_neg)
+        road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), max_neg)
 
         road_objects = F.max_pool1d(
             objects_attn['last_hidden_state'][:, 1:].permute(0, 2, 1), kernel_size=self.ro_max
@@ -580,8 +596,9 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
         mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
 
-        objects_attn.masked_fill(ro_masks.unsqueeze(-1), 0)
-        road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), 0)
+        max_neg = -torch.finfo(objects_attn.dtype).max
+        objects_attn.masked_fill(ro_masks.unsqueeze(-1), max_neg)
+        road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), max_neg)
 
         road_objects = F.max_pool1d(
             objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
