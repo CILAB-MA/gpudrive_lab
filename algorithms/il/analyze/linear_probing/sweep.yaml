@@ -1,0 +1,36 @@
+program: algorithms/il/analyze/linaer_probing/linear_prob.py
+method: grid
+name: linear_prob
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  # MODEL
+  model_path:
+    value: "/data/model"
+  model_name:
+    values: [""]
+
+  # DATA
+  data_path:
+    value: "/data/tom_v2"
+  train_data:
+    value: "train_trajectory_100.npz"
+  test_data:
+    value: "test_trajectory_200.npz"
+  rollout_len:
+    value: 5
+  pred_len:
+    value: 1
+
+  # EXPERIMENT
+  batch_size:
+    values: [512]
+  epochs:
+    values: [1]
+  lr:
+    values: [0.0005]
+  sample_per_epoch:
+    values: [438763]
+  seed:
+    values: [42]
