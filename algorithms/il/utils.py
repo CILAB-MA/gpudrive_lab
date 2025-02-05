@@ -18,7 +18,7 @@ def visualize_partner_obs_final(obs, partner_mask):
     """
     
     partner_obs = obs[-1][6 : 127 * 10 + 6].reshape(127, -1)
-    kMaxAgentCount, num_features = partner_obs.shape
+    _, num_features = partner_obs.shape
     assert num_features >= 6, "partner_obs feature count must be >= 6"
 
     speeds = partner_obs[:, 0]           # speed
@@ -97,55 +97,39 @@ def visualize_partner_obs_final(obs, partner_mask):
 def visualize_embedding(
     others_tsne,
     other_distance,
+    other_speeds,
     tsne_indices,
     tsne_data_mask,
     tsne_partner_mask,
-    num_scenes=10
+    num_scenes=10,
 ):
-    """
-    TSNE 시각화를 하나의 Figure 안 3개 Subplot으로 생성.
-    1) 첫 번째 Scene
-    2) 10 Scenes 전체
-    3) Scene 번호별 색상
-    """
-
-    # ---- 공통 준비 ----
     filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).cpu().numpy()]
-    other_tsne_0 = others_tsne[:len(tsne_indices)]
-    other_dist_0 = other_distance[:len(tsne_indices)]
 
-    # ---- Subplot 생성 ----
-    fig, (ax_0, ax_all, ax_scene) = plt.subplots(1, 3, figsize=(18, 6))
+    other_tsne_0 = others_tsne[: len(tsne_indices)]
+    # other_dist_0 = other_distance[: len(tsne_indices)]
 
-    # =============================================================================
-    # 1) 첫 번째 Scene 시각화 (ax_0)
-    # =============================================================================
+    fig, (ax_0, ax_all, ax_scene, ax_speed, ax_dist) = plt.subplots(1, 5, figsize=(30, 6))
+
     tsne_first = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
     emb_tsne_0 = tsne_first.fit_transform(other_tsne_0)
     x_0, y_0 = emb_tsne_0[:, 0], emb_tsne_0[:, 1]
 
-    mask_0 = filtered_tsne_mask[:len(tsne_indices)]
-
-    # 거리 -> alpha (0.5 ~ 1.0), 가까울수록 진하게
-    dist_min_0 = float(other_dist_0.min())
-    dist_max_0 = float(other_dist_0.max())
-    dist_range_0 = dist_max_0 - dist_min_0 if dist_max_0 > dist_min_0 else 1.0
-    alpha_values_0 = 0.5 + (dist_max_0 - other_dist_0) / dist_range_0 * 0.5
+    mask_0 = filtered_tsne_mask[: len(tsne_indices)]
 
     face_colors_0 = []
-    for m, d_alpha in zip(mask_0, alpha_values_0):
-        if m == 0:  # 빨강 (Moving)
-            face_colors_0.append((1.0, 0.0, 0.0, d_alpha))
-        else:       # 파랑 (Static)
-            face_colors_0.append((0.0, 0.0, 1.0, d_alpha))
+    for m in mask_0:
+        if m == 0:  # Moving
+            face_colors_0.append((1.0, 0.0, 0.0, 1.0))
+        else:       # Static
+            face_colors_0.append((0.0, 0.0, 1.0, 1.0))
 
-    sc_0 = ax_0.scatter(x_0, y_0, facecolors=face_colors_0, edgecolors="none", s=100)
-    # 인덱스 텍스트
+    ax_0.scatter(x_0, y_0, facecolors=face_colors_0, edgecolors="none", s=100)
+
     for j in range(len(tsne_indices)):
         ax_0.text(
             x_0[j], y_0[j], str(tsne_indices[j]),
             fontsize=8,
-            color="white",
+            color="black",
             ha="center",
             va="center",
             bbox=dict(facecolor="white", alpha=0.1, edgecolor="none")
@@ -158,64 +142,73 @@ def visualize_embedding(
     ax_0.legend(handles=legend_handles_0)
     ax_0.set_title("TSNE Visualization (First Scene)")
 
-    # =============================================================================
-    # 2) 전체 (10 Scenes) 시각화 (ax_all)
-    # =============================================================================
     tsne_all = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
     emb_tsne_all = tsne_all.fit_transform(others_tsne)
     x_all, y_all = emb_tsne_all[:, 0], emb_tsne_all[:, 1]
 
-    dist_min_all = float(other_distance.min())
-    dist_max_all = float(other_distance.max())
-    dist_range_all = dist_max_all - dist_min_all if dist_max_all > dist_min_all else 1.0
-    alpha_values_all = 0.5 + (dist_max_all - other_distance) / dist_range_all * 0.5
-
     face_colors_all = []
-    for m, d_alpha in zip(filtered_tsne_mask, alpha_values_all):
-        if m == 0:
-            face_colors_all.append((1.0, 0.0, 0.0, d_alpha))  # 빨강 (Moving)
-        else:
-            face_colors_all.append((0.0, 0.0, 1.0, d_alpha))  # 파랑 (Static)
+    for m in filtered_tsne_mask:
+        if m == 0:  # Moving
+            face_colors_all.append((1.0, 0.0, 0.0, 1.0))
+        else:       # Static
+            face_colors_all.append((0.0, 0.0, 1.0, 1.0))
 
-    sc_all = ax_all.scatter(x_all, y_all, facecolors=face_colors_all, edgecolors="none", s=50)
+    ax_all.scatter(x_all, y_all, facecolors=face_colors_all, edgecolors="none", s=50)
 
     legend_handles_all = [
         mpatches.Patch(color='red', label='Moving'),
         mpatches.Patch(color='blue', label='Static'),
     ]
     ax_all.legend(handles=legend_handles_all)
-    ax_all.set_title("TSNE Visualization (10 Scenes)")
+    ax_all.set_title("TSNE Visualization (All Scenes)")
 
-    # =============================================================================
-    # 3) Scene 번호별 색상 (ax_scene)
-    # =============================================================================
-    # Scene 인덱스 2D 생성
     scene_indices_2d = (
         torch.arange(num_scenes)
-        .unsqueeze(1)                 # (num_scenes, 1)
+        .unsqueeze(1)
         .expand(num_scenes, 127)
-    ).to(tsne_partner_mask.device)
+        .to(tsne_partner_mask.device)
+    )
+    scene_indices_masked = scene_indices_2d[~tsne_partner_mask]
 
-    # mask 적용
-    scene_indices_masked = scene_indices_2d[~tsne_partner_mask]  # (sum_of_false_in_mask, )
-
-    # scene_indices_masked가 x_all, y_all의 길이와 동일해야 함
     unique_scenes = torch.unique(scene_indices_masked).cpu().numpy()
-    cmap = plt.cm.get_cmap('tab10', len(unique_scenes))  # Scene 갯수만큼 색상
+    cmap_scene = plt.cm.get_cmap('tab10', len(unique_scenes))
 
-    face_colors_scene = []
-    for scene_idx in scene_indices_masked:
-        face_colors_scene.append(cmap(scene_idx.item()))  # RGBA
+    face_colors_scene = [cmap_scene(idx.item()) for idx in scene_indices_masked]
 
-    sc_scene = ax_scene.scatter(x_all, y_all, facecolors=face_colors_scene, edgecolors="none", s=50)
+    ax_scene.scatter(x_all, y_all, facecolors=face_colors_scene, edgecolors="none", s=50)
 
-    # Scene 번호별 범례
     legend_handles_scene = []
     for s in unique_scenes:
-        color_i = cmap(s)
+        color_i = cmap_scene(s)
         legend_handles_scene.append(
             mpatches.Patch(color=color_i, label=f'Scene {s}')
         )
     ax_scene.legend(handles=legend_handles_scene)
     ax_scene.set_title("TSNE Visualization (Colored by Scene)")
+
+    sc_speed = ax_speed.scatter(
+        x_all,
+        y_all,
+        c=other_speeds,
+        cmap="viridis",
+        edgecolors="none",
+        s=50
+    )
+    cbar_speed = fig.colorbar(sc_speed, ax=ax_speed)
+    cbar_speed.set_label("Speed")
+    ax_speed.set_title("TSNE Visualization (By Speed)")
+
+    sc_dist = ax_dist.scatter(
+        x_all,
+        y_all,
+        c=other_distance,
+        cmap="viridis",
+        edgecolors="none",
+        s=50
+    )
+    cbar_dist = fig.colorbar(sc_dist, ax=ax_dist)
+    cbar_dist.set_label("Distance")
+    ax_dist.set_title("TSNE Visualization (By Distance)")
+
+    plt.tight_layout()
     return fig
