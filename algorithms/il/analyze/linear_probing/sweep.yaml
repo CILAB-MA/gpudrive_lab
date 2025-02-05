@@ -27,7 +27,7 @@ parameters:
   batch_size:
     values: [512]
   epochs:
-    values: [1]
+    values: [500]
   lr:
     values: [0.0005]
   sample_per_epoch:
