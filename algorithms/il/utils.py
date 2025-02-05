@@ -105,29 +105,23 @@ def visualize_embedding(
 ):
     filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).cpu().numpy()]
 
-    other_tsne_0 = others_tsne[:len(tsne_indices)]
-    other_dist_0 = other_distance[:len(tsne_indices)]
+    other_tsne_0 = others_tsne[: len(tsne_indices)]
+    # other_dist_0 = other_distance[: len(tsne_indices)]
 
-    fig, (ax_0, ax_all, ax_scene, ax_speed) = plt.subplots(1, 4, figsize=(24, 6))
+    fig, (ax_0, ax_all, ax_scene, ax_speed, ax_dist) = plt.subplots(1, 5, figsize=(30, 6))
 
-    # First Scene visualization
     tsne_first = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
     emb_tsne_0 = tsne_first.fit_transform(other_tsne_0)
     x_0, y_0 = emb_tsne_0[:, 0], emb_tsne_0[:, 1]
 
-    mask_0 = filtered_tsne_mask[:len(tsne_indices)]
-
-    dist_min_0 = float(other_dist_0.min())
-    dist_max_0 = float(other_dist_0.max())
-    dist_range_0 = dist_max_0 - dist_min_0 if dist_max_0 > dist_min_0 else 1.0
-    alpha_values_0 = 0.3 + (dist_max_0 - other_dist_0) / dist_range_0 * 0.3
+    mask_0 = filtered_tsne_mask[: len(tsne_indices)]
 
     face_colors_0 = []
-    for m, d_alpha in zip(mask_0, alpha_values_0):
+    for m in mask_0:
         if m == 0:  # Moving
-            face_colors_0.append((1.0, 0.0, 0.0, d_alpha))
+            face_colors_0.append((1.0, 0.0, 0.0, 1.0))
         else:       # Static
-            face_colors_0.append((0.0, 0.0, 1.0, d_alpha))
+            face_colors_0.append((0.0, 0.0, 1.0, 1.0))
 
     ax_0.scatter(x_0, y_0, facecolors=face_colors_0, edgecolors="none", s=100)
 
@@ -148,22 +142,16 @@ def visualize_embedding(
     ax_0.legend(handles=legend_handles_0)
     ax_0.set_title("TSNE Visualization (First Scene)")
 
-    # Move/Static colored
     tsne_all = TSNE(n_components=2, perplexity=30, learning_rate='auto', init='random', random_state=42)
     emb_tsne_all = tsne_all.fit_transform(others_tsne)
     x_all, y_all = emb_tsne_all[:, 0], emb_tsne_all[:, 1]
 
-    dist_min_all = float(other_distance.min())
-    dist_max_all = float(other_distance.max())
-    dist_range_all = dist_max_all - dist_min_all if dist_max_all > dist_min_all else 1.0
-    alpha_values_all = 0.3 + (dist_max_all - other_distance) / dist_range_all * 0.3
-
     face_colors_all = []
-    for m, d_alpha in zip(filtered_tsne_mask, alpha_values_all):
+    for m in filtered_tsne_mask:
         if m == 0:  # Moving
-            face_colors_all.append((1.0, 0.0, 0.0, d_alpha))
+            face_colors_all.append((1.0, 0.0, 0.0, 1.0))
         else:       # Static
-            face_colors_all.append((0.0, 0.0, 1.0, d_alpha))
+            face_colors_all.append((0.0, 0.0, 1.0, 1.0))
 
     ax_all.scatter(x_all, y_all, facecolors=face_colors_all, edgecolors="none", s=50)
 
@@ -172,9 +160,8 @@ def visualize_embedding(
         mpatches.Patch(color='blue', label='Static'),
     ]
     ax_all.legend(handles=legend_handles_all)
-    ax_all.set_title("TSNE Visualization (10 Scenes)")
+    ax_all.set_title("TSNE Visualization (All Scenes)")
 
-    # Scene scatter plot
     scene_indices_2d = (
         torch.arange(num_scenes)
         .unsqueeze(1)
@@ -186,9 +173,7 @@ def visualize_embedding(
     unique_scenes = torch.unique(scene_indices_masked).cpu().numpy()
     cmap_scene = plt.cm.get_cmap('tab10', len(unique_scenes))
 
-    face_colors_scene = []
-    for scene_idx in scene_indices_masked:
-        face_colors_scene.append(cmap_scene(scene_idx.item()))
+    face_colors_scene = [cmap_scene(idx.item()) for idx in scene_indices_masked]
 
     ax_scene.scatter(x_all, y_all, facecolors=face_colors_scene, edgecolors="none", s=50)
 
@@ -201,7 +186,6 @@ def visualize_embedding(
     ax_scene.legend(handles=legend_handles_scene)
     ax_scene.set_title("TSNE Visualization (Colored by Scene)")
 
-    # Speed scatter plot
     sc_speed = ax_speed.scatter(
         x_all,
         y_all,
@@ -213,5 +197,18 @@ def visualize_embedding(
     cbar_speed = fig.colorbar(sc_speed, ax=ax_speed)
     cbar_speed.set_label("Speed")
     ax_speed.set_title("TSNE Visualization (By Speed)")
+
+    sc_dist = ax_dist.scatter(
+        x_all,
+        y_all,
+        c=other_distance,
+        cmap="viridis",
+        edgecolors="none",
+        s=50
+    )
+    cbar_dist = fig.colorbar(sc_dist, ax=ax_dist)
+    cbar_dist.set_label("Distance")
+    ax_dist.set_title("TSNE Visualization (By Distance)")
+
     plt.tight_layout()
     return fig
