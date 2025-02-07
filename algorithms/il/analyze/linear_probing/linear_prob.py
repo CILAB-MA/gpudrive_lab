@@ -7,9 +7,10 @@ from torch.utils.data import DataLoader
 import os, sys, torch
 torch.backends.cudnn.benchmark = True
 sys.path.append(os.getcwd())
-import wandb, yaml, argparse
+import wandb, yaml, argparse, functools
 from tqdm import tqdm
 from datetime import datetime
+from collections import OrderedDict
 import matplotlib
 matplotlib.use('Agg')
 
@@ -66,6 +67,26 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
 
     return dataloader
 
+def register_all_layers_forward_hook(model):
+    hidden_vector_dict = OrderedDict()
+
+    def hook_fn(module, input, output, name):
+        try:
+            hidden_vector_dict[name] = output.detach()
+        except AttributeError:
+            hidden_vector_dict[name] = output['last_hidden_state'].detach()
+
+    def _register(module, prefix=""):
+        for name, layer in module.named_children():
+            full_name = f"{prefix}.{name}" if prefix else name
+            layer.register_forward_hook(functools.partial(hook_fn, name=full_name))
+
+            _register(layer, full_name)
+
+    _register(model)
+
+    return hidden_vector_dict
+
 def train():
     if args.use_wandb:
         wandb.init()
@@ -92,6 +113,7 @@ def train():
     backbone = torch.load(f"{config.model_path}/{config.model_name}.pth")
     backbone.eval()
     print(backbone)
+    hidden_vector_dict = register_all_layers_forward_hook(backbone)
     linear_model_action = LinearProbAction(backbone.head.input_layer[0].in_features, 127).to("cuda")
     linear_model_pos = LinearProbPosition(backbone.head.input_layer[0].in_features, 127).to("cuda")
     linear_model_angle = LinearProbAngle(backbone.head.input_layer[0].in_features, 127).to("cuda")
