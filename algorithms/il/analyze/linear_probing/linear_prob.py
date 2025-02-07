@@ -14,7 +14,7 @@ import matplotlib
 matplotlib.use('Agg')
 
 # GPUDrive
-from baselines.il.dataloader import ExpertDataset
+from algorithms.il.analyze.linear_probing.dataloader import ExpertDataset
 from algorithms.il.analyze.linear_probing.config import ExperimentConfig
 from algorithms.il.analyze.linear_probing.model import *
 
@@ -55,7 +55,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     dataloader = DataLoader(
         ExpertDataset(
             expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
+            rollout_len=config.rollout_len, pred_len=config.pred_len
         ),
         batch_size=config.batch_size,
         shuffle=isshuffle,
