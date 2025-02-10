@@ -273,6 +273,22 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
                 "Expert footprint rendering is only supported in Pygame absolute mode."
             )
 
+    def save_attention_object(self, road_object, road_graph):
+        if not self.render_config.draw_ego_attention:
+            return None
+
+        if self.render_config.render_mode in {
+            RenderMode.PYGAME_ABSOLUTE,
+        }:
+            return self.visualizer.saveAttentionObjects(
+                road_object=road_object,
+                road_graph=road_graph
+            )
+        else:
+            raise ValueError(
+                "Attention objects rendering is only supported in Pygame absolute mode."
+            )
+
     def reinit_scenarios(self, dataset: List[str]):
         """Resample the scenes.
         Args:

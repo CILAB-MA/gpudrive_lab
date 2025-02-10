@@ -806,3 +806,6 @@ class PyGameVisualizer:
                 
                 if self.render_config.draw_only_ego_footprint:
                     break
+
+    def saveAttentionObjects(self, road_object, road_graph):
+        pass

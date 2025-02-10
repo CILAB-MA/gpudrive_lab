@@ -9,11 +9,11 @@ import argparse
 from datetime import datetime
 
 # GPUDrive
+from algorithms.il.test import ATTEN_REGISTRY as ATTEN
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.config import DynamicsModel, ActionSpace
 from algorithms.il.model.bc import *
 from pygpudrive.registration import make
-
 
 
 def parse_args():
@@ -22,9 +22,9 @@ def parse_args():
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
-    parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
+    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm_all_data_20250202_0215')
+    parser.add_argument('--model-name', '-m', type=str, default='early_attn_gmm_SBN_500_20250208_1946')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Configurations
-    NUM_WORLDS = 50
+    NUM_WORLDS = 1
     NUM_PARTNER = 128
     MAX_NUM_OBJECTS = 1
     ROLLOUT_LEN = 5
@@ -120,9 +120,17 @@ if __name__ == "__main__":
             other_info = None
             
         with torch.no_grad():
+            context, max_indices_ro, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs, all_masks[1:], other_info=other_info))
+            actions = bc_policy.get_action(context, deterministic=True)
             actions = bc_policy(obs[~dead_agent_mask], masks=all_masks, other_info=other_info, deterministic=True)
             actions = actions.squeeze(1)
         all_actions[~dead_agent_mask, :] = actions
+
+        if args.make_video:
+            env.save_attention_object(max_indices_ro, max_indices_rg)
+            for world_render_idx in range(NUM_WORLDS):
+                frame = env.render(world_render_idx=world_render_idx)
+                frames[world_render_idx].append(frame)
 
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
@@ -132,10 +140,6 @@ if __name__ == "__main__":
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()
-        if args.make_video:
-            for world_render_idx in range(NUM_WORLDS):
-                frame = env.render(world_render_idx=world_render_idx)
-                frames[world_render_idx].append(frame)
 
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
