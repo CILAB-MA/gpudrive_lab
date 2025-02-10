@@ -194,7 +194,7 @@ class LateFusionBCNet(CustomLateFusionNet):
         ).squeeze(-1)
 
         context = torch.cat((ego_state, road_objects, road_graph), dim=1)
-        return context, mask_zero_ratio
+        return context, mask_zero_ratio, max_indices_ro, max_indices_rg
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -202,7 +202,7 @@ class LateFusionBCNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, _ = self.get_context(obs, masks)
+        context, *_ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
 
         return actions
@@ -391,7 +391,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
         road_objects = road_objects.reshape(batch, -1)
         road_graph = road_graph.reshape(batch, -1)
         context = torch.cat((objects_attn['last_hidden_state'][:, 0], road_objects, road_graph), dim=1)
-        return context, mask_zero_ratio
+        return context, mask_zero_ratio, max_indices_ro, max_indices_rg
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -399,7 +399,7 @@ class LateFusionAttnBCNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, _ = self.get_context(obs, masks)
+        context, *_ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
         return actions
 
@@ -609,7 +609,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         road_objects = road_objects.reshape(batch, -1)
         road_graph = road_graph.reshape(batch, -1)
         context = torch.cat((ego_attn, road_objects, road_graph), dim=1)
-        return context, mask_zero_ratio
+        return context, mask_zero_ratio, max_indices_ro, max_indices_rg
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -617,7 +617,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, _ = self.get_context(obs, masks)
+        context, *_ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
         return actions
     

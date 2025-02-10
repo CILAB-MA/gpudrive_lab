@@ -146,7 +146,7 @@ class LateFusionAuxNet(CustomLateFusionNet):
         ).squeeze(-1)
 
         context = torch.cat((ego_state, max_road_objects, road_graph), dim=1)
-        return context, mask_zero_ratio, road_objects
+        return context, mask_zero_ratio, road_objects, max_indices_ro, max_indices_rg
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -154,7 +154,7 @@ class LateFusionAuxNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, _, _ = self.get_context(obs, masks)
+        context, *_ = self.get_context(obs, masks)
         actions = self.get_action(context, deterministic)
 
         return actions
@@ -376,9 +376,9 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         road_graph = road_graph.reshape(batch, -1)
         context = torch.cat((ego_attn, road_objects_max, road_graph), dim=1)
         if self.use_tom == 'aux_head':
-            return context, mask_zero_ratio, other_objects, other_weights
+            return context, mask_zero_ratio, other_objects, other_weights, max_indices_ro, max_indices_rg
         else:
-            return context, mask_zero_ratio, None, None
+            return context, mask_zero_ratio, None, None, max_indices_ro, max_indices_rg
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
@@ -386,6 +386,6 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
     def forward(self, obs, masks=None, other_info=None, attn_weights=False, deterministic=False):
         """Generate an actions by end-to-end network."""
-        context, _, _, _  = self.get_context(obs, masks, other_info=other_info)
+        context, *_  = self.get_context(obs, masks, other_info=other_info)
         actions = self.get_action(context, deterministic)
         return actions

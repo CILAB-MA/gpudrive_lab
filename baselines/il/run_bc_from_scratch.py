@@ -253,13 +253,13 @@ def train():
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             # Forward pass
             if config.use_tom == 'oracle':
-                context, all_ratio, _, _ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
+                context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += all_ratio[0]
                 road_ratios += all_ratio[1]
                 pred_loss = loss
             elif config.use_tom == 'aux_head':
-                context, all_ratio, other_embeds, other_weights = bc_policy.get_context(obs, all_masks[1:])
+                context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
                 tom_speed_loss = LOSS['mse'](bc_policy, other_embeds[..., :32], other_info[..., 0], aux_mask, 
                                              attn_weights=other_weights[:, 0], aux_head='speed')
                 tom_pos_loss = LOSS['mse'](bc_policy, other_embeds[..., 32:64], other_info[...,1:3], aux_mask, 
@@ -273,7 +273,7 @@ def train():
                 road_ratios += all_ratio[1]
                 loss = pred_loss + 0.5 * (tom_act_loss + tom_pos_loss + tom_head_loss + tom_speed_loss)
             else:
-                context, all_ratio = bc_policy.get_context(obs, all_masks[1:])
+                context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += all_ratio[0]
                 road_ratios += all_ratio[1]
