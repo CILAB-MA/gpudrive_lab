@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/eat100to1000')
     parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm_all_data_20250202_0215')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
@@ -123,11 +123,11 @@ if __name__ == "__main__":
             actions = bc_policy(obs[~dead_agent_mask], masks=all_masks, other_info=other_info, deterministic=True)
             actions = actions.squeeze(1)
         all_actions[~dead_agent_mask, :] = actions
-
+        print('Timestep', time_step, obs[~dead_agent_mask].sum(), actions.sum())
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
         
-        print(f'TIME {time_step} LOSS: {loss.mean(0)}')
+        # print(f'TIME {time_step} LOSS: {loss.mean(0)}')
 
         obs = env.get_obs()
         dones = env.get_dones()

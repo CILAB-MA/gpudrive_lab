@@ -9,7 +9,7 @@ parameters:
   model_path:
     value: "/data/model"
   model_name:
-    values: [""]
+    values: ["late_fusion_gmm_train_100_20250205_0806"]
 
   # DATA
   data_path:

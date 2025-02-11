@@ -10,7 +10,7 @@ logging.getLogger(__name__)
 def arg_parse():
     parser = argparse.ArgumentParser()
     # MODEL
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/eat100to1000')
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=1)
     return parser.parse_args()
