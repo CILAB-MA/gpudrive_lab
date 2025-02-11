@@ -234,9 +234,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         if self.num_stack > 1:
             if reset:
                 stacked_prev_obs = torch.zeros_like(torch.cat([obs_filtered for _ in range(self.num_stack - 1)],dim=-1))
-                self.stacked_control_mask = torch.zeros_like(torch.cat([self.get_controlled_agents_mask() for _ in range(self.num_stack - 1)],dim=-1))
-                self.stacked_partner_mask = torch.zeros_like(torch.cat([self.get_partner_mask() for _ in range(self.num_stack - 1)],dim=-1))
-                self.stacked_road_mask = torch.zeros_like(torch.cat([self.get_road_mask() for _ in range(self.num_stack - 1)],dim=-1))
+                stacked_prev_cont_mask = torch.zeros_like(torch.cat([self.get_controlled_agents_mask() for _ in range(self.num_stack - 1)],dim=-1))
+                stacked_prev_partner_mask = torch.zeros_like(torch.cat([self.get_partner_mask() for _ in range(self.num_stack - 1)],dim=-1))
+                stacked_prev_road_mask = torch.zeros_like(torch.cat([self.get_road_mask() for _ in range(self.num_stack - 1)],dim=-1))
             else:
                 stacked_prev_obs = self.stacked_obs[..., obs_filtered.shape[-1]:]
                 stacked_prev_cont_mask = self.stacked_control_mask[..., self.get_controlled_agents_mask().shape[-1]:]
