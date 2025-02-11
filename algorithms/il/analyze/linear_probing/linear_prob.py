@@ -26,13 +26,13 @@ logger.setLevel(logging.INFO)
 def compute_correlation_scatter(dist, coll, y):
     data = np.vstack([dist, coll, y])
     corr_matrix = np.corrcoef(data)
-    df_corr = pd.DataFrame(corr_matrix, index=['x1', 'x2', 'y'], columns=['x1', 'x2', 'y'])
+    df_corr = pd.DataFrame(corr_matrix, index=['Current Distance', 'Distance Difference', 'y'], columns=['dist', 'Distance Difference', 'y'])
 
     fig, ax = plt.subplots(figsize=(8, 6))
     scatter = ax.scatter(dist, coll, c=y, cmap='viridis', edgecolor='k', alpha=0.75)
     plt.colorbar(scatter, label="Loss Value")
     ax.set_xlabel("Current Distance")
-    ax.set_ylabel("Collision Risk")
+    ax.set_ylabel("Distance Difference")
     ax.set_title("Evaluation of Collision Risk")
     ax.grid(True)
 
@@ -225,7 +225,7 @@ def train():
             )
         
         # Evaluation loop
-        if epoch % 5 == 0:
+        if epoch % 2 == 0:
             linear_model_action.eval()
             # linear_model_pos.eval()
             # linear_model_angle.eval()

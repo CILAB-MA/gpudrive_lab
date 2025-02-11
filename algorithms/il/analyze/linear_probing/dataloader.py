@@ -85,7 +85,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name in ['other_info']:
-                        data = self.__dict__[var_name][idx1, idx2:idx2 + 1] # idx 0 -> (0, 0:6) -> start with first timestep
+                        data = self.__dict__[var_name][idx1, idx2 + 4:idx2 + 5] # idx 0 -> (0, 0:6) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
                     else:

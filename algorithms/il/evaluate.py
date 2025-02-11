@@ -123,7 +123,7 @@ if __name__ == "__main__":
             actions = bc_policy(obs[~dead_agent_mask], masks=all_masks, other_info=other_info, deterministic=True)
             actions = actions.squeeze(1)
         all_actions[~dead_agent_mask, :] = actions
-        print('Timestep', time_step, obs[~dead_agent_mask].sum(), actions.sum())
+        # print('Timestep', time_step, obs[~dead_agent_mask].sum(), actions.sum())
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
         

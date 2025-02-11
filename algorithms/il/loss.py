@@ -53,9 +53,10 @@ def mse_loss(model, context, expert_actions, masks=None, attn_weights=None, aux_
     else:
         pred_actions = model.get_action(context)
     
-    pred_actions = pred_actions[partner_masks]
-    expert_actions = expert_actions[partner_masks]
-    masked_weights = attn_weights[partner_masks]
+    attn_weights_scaled = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
+    pred_actions = pred_actions[~partner_masks]
+    expert_actions = expert_actions[~partner_masks]
+    masked_weights = attn_weights_scaled[~partner_masks]
     if pred_actions.shape[-1] == 1:
         expert_actions = expert_actions.unsqueeze(-1)
     loss = F.mse_loss(pred_actions, expert_actions, reduction='none')

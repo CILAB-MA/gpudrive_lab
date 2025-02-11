@@ -46,7 +46,7 @@ def parse_args():
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v2')
     parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_100.npz')
-    parser.add_argument('--eval-data-file', '-ed', type=str, default='train_trajectory_100.npz')
+    parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
@@ -223,10 +223,6 @@ def train():
         dx_losses = 0
         dy_losses = 0
         dyaw_losses = 0
-        aux_a_losses = 0
-        aux_p_losses = 0
-        aux_s_losses = 0
-        aux_h_losses = 0
         max_norms = 0
         max_names = []
         partner_ratios = 0
@@ -271,7 +267,7 @@ def train():
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += all_ratio[0]
                 road_ratios += all_ratio[1]
-                loss = pred_loss + 0.5 * (tom_act_loss + tom_pos_loss + tom_head_loss + tom_speed_loss)
+                loss = pred_loss + 0.2 * (tom_act_loss + tom_pos_loss + tom_head_loss + tom_speed_loss)
             else:
                 context, all_ratio = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
@@ -300,11 +296,6 @@ def train():
                 dyaw_losses += dyaw_loss
                 
             losses += pred_loss.mean().item()
-            if config.use_tom == 'aux_head':
-                aux_a_losses += tom_act_loss.mean().item()
-                aux_p_losses += tom_pos_loss.mean().item()
-                aux_h_losses += tom_head_loss.mean().item()
-                aux_s_losses += tom_speed_loss.mean().item()
         
         if config.use_wandb:
             log_dict = {   
@@ -319,14 +310,6 @@ def train():
                     "gmm/median_component_probs": np.median(component_probs),
                     "gmm/min_component_probs": min(component_probs),
                 }
-            if 'aux' in config.model_name:
-                aux_dict = {
-                    "aux/action_loss": aux_a_losses / (i + 1),
-                    "aux/speed_loss": aux_s_losses / (i + 1),
-                    "aux/heading_loss": aux_h_losses / (i + 1),
-                    "aux/position_loss": aux_p_losses / (i + 1),
-                }
-                log_dict.update(aux_dict)
             wandb.log(log_dict, step=epoch)
         
         # Evaluation loop
@@ -337,6 +320,12 @@ def train():
             dx_losses = 0
             dy_losses = 0
             dyaw_losses = 0
+            aux_a_losses = 0
+            aux_p_losses = 0
+            aux_s_losses = 0
+            aux_h_losses = 0
+            partner_ratios = 0
+            road_ratios = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
@@ -358,10 +347,25 @@ def train():
                 road_masks = road_masks.to(config.device) if len(batch) > 3 else None
                 other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
                 all_masks= [masks, ego_masks, partner_masks, road_masks]
-                if config.use_tom != 'oracle':
+                if config.use_tom == None:
                     other_info = None
                 with torch.no_grad():
-                    pred_actions = bc_policy(obs, all_masks[1:], other_info=other_info, deterministic=True)
+                    if config.use_tom == 'aux_head':
+                        context, all_ratio, other_embeds, other_weights = bc_policy.get_context(obs, all_masks[1:])
+                        tom_speed_loss = LOSS['mse'](bc_policy, other_embeds[..., :32], other_info[..., 0], aux_mask, 
+                                             attn_weights=other_weights[:, 0], aux_head='speed')
+                        tom_pos_loss = LOSS['mse'](bc_policy, other_embeds[..., 32:64], other_info[...,1:3], aux_mask, 
+                                                attn_weights=other_weights[:, 1],aux_head='pos')
+                        tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
+                                                    attn_weights=other_weights[:, 2], aux_head='heading')
+                        tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
+                                                attn_weights=other_weights[:, 3], aux_head='action')
+                    else:
+                        context, all_ratio = bc_policy.get_context(obs, all_masks[1:])
+                    partner_ratios += all_ratio[0]
+                    road_ratios += all_ratio[1]
+                    loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                    pred_actions = bc_policy.get_action(context, deterministic=True)
                     action_loss = torch.abs(pred_actions - expert_action)
                     dx_loss = action_loss[..., 0].mean().item()
                     dy_loss = action_loss[..., 1].mean().item()
@@ -369,23 +373,35 @@ def train():
                     dx_losses += dx_loss
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
-                    losses += action_loss.mean().item()
-            with torch.no_grad():
-                    others_tsne, other_distance, other_speeds = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
+                    losses += loss.mean().item()
+                    if config.use_tom == 'aux_head':
+                        aux_a_losses += tom_act_loss.mean().item()
+                        aux_p_losses += tom_pos_loss.mean().item()
+                        aux_h_losses += tom_head_loss.mean().item()
+                        aux_s_losses += tom_speed_loss.mean().item()
             if config.use_wandb:
                 with torch.no_grad():
-                    others_tsne, other_distance, other_speeds = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
-                fig = visualize_embedding(others_tsne, other_distance, other_speeds, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                    others_tsne, other_distance, other_speed = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
+                fig = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
                 wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
                 plt.close(fig)
-                wandb.log(
-                    {
+                log_dict = {
                         "eval/loss": losses / (i + 1) ,
                         "eval/dx_loss": dx_losses / (i + 1),
                         "eval/dy_loss": dy_losses / (i + 1),
                         "eval/dyaw_loss": dyaw_losses / (i + 1),
-                    }, step=epoch
-                )
+                        "eval/max_partner_ratio": partner_ratios / (i + 1),
+                        "eval/max_road_ratio": road_ratios / (i + 1),
+                    }
+                if 'aux' in config.model_name:
+                    aux_dict = {
+                        "aux/action_loss": aux_a_losses / (i + 1),
+                        "aux/speed_loss": aux_s_losses / (i + 1),
+                        "aux/heading_loss": aux_h_losses / (i + 1),
+                        "aux/position_loss": aux_p_losses / (i + 1),
+                    }
+                    log_dict.update(aux_dict)
+                wandb.log(log_dict, step=epoch)
 
     # Save policy
     if not os.path.exists(config.model_path):

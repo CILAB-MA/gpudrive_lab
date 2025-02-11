@@ -1,13 +1,13 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: test_csn
+name: eval_aux_task
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # ARGS
   model_name:
-    values: ["aux_attn", "early_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+    values: ["aux_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
 
@@ -33,7 +33,7 @@ parameters:
   dropout:
     values: [0.0]
   norm:
-    values: ['SBN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
+    values: ['LN'] # ['LN', 'BN', 'MBN', 'SN', 'SBN', 'None']
   
   # HEADCONFIG
   head_dim:
