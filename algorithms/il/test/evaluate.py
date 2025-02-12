@@ -23,8 +23,8 @@ def parse_args():
     parser.add_argument('--num-world', '-w', type=int, default=10)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/eat100to1000')
-    parser.add_argument('--model-name', '-m', type=str, default='early_attn_gmm_SBN_500_20250208_1946')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/')
+    parser.add_argument('--model-name', '-m', type=str, default='aux_attn_gmm_aux_eval_log_20250211_2030')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
@@ -76,7 +76,7 @@ if __name__ == "__main__":
         "num_stack": args.num_stack
     }
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
-
+    print(f'model: {args.model_path}/{args.model_name}.pth', )
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}.pth").to(args.device)
     bc_policy.eval()
 
@@ -197,12 +197,12 @@ if __name__ == "__main__":
         video_path = os.path.join(args.video_path, args.dataset, args.model_name)
         if not os.path.exists(video_path):
             os.makedirs(video_path)
-        for world_render_idx in range(args.start_idx, NUM_WORLDS + args.start_idx):
+        for world_render_idx in range(NUM_WORLDS):
             if world_render_idx in torch.where(veh_collision >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=30)
             elif world_render_idx in torch.where(off_road >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=30)
             elif world_render_idx in torch.where(goal_achieved >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=30)
             else:
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=30)

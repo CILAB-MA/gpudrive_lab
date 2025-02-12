@@ -376,11 +376,11 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         road_graph = road_graph.reshape(batch, -1)
         context = torch.cat((ego_attn, road_objects_max, road_graph), dim=1)
         
-        ego_attn_score = objects_attn['ego_attn'].clone()
-        ego_attn_score = ego_attn_score.mean(dim=1)
+        ego_attn_score = other_weights.clone()
+        ego_attn_score = ego_attn_score[:, 0]
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
         
-        if self.use_tom == 'aux_head':
+        if self.use_tom == 'aux_head': 
             return context, mask_zero_ratio, other_objects, other_weights, ego_attn_score, None
         else:
             return context, mask_zero_ratio, None, None, ego_attn_score, None

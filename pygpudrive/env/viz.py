@@ -819,7 +819,11 @@ class PyGameVisualizer:
         # Get Observation
         ego_attn_score = self.ego_attn_score[world_render_idx]
         max_attn_score = ego_attn_score.max()
-        min_attn_score = ego_attn_score.min()
+        nonzero_scores = ego_attn_score[ego_attn_score > 0]
+        if nonzero_scores.numel() > 0:
+            min_attn_score = nonzero_scores.min()
+        else:
+            min_attn_score = ego_attn_score.min()
         ego_attn_score = (ego_attn_score - min_attn_score) / (max_attn_score - min_attn_score + 1e-6)
         ego_attn_score = ego_attn_score.cpu().numpy()
         partner_ids = np.where(ego_attn_score > 0)[0]
@@ -867,7 +871,7 @@ class PyGameVisualizer:
         font = pygame.font.SysFont(None, 20)
         small_font = pygame.font.SysFont(None, 16)
         pygame.draw.rect(self.surf, (0, 0, 0), (*colorbar_position, width, height), 2)
-        
+
         title_text = font.render("Attention Weight", True, (0, 0, 0))
         title_x = colorbar_position[0] + width // 2 - title_text.get_width() // 2
         title_y = colorbar_position[1] - 25
