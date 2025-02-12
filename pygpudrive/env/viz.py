@@ -848,9 +848,9 @@ class PyGameVisualizer:
             pygame.gfxdraw.aapolygon(self.surf, agent_corners, color)
             pygame.gfxdraw.filled_polygon(self.surf, agent_corners, color)
 
-            self.draw_colorbar()
+            self.draw_colorbar(min_attn_score.cpu().numpy(), max_attn_score.cpu().numpy())
 
-    def draw_colorbar(self):
+    def draw_colorbar(self, min_val, max_val):
         width, height = 300, 30
         colorbar_surface = pygame.Surface((width, height))
 
@@ -861,13 +861,18 @@ class PyGameVisualizer:
         pygame.surfarray.blit_array(colorbar_surface, colorbar_image.swapaxes(0, 1))
 
         screen_width, screen_height = self.surf.get_size()
-        colorbar_position = (screen_width - width - 20, screen_height - height - 20)
+        colorbar_position = (screen_width - width - 20 - 20, screen_height - height - 20 - 20)
 
         self.surf.blit(colorbar_surface, colorbar_position)
-
-        font = pygame.font.SysFont(None, 16)
-        min_text = font.render("Low", True, (0, 0, 0))
-        max_text = font.render("High", True, (0, 0, 0))
-
-        self.surf.blit(min_text, (colorbar_position[0] - 30, colorbar_position[1] + 5))
-        self.surf.blit(max_text, (colorbar_position[0] + width + 5, colorbar_position[1] + 5))
+        font = pygame.font.SysFont(None, 20)
+        small_font = pygame.font.SysFont(None, 16)
+        pygame.draw.rect(self.surf, (0, 0, 0), (*colorbar_position, width, height), 2)
+        
+        title_text = font.render("Attention Weight", True, (0, 0, 0))
+        title_x = colorbar_position[0] + width // 2 - title_text.get_width() // 2
+        title_y = colorbar_position[1] - 25
+        self.surf.blit(title_text, (title_x, title_y))
+        min_text = small_font.render(f"{float(min_val):.3f}", True, (0, 0, 0))
+        max_text = small_font.render(f"{float(max_val):.3f}", True, (0, 0, 0))
+        self.surf.blit(min_text, (colorbar_position[0] - 40, colorbar_position[1] + height // 2 - min_text.get_height() // 2))
+        self.surf.blit(max_text, (colorbar_position[0] + width + 10, colorbar_position[1] + height // 2 - max_text.get_height() // 2))
