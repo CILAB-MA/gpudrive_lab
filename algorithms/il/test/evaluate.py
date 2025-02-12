@@ -8,7 +8,7 @@ sys.path.append(os.getcwd())
 import argparse
 
 # GPUDrive
-from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
+from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig, SelectionDiscipline
 from pygpudrive.env.config import DynamicsModel, ActionSpace
 from algorithms.il.model.bc import *
 from pygpudrive.registration import make
@@ -19,9 +19,11 @@ def parse_args():
     # ENV
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
+    parser.add_argument('--start-idx', '-st', type=int, default=0)
+    parser.add_argument('--num-world', '-w', type=int, default=10)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/eat100to1000')
     parser.add_argument('--model-name', '-m', type=str, default='early_attn_gmm_SBN_500_20250208_1946')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
@@ -38,14 +40,17 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Configurations
-    NUM_WORLDS = 50
+    NUM_WORLDS = args.num_world
     NUM_PARTNER = 128
     MAX_NUM_OBJECTS = 1
     ROLLOUT_LEN = 5
 
     # Initialize configurations
+    print(args.start_idx)
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
-                               NUM_WORLDS,)
+                               num_scenes=NUM_WORLDS,
+                               start_idx=args.start_idx,
+                               discipline=SelectionDiscipline.RANGE_N)
     
     env_config = EnvConfig(
         dynamics_model="delta_local",
