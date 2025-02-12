@@ -6,10 +6,8 @@ import os, sys
 import numpy as np
 sys.path.append(os.getcwd())
 import argparse
-from datetime import datetime
 
 # GPUDrive
-from algorithms.il.test import ATTEN_REGISTRY as ATTEN
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
 from pygpudrive.env.config import DynamicsModel, ActionSpace
 from algorithms.il.model.bc import *
@@ -40,7 +38,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Configurations
-    NUM_WORLDS = 1
+    NUM_WORLDS = 50
     NUM_PARTNER = 128
     MAX_NUM_OBJECTS = 1
     ROLLOUT_LEN = 5
@@ -61,6 +59,7 @@ if __name__ == "__main__":
         draw_obj_idx=True,
         draw_expert_footprint=True,
         draw_only_ego_footprint=True,
+        draw_ego_attention=True,
     )
     # Initialize environment
     kwargs={
@@ -120,14 +119,39 @@ if __name__ == "__main__":
             other_info = None
             
         with torch.no_grad():
-            context, max_indices_ro, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs, all_masks[1:], other_info=other_info))
+            try:
+                context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs[~dead_agent_mask], all_masks, other_info=other_info))
+            except TypeError:
+                context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs[~dead_agent_mask], all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
-            actions = bc_policy(obs[~dead_agent_mask], masks=all_masks, other_info=other_info, deterministic=True)
             actions = actions.squeeze(1)
         all_actions[~dead_agent_mask, :] = actions
 
         if args.make_video:
-            env.save_attention_object(max_indices_ro, max_indices_rg)
+            if render_config.draw_ego_attention:
+                # Save ego attention score
+                partner_idx = env.partner_id[~dead_agent_mask].clone()
+                ego_attn_score = ego_attn_score
+                
+                def fill_tensor(id_tensor, attn_weight, partner_mask):
+                    n, _ = id_tensor.shape
+                    filled_tensor = torch.zeros((n, 128)).to(args.device)
+
+                    row_indices = torch.arange(n).unsqueeze(1).expand_as(id_tensor).to(args.device)
+                    valid_rows = row_indices[~partner_mask]
+                    valid_cols = id_tensor[~partner_mask].int()
+                    valid_values = attn_weight[~partner_mask]
+
+                    filled_tensor[valid_rows, valid_cols] = valid_values
+                    
+                    return filled_tensor
+                
+                viz_ego_attn = fill_tensor(partner_idx, ego_attn_score, partner_mask_bool[:,:,-1,:][~dead_agent_mask])
+                real_viz_ego_attn = torch.zeros(NUM_WORLDS, NUM_PARTNER).to(args.device)
+                real_viz_ego_attn[(~dead_agent_mask).sum(dim=-1) == 1] = viz_ego_attn
+
+                env.save_ego_attn_score(real_viz_ego_attn)
+
             for world_render_idx in range(NUM_WORLDS):
                 frame = env.render(world_render_idx=world_render_idx)
                 frames[world_render_idx].append(frame)
