@@ -3,6 +3,7 @@ import pygame.gfxdraw
 import numpy as np
 import math
 import gpudrive
+import matplotlib.cm as cm
 
 from pygpudrive.env.config import MadronaOption, PygameOption, RenderMode
 
@@ -590,7 +591,7 @@ class PyGameVisualizer:
                 else:
                     mod_idx = agent_idx % len(self.COLOR_LIST)
 
-                color = self.COLOR_LIST[mod_idx]
+                color = self.COLOR_LIST[mod_idx] if not self.render_config.draw_ego_attention else (128, 128, 128)
 
                 info_tensor = self.sim.info_tensor().to_torch()[
                     world_render_idx
@@ -666,7 +667,8 @@ class PyGameVisualizer:
                         * self.zoom_scales_x[world_render_idx],
                         color,
                     )
-
+            self.draw_attention(agent_info, world_render_idx, agent_response_types) if self.render_config.draw_ego_attention else None
+            
             if self.render_config.view_option == PygameOption.HUMAN:
                 pygame.event.pump()
                 self.clock.tick(self.metadata["render_fps"])
@@ -806,3 +808,66 @@ class PyGameVisualizer:
                 
                 if self.render_config.draw_only_ego_footprint:
                     break
+
+    def saveEgoAttnScore(self, ego_attn_score):
+        setattr(self, "ego_attn_score", ego_attn_score)
+
+    def draw_attention(self, agent_info, world_render_idx, agent_response_types):
+        if (agent_response_types == 0).sum() == 0:
+            return
+
+        # Get Observation
+        ego_attn_score = self.ego_attn_score[world_render_idx]
+        max_attn_score = ego_attn_score.max()
+        min_attn_score = ego_attn_score.min()
+        ego_attn_score = (ego_attn_score - min_attn_score) / (max_attn_score - min_attn_score + 1e-6)
+        ego_attn_score = ego_attn_score.cpu().numpy()
+        partner_ids = np.where(ego_attn_score > 0)[0]
+
+        for partner_id in partner_ids:
+            pos = agent_info[partner_id, :2]
+            sizes = agent_info[partner_id, 10:12]
+            rot = agent_info[partner_id, 7]
+
+            agent_corners = PyGameVisualizer.compute_agent_corners(
+                pos,
+                sizes[1],
+                sizes[0],
+                rot,
+            )
+
+            for i, agent_corner in enumerate(agent_corners):
+                    agent_corners[i] = self.scale_coords(
+                        agent_corner, world_render_idx
+                    )
+
+            attention_strength = ego_attn_score[partner_id]
+            viridis_color = cm.viridis(attention_strength)
+            color = tuple(int(c * 255) for c in viridis_color[:3])
+
+            pygame.gfxdraw.aapolygon(self.surf, agent_corners, color)
+            pygame.gfxdraw.filled_polygon(self.surf, agent_corners, color)
+
+            self.draw_colorbar()
+
+    def draw_colorbar(self):
+        width, height = 300, 30
+        colorbar_surface = pygame.Surface((width, height))
+
+        colorbar_array = np.linspace(0, 1, width).reshape(1, width)
+        colorbar_image = cm.viridis(colorbar_array)[:, :, :3]
+        colorbar_image = (colorbar_image * 255).astype(np.uint8)
+
+        pygame.surfarray.blit_array(colorbar_surface, colorbar_image.swapaxes(0, 1))
+
+        screen_width, screen_height = self.surf.get_size()
+        colorbar_position = (screen_width - width - 20, screen_height - height - 20)
+
+        self.surf.blit(colorbar_surface, colorbar_position)
+
+        font = pygame.font.SysFont(None, 16)
+        min_text = font.render("Low", True, (0, 0, 0))
+        max_text = font.render("High", True, (0, 0, 0))
+
+        self.surf.blit(min_text, (colorbar_position[0] - 30, colorbar_position[1] + 5))
+        self.surf.blit(max_text, (colorbar_position[0] + width + 5, colorbar_position[1] + 5))

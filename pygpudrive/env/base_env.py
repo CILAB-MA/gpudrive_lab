@@ -273,6 +273,25 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
                 "Expert footprint rendering is only supported in Pygame absolute mode."
             )
 
+    def save_ego_attn_score(self, ego_attn_score):
+        """Saves the attention scores of ego agent.
+        Args:
+            ego_attn_score: Attention scores of ego agent.
+        """
+        if not self.render_config.draw_ego_attention:
+            return None
+
+        if self.render_config.render_mode in {
+            RenderMode.PYGAME_ABSOLUTE,
+        }:
+            return self.visualizer.saveEgoAttnScore(
+                ego_attn_score=ego_attn_score,
+            )
+        else:
+            raise ValueError(
+                "Attention objects rendering is only supported in Pygame absolute mode."
+            )
+
     def reinit_scenarios(self, dataset: List[str]):
         """Resample the scenes.
         Args:

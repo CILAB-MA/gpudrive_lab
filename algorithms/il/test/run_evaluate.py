@@ -25,7 +25,7 @@ if __name__ == "__main__":
         for dataset in ['train', 'valid']:
             print("model: ", model)
             
-            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/evaluate.py -mc -mv -m {model} --dataset {dataset}"
+            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/test/evaluate.py -mc -mv -m {model} --dataset {dataset}"
             
             result = subprocess.run(command, shell=True)
             

@@ -195,6 +195,9 @@ class RenderConfig:
         draw_obj_idx (bool): Whether to draw object indices on objects.
         obj_idx_font_size (int): Font size for object indices.
         color_scheme (str): Color mode for the rendering ("light" or "dark").
+        draw_expert_footprint (bool): Whether to draw expert trajectories.
+        draw_only_ego_footprint (bool): Whether to draw only ego vehicle footprint.
+        draw_ego_attention (bool): Whether to draw ego vehicle attention.
     """
 
     render_mode: RenderMode = RenderMode.PYGAME_ABSOLUTE
@@ -206,6 +209,7 @@ class RenderConfig:
     color_scheme: str = "light"
     draw_expert_footprint: bool = False
     draw_only_ego_footprint: bool = False
+    draw_ego_attention: bool = False
 
     def __str__(self) -> str:
         """Returns a string representation of the rendering configuration."""
