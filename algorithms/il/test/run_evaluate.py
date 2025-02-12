@@ -10,7 +10,7 @@ logging.getLogger(__name__)
 def arg_parse():
     parser = argparse.ArgumentParser()
     # MODEL
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/eat100to1000')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=1)
     return parser.parse_args()
@@ -25,7 +25,7 @@ if __name__ == "__main__":
         for dataset in ['train', 'valid']:
             print("model: ", model)
             
-            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/evaluate.py -mc -mv -m {model} --dataset {dataset}"
+            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/test/evaluate.py -mc -mv -m {model} --dataset {dataset}"
             
             result = subprocess.run(command, shell=True)
             

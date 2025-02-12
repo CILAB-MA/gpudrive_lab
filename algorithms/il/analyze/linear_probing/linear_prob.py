@@ -15,6 +15,7 @@ import matplotlib
 matplotlib.use('Agg')
 import pandas as pd
 import matplotlib.pyplot as plt
+import statsmodels.api as sm
 # GPUDrive
 from algorithms.il.analyze.linear_probing.dataloader import ExpertDataset
 from algorithms.il.analyze.linear_probing.config import ExperimentConfig
@@ -23,13 +24,20 @@ from algorithms.il.analyze.linear_probing.model import *
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-def compute_correlation_scatter(dist, coll, y):
-    data = np.vstack([dist, coll, y])
+def compute_correlation_scatter(dist, coll, loss):
+    data = np.vstack([dist, coll, loss])
     corr_matrix = np.corrcoef(data)
-    df_corr = pd.DataFrame(corr_matrix, index=['Current Distance', 'Distance Difference', 'y'], columns=['dist', 'Distance Difference', 'y'])
-
+    df_corr = pd.DataFrame(corr_matrix, index=['Current Distance', 'Distance Difference', 'Loss'], 
+                           columns=['Current Distance', 'Distance Difference', 'Loss'])
+    x = np.column_stack((dist, coll))
+    x = sm.add_constant(x)
+    model = sm.OLS(loss, x).fit()
+    print(model.summary())
+    r_squared = model.rsquared
+    multiple_correlation = np.sqrt(r_squared)
+    print(f"Multiple Correlation Coefficient (R): {multiple_correlation:.4f}")
     fig, ax = plt.subplots(figsize=(8, 6))
-    scatter = ax.scatter(dist, coll, c=y, cmap='viridis', edgecolor='k', alpha=0.75)
+    scatter = ax.scatter(dist, coll, c=loss, cmap='viridis', edgecolor='none', alpha=0.7)
     plt.colorbar(scatter, label="Loss Value")
     ax.set_xlabel("Current Distance")
     ax.set_ylabel("Distance Difference")
@@ -283,13 +291,23 @@ def train():
 
                     action_losses += action_loss.mean().item()
                     action_corr = action_loss.detach().mean(-1).cpu().numpy()
+                    action_corr = np.clip(action_corr, 0, 0.005)
                     maksed_collision_risk = maksed_collision_risk.detach().cpu().numpy()
+                    mask1 = action_corr <= 0.005
+                    mask2 = maksed_collision_risk[:, 1] != 0 
+                    mask3 = maksed_collision_risk[:, 0] <= 0.5
+                    final_mask = mask1 & mask2 & mask3
+                    filtered_action_corr = action_corr[final_mask]
+                    filtered_collision_risk_0 = maksed_collision_risk[:, 0][final_mask]
+                    filtered_collision_risk_1 = maksed_collision_risk[:, 1][final_mask]
+
                     # pos_losses += pos_loss.item()
                     # angle_losses += angle_loss.item()
                     # speed_losses += speed_loss.item()
-            corr, fig = compute_correlation_scatter(maksed_collision_risk[:500, 0], 
-                            maksed_collision_risk[:500, 1],
-                            action_corr[:500])
+            corr, fig = compute_correlation_scatter(
+                        filtered_collision_risk_0, 
+                        filtered_collision_risk_1, 
+                        filtered_action_corr)
             print(corr)
             if config.use_wandb:
                 wandb.log(
@@ -299,7 +317,6 @@ def train():
                         # "eval/angle_loss": angle_losses / (i + 1),
                         # "eval/speed_loss": speed_losses / (i + 1),
                         "eval/loss_dist":wandb.Image(fig),
-                        "eval/corr_table":wandb.Table(dataframe=corr),
                     }, step=epoch
                 )
     

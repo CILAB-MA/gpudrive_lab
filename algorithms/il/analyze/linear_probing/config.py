@@ -4,7 +4,7 @@ from dataclasses import dataclass
 class ExperimentConfig:
     # MODEL
     model_path: str = "/data/model"
-    model_name: str = "late_fusion_gmm_train_100_20250205_0806"
+    model_name: str = "early_attn_gmm_LN_100_20250208_0357"
     
     # DATA
     data_path: str = "/data/tom_v2"

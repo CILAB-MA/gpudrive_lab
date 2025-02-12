@@ -6,7 +6,6 @@ import os, sys
 import numpy as np
 sys.path.append(os.getcwd())
 import argparse
-from datetime import datetime
 
 # GPUDrive
 from pygpudrive.env.config import EnvConfig, RenderConfig, SceneConfig
@@ -15,16 +14,15 @@ from algorithms.il.model.bc import *
 from pygpudrive.registration import make
 
 
-
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     # ENV
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     # EXPERIMENT
-    parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/eat100to1000')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion_gmm_all_data_20250202_0215')
+    parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
+    parser.add_argument('--model-name', '-m', type=str, default='early_attn_gmm_SBN_500_20250208_1946')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
@@ -61,6 +59,7 @@ if __name__ == "__main__":
         draw_obj_idx=True,
         draw_expert_footprint=True,
         draw_only_ego_footprint=True,
+        draw_ego_attention=True,
     )
     # Initialize environment
     kwargs={
@@ -120,22 +119,51 @@ if __name__ == "__main__":
             other_info = None
             
         with torch.no_grad():
-            actions = bc_policy(obs[~dead_agent_mask], masks=all_masks, other_info=other_info, deterministic=True)
+            try:
+                context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs[~dead_agent_mask], all_masks, other_info=other_info))
+            except TypeError:
+                context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs[~dead_agent_mask], all_masks))
+            actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
         all_actions[~dead_agent_mask, :] = actions
-        # print('Timestep', time_step, obs[~dead_agent_mask].sum(), actions.sum())
+
+        if args.make_video:
+            if render_config.draw_ego_attention:
+                # Save ego attention score
+                partner_idx = env.partner_id[~dead_agent_mask].clone()
+                ego_attn_score = ego_attn_score
+                
+                def fill_tensor(id_tensor, attn_weight, partner_mask):
+                    n, _ = id_tensor.shape
+                    filled_tensor = torch.zeros((n, 128)).to(args.device)
+
+                    row_indices = torch.arange(n).unsqueeze(1).expand_as(id_tensor).to(args.device)
+                    valid_rows = row_indices[~partner_mask]
+                    valid_cols = id_tensor[~partner_mask].int()
+                    valid_values = attn_weight[~partner_mask]
+
+                    filled_tensor[valid_rows, valid_cols] = valid_values
+                    
+                    return filled_tensor
+                
+                viz_ego_attn = fill_tensor(partner_idx, ego_attn_score, partner_mask_bool[:,:,-1,:][~dead_agent_mask])
+                real_viz_ego_attn = torch.zeros(NUM_WORLDS, NUM_PARTNER).to(args.device)
+                real_viz_ego_attn[(~dead_agent_mask).sum(dim=-1) == 1] = viz_ego_attn
+
+                env.save_ego_attn_score(real_viz_ego_attn)
+
+            for world_render_idx in range(NUM_WORLDS):
+                frame = env.render(world_render_idx=world_render_idx)
+                frames[world_render_idx].append(frame)
+
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
         
-        # print(f'TIME {time_step} LOSS: {loss.mean(0)}')
+        print(f'TIME {time_step} LOSS: {loss.mean(0)}')
 
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()
-        if args.make_video:
-            for world_render_idx in range(NUM_WORLDS):
-                frame = env.render(world_render_idx=world_render_idx)
-                frames[world_render_idx].append(frame)
 
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():

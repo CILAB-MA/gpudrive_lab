@@ -20,7 +20,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
-        self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
+        self.partner_mask = np.where(partner_mask == 0, 0, 1).astype('bool')
         
         # road_mask
         self.road_mask = road_mask
@@ -64,12 +64,12 @@ class ExpertDataset(torch.utils.data.Dataset):
         partner_past_y = partner_past[:, :, 2]
         partner_current_x = partner_current[:, :, 1]
         partner_current_y = partner_current[:, :, 2]
-        risk_condition = np.logical_and(partner_past_x > partner_current_x, partner_past_y > partner_current_y)
-        collision_risk_value = (partner_past_x - partner_current_x) + (partner_past_y - partner_current_y)
-        partner_collsion_risk = np.where(risk_condition, collision_risk_value, 0)
+        collision_risk_value = np.abs(partner_past_x - partner_current_x) + np.abs(partner_past_y - partner_current_y)
+        risk_condition = collision_risk_value > 0
+        partner_collision_risk = np.where(risk_condition, collision_risk_value, 0)
         current_dist = current_dist.reshape(-1, 1)
-        partner_collsion_risk = partner_collsion_risk.reshape(-1, 1)
-        return np.concatenate([current_dist, partner_collsion_risk], axis=-1)
+        partner_collision_risk = partner_collision_risk.reshape(-1, 1)
+        return np.concatenate([current_dist, partner_collision_risk], axis=-1)
         
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
