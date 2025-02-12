@@ -11,8 +11,8 @@ def arg_parse():
     parser = argparse.ArgumentParser()
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model/eat100to1000')
-    parser.add_argument("--total-world-count", type=int, default=100)
-    parser.add_argument("--num-world", type=int, default=50)
+    parser.add_argument("--total-world-count", type=int, default=20)
+    parser.add_argument("--num-world", type=int, default=10)
     parser.add_argument('--start-idx', '-st', type=int, default=0)
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=1)

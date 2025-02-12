@@ -197,7 +197,7 @@ if __name__ == "__main__":
         video_path = os.path.join(args.video_path, args.dataset, args.model_name)
         if not os.path.exists(video_path):
             os.makedirs(video_path)
-        for world_render_idx in range(NUM_WORLDS):
+        for world_render_idx in range(args.start_idx, NUM_WORLDS + args.start_idx):
             if world_render_idx in torch.where(veh_collision >= 1)[0].tolist():
                 imageio.mimwrite(f'{video_path}/world_{world_render_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=30)
             elif world_render_idx in torch.where(off_road >= 1)[0].tolist():
