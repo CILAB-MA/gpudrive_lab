@@ -8,6 +8,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.obs = obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
         self.obs = np.concatenate([obs_pad, self.obs], axis=1)
+        # self.obs[..., 6:1276] = 0 # remove partner observation
         # actions
         self.actions = actions
         
@@ -34,7 +35,7 @@ class ExpertDataset(torch.utils.data.Dataset):
             other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
             self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
             # ToM
-            self.aux_valid_mask = np.where(partner_mask == 0, 1, 0).astype('bool')
+            self.aux_valid_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
 
         if tom_time == 'only_pred':
             self.tom_timestep = pred_len

@@ -20,7 +20,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
-        self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
+        self.partner_mask = np.where(partner_mask == 0, 0, 1).astype('bool')
         
         # road_mask
         self.road_mask = road_mask
@@ -39,7 +39,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
-                         'other_info', 'collision_risk']
+                         'other_info']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -59,17 +59,17 @@ class ExpertDataset(torch.utils.data.Dataset):
         partner_obs = obs[:, 6:1276].reshape(-1, 5, 127, 10)
         partner_past = partner_obs[:, 0] # (1, 127, 10)
         partner_current = partner_obs[:, -1] # (1, 127, 10)
-        current_dist = np.linalg.norm(partner_current, axis=-1)
+        current_dist = np.linalg.norm(partner_current[..., 1:3], axis=-1)
         partner_past_x = partner_past[:, :, 1]
         partner_past_y = partner_past[:, :, 2]
         partner_current_x = partner_current[:, :, 1]
         partner_current_y = partner_current[:, :, 2]
-        risk_condition = np.logical_and(partner_past_x > partner_current_x, partner_past_y > partner_current_y)
-        collision_risk_value = (partner_past_x - partner_current_x) + (partner_past_y - partner_current_y)
-        partner_collsion_risk = np.where(risk_condition, collision_risk_value, 0)
+        collision_risk_value = np.abs(partner_past_x - partner_current_x) + np.abs(partner_past_y - partner_current_y)
+        risk_condition = collision_risk_value > 0
+        partner_collision_risk = np.where(risk_condition, collision_risk_value, 0)
         current_dist = current_dist.reshape(-1, 1)
-        partner_collsion_risk = partner_collsion_risk.reshape(-1, 1)
-        return np.concatenate([current_dist, partner_collsion_risk], axis=-1)
+        partner_collision_risk = partner_collision_risk.reshape(-1, 1)
+        return np.concatenate([current_dist, partner_collision_risk], axis=-1)
         
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
@@ -85,7 +85,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name in ['other_info']:
-                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.tom_timestep] # idx 0 -> (0, 0:6) -> start with first timestep
+                        data = self.__dict__[var_name][idx1, idx2 + 4:idx2 + 5] # idx 0 -> (0, 0:6) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
                     else:

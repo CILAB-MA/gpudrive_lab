@@ -9,7 +9,7 @@ parameters:
   model_path:
     value: "/data/model"
   model_name:
-    values: [""]
+    values: ["late_fusion_gmm_train_100_20250205_0806"]
 
   # DATA
   data_path:
@@ -25,11 +25,11 @@ parameters:
 
   # EXPERIMENT
   batch_size:
-    values: [512]
+    values: [256]
   epochs:
-    values: [500]
+    values: [100]
   lr:
-    values: [0.0005]
+    values: [0.001]
   sample_per_epoch:
     values: [438763]
   seed:

@@ -32,7 +32,7 @@ class LinearProbAction(LinearProb):
         return action
     
     def loss(self, pred_action, expert_action):
-        criterion = nn.MSELoss()
+        criterion = nn.SmoothL1Loss(reduction='none')
         loss = criterion(pred_action, expert_action)
         return loss
 
