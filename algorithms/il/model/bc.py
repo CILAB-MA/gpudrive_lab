@@ -607,7 +607,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         context = torch.cat((ego_attn, road_objects, road_graph), dim=1)
 
         ego_attn_score = all_attn['ego_attn'].clone()
-        ego_attn_score = ego_attn_score.mean(dim=1)
+        ego_attn_score = ego_attn_score[:, 0]
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
 
         return context, mask_zero_ratio, ego_attn_score, None
