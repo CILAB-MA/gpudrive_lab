@@ -219,7 +219,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
     expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 7), device=device) # after t-step pos (2), after t-step heading (1), vel value(1), actions (3), mask (1)
+    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 7), device=device) # after 1-step (pos (2), heading (1), vel value(1)), actions (3), mask (1)
     after_t = 3
     
     # Initialize dead agent mask
@@ -241,11 +241,11 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                         current_relative_coords,
                         current_heading.unsqueeze(-1)
                     ], dim=-1)
-                
+                    expert_partner_mask_lst[idx][time_step - after_t] = partner_mask[world_idx, agent_idx]
+
                 expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
                 expert_other_info_lst[idx][time_step, :, 4:] = other_info[world_idx, agent_idx]
-                expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
                 expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
 
