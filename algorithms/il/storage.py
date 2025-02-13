@@ -220,7 +220,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
     expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 7), device=device) # after 1-step (pos (2), heading (1), vel value(1)), actions (3), mask (1)
-    after_t = 3
+    after_t = 1
     
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
