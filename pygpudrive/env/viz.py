@@ -816,17 +816,17 @@ class PyGameVisualizer:
         if (agent_response_types == 0).sum() == 0:
             return
 
-        # Get Observation
+        # Get Attention score scaling
         ego_attn_score = self.ego_attn_score[world_render_idx]
+        ego_attn_score = ego_attn_score.cpu().numpy()
+        partner_ids = np.where(ego_attn_score > 0)[0]
         max_attn_score = ego_attn_score.max()
         nonzero_scores = ego_attn_score[ego_attn_score > 0]
-        if nonzero_scores.numel() > 0:
+        if nonzero_scores.size > 0:
             min_attn_score = nonzero_scores.min()
         else:
             min_attn_score = ego_attn_score.min()
         ego_attn_score = (ego_attn_score - min_attn_score) / (max_attn_score - min_attn_score + 1e-6)
-        ego_attn_score = ego_attn_score.cpu().numpy()
-        partner_ids = np.where(ego_attn_score > 0)[0]
 
         for partner_id in partner_ids:
             pos = agent_info[partner_id, :2]
@@ -852,7 +852,7 @@ class PyGameVisualizer:
             pygame.gfxdraw.aapolygon(self.surf, agent_corners, color)
             pygame.gfxdraw.filled_polygon(self.surf, agent_corners, color)
 
-            self.draw_colorbar(min_attn_score.cpu().numpy(), max_attn_score.cpu().numpy())
+        self.draw_colorbar(min_attn_score, max_attn_score)
 
     def draw_colorbar(self, min_val, max_val):
         width, height = 300, 30
