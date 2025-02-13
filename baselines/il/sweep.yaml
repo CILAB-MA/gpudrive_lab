@@ -1,13 +1,13 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: eval_aux_task
+name: test
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # ARGS
   model_name:
-    values: ["aux_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+    values: ["early_attn", "early_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
 
@@ -15,14 +15,16 @@ parameters:
   batch_size:
     values: [512]
   epochs:
-    values: [500]
+    values: [5]
   lr:
     values: [0.0005]
   sample_per_epoch:
     values: [438763]
   seed:
     values: [42]
-    
+  early_stop_num:
+    values: [3]
+  
   # NETWORKCONFIG
   network_dim:
     values: [128]

@@ -216,7 +216,8 @@ def train():
     del eval_expert_obs
     del eval_expert_actions
     del eval_expert_masks
-
+    best_loss = 9999999
+    early_stopping = 0
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
         losses = 0
@@ -262,12 +263,12 @@ def train():
                                            attn_weights=other_weights[:, 1],aux_head='pos')
                 tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
                                             attn_weights=other_weights[:, 2], aux_head='heading')
-                # tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
-                #                            attn_weights=other_weights[:, 3], aux_head='action')
+                tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
+                                           attn_weights=other_weights[:, 3], aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += all_ratio[0]
                 road_ratios += all_ratio[1]
-                loss = pred_loss + 0.1 * (tom_pos_loss + tom_head_loss + tom_speed_loss)
+                loss = pred_loss + 0.1 * (tom_pos_loss + tom_head_loss + tom_speed_loss + tom_act_loss)
             else:
                 context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
@@ -314,6 +315,9 @@ def train():
         
         # Evaluation loop
         if epoch % 5 == 0:
+            # Save policy
+            if not os.path.exists(f"{config.model_path}/{exp_config['name']}"):
+                os.makedirs(f"{config.model_path}/{exp_config['name']}")
             bc_policy.eval()
             total_samples = 0
             losses = 0
@@ -351,17 +355,17 @@ def train():
                     other_info = None
                 with torch.no_grad():
                     if config.use_tom == 'aux_head':
-                        context, all_ratio, other_embeds, other_weights = bc_policy.get_context(obs, all_masks[1:])
+                        context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
                         tom_speed_loss = LOSS['mse'](bc_policy, other_embeds[..., :32], other_info[..., 0], aux_mask, 
                                              attn_weights=other_weights[:, 0], aux_head='speed')
                         tom_pos_loss = LOSS['mse'](bc_policy, other_embeds[..., 32:64], other_info[...,1:3], aux_mask, 
                                                 attn_weights=other_weights[:, 1],aux_head='pos')
                         tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
                                                     attn_weights=other_weights[:, 2], aux_head='heading')
-                        # tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
-                        #                         attn_weights=other_weights[:, 3], aux_head='action')
+                        tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
+                                                attn_weights=other_weights[:, 3], aux_head='action')
                     else:
-                        context, all_ratio = bc_policy.get_context(obs, all_masks[1:])
+                        context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                     partner_ratios += all_ratio[0]
                     road_ratios += all_ratio[1]
                     loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
@@ -375,10 +379,11 @@ def train():
                     dyaw_losses += dyaw_loss
                     losses += loss.mean().item()
                     if config.use_tom == 'aux_head':
-                        # aux_a_losses += tom_act_loss.mean().item()
+                        aux_a_losses += tom_act_loss.mean().item()
                         aux_p_losses += tom_pos_loss.mean().item()
                         aux_h_losses += tom_head_loss.mean().item()
                         aux_s_losses += tom_speed_loss.mean().item()
+            test_loss = losses / (i + 1) 
             if config.use_wandb:
                 with torch.no_grad():
                     others_tsne, other_distance, other_speed = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
@@ -386,7 +391,7 @@ def train():
                 wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
                 plt.close(fig)
                 log_dict = {
-                        "eval/loss": losses / (i + 1) ,
+                        "eval/loss": test_loss,
                         "eval/dx_loss": dx_losses / (i + 1),
                         "eval/dy_loss": dy_losses / (i + 1),
                         "eval/dyaw_loss": dyaw_losses / (i + 1),
@@ -402,12 +407,15 @@ def train():
                     }
                     log_dict.update(aux_dict)
                 wandb.log(log_dict, step=epoch)
-
-    # Save policy
-    if not os.path.exists(config.model_path):
-        os.makedirs(config.model_path)
-    torch.save(bc_policy, f"{config.model_path}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
-
+        if test_loss < best_loss:
+            torch.save(bc_policy, f"{config.model_path}/{exp_config['name']}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
+            best_loss = test_loss
+            early_stopping = 0
+        else:
+            early_stopping += 1
+            if early_stopping > config.early_stop_num:
+                wandb.finish()
+            break
 
 if __name__ == "__main__":
     args = parse_args()
