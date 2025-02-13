@@ -104,7 +104,7 @@ class EnvConfig:
 @dataclass
 class ExperimentConfig:
     # Hyperparameters
-    batch_size: int = 512
+    batch_size: int = 64
     epochs: int = 500
     lr: float = 5e-4
     sample_per_epoch: int = 438763

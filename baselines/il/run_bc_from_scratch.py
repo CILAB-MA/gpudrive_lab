@@ -54,7 +54,8 @@ def parse_args():
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
+                                                                   'no_guide_weighted', 'guide_no_weighted'])
     args = parser.parse_args()
     
     return args
@@ -249,33 +250,29 @@ def train():
             other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             # Forward pass
-            if config.use_tom == 'oracle':
-                context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:], other_info=other_info)
-                loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += all_ratio[0]
-                road_ratios += all_ratio[1]
-                pred_loss = loss
-            elif config.use_tom == 'aux_head':
+            if config.use_tom != None:
                 context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
-                tom_speed_loss = LOSS['mse'](bc_policy, other_embeds[..., :32], other_info[..., 0], aux_mask, 
-                                             attn_weights=other_weights[:, 0], aux_head='speed')
-                tom_pos_loss = LOSS['mse'](bc_policy, other_embeds[..., 32:64], other_info[...,1:3], aux_mask, 
-                                           attn_weights=other_weights[:, 1],aux_head='pos')
-                tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
-                                            attn_weights=other_weights[:, 2], aux_head='heading')
-                tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
-                                           attn_weights=other_weights[:, 3], aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += all_ratio[0]
-                road_ratios += all_ratio[1]
-                loss = pred_loss + 0.1 * (tom_pos_loss + tom_head_loss + tom_speed_loss + tom_act_loss)
+                loss = pred_loss
+                aux_task = ['action', 'pos', 'heading', 'speed']
+                aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
+                aux_losses = torch.zeros(4).to(config.device)
+                for aux_ind, (aux, feat_dim) in enumerate(zip(aux_task, aux_task_ind)):
+                    aux_info  = [aux, other_weights[:, aux_ind], config.use_tom]
+                    if 'no_guide' in config.use_tom:
+                        other_input = other_embeds
+                    else:
+                        other_input = other_embeds[..., aux_ind * 32: (aux_ind + 1) * 32]
+                    tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
+                                    aux_info=aux_info)
+                    aux_losses[aux_ind] = tom_loss
+                    loss = loss + 0.1 * tom_loss
             else:
                 context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                partner_ratios += all_ratio[0]
-                road_ratios += all_ratio[1]
                 pred_loss = loss
-            
+            partner_ratios += all_ratio[0]
+            road_ratios += all_ratio[1]
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
@@ -315,7 +312,7 @@ def train():
         
         # Evaluation loop
         if epoch % 5 == 0:
-            # Save policy
+            # Save policy #todo: --use-wandb 안들어가도 돌아가게 하기
             if not os.path.exists(f"{config.model_path}/{exp_config['name']}"):
                 os.makedirs(f"{config.model_path}/{exp_config['name']}")
             bc_policy.eval()
@@ -354,18 +351,25 @@ def train():
                 if config.use_tom == None:
                     other_info = None
                 with torch.no_grad():
-                    if config.use_tom == 'aux_head':
+                    if config.use_tom != None:
                         context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
-                        tom_speed_loss = LOSS['mse'](bc_policy, other_embeds[..., :32], other_info[..., 0], aux_mask, 
-                                             attn_weights=other_weights[:, 0], aux_head='speed')
-                        tom_pos_loss = LOSS['mse'](bc_policy, other_embeds[..., 32:64], other_info[...,1:3], aux_mask, 
-                                                attn_weights=other_weights[:, 1],aux_head='pos')
-                        tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
-                                                    attn_weights=other_weights[:, 2], aux_head='heading')
-                        tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
-                                                attn_weights=other_weights[:, 3], aux_head='action')
+                        pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                        loss = pred_loss
+                        aux_task = ['action', 'pos', 'heading', 'speed']
+                        aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
+                        aux_losses = torch.zeros(4).to(config.device)
+                        for aux_ind, (aux, feat_dim) in enumerate(zip(aux_task, aux_task_ind)):
+                            aux_info  = [aux, other_weights[:, aux_ind], config.use_tom]
+                            if 'no_guide' in config.use_tom:
+                                other_input = other_embeds
+                            else:
+                                other_input = other_embeds[..., aux_ind * 32: (aux_ind + 1) * 32]
+                            tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
+                                            aux_info=aux_info)
+                            aux_losses[aux_ind] = tom_loss
                     else:
                         context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
+
                     partner_ratios += all_ratio[0]
                     road_ratios += all_ratio[1]
                     loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
@@ -379,10 +383,10 @@ def train():
                     dyaw_losses += dyaw_loss
                     losses += loss.mean().item()
                     if config.use_tom == 'aux_head':
-                        aux_a_losses += tom_act_loss.mean().item()
-                        aux_p_losses += tom_pos_loss.mean().item()
-                        aux_h_losses += tom_head_loss.mean().item()
-                        aux_s_losses += tom_speed_loss.mean().item()
+                        aux_a_losses += aux_losses[0].mean().item()
+                        aux_p_losses += aux_losses[1].mean().item()
+                        aux_h_losses += aux_losses[2].mean().item()
+                        aux_s_losses += aux_losses[3].mean().item()
             test_loss = losses / (i + 1) 
             if config.use_wandb:
                 with torch.no_grad():

@@ -4,64 +4,121 @@ from torch.distributions import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import numpy as np
 
-def l1_loss(model, context, expert_actions, masks=None, attn_weights=None, aux_head=None):
+def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
     '''
     compute the l1 loss between the predicted and expert actions
     '''
-    if aux_head == 'action':
+    if aux_info:
+        aux_task, attn_weights, aux_style = aux_info
+    if aux_task == 'action':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_action_head(context, partner_masks)
         expert_actions[..., :2] /= 6 
         expert_actions[..., 2] /= np.pi 
-    elif aux_head == 'pos':
+    elif aux_task == 'pos':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_pos_head(context, partner_masks)
-    elif aux_head == 'heading':
+    elif aux_task == 'heading':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_heading_head(context, partner_masks)
-    elif aux_head == 'speed':
+    elif aux_task == 'speed':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_speed_head(context, partner_masks)
     else:
         pred_actions = model.get_action(context)
+
+    # if pred_actions.shape[-1] == 1:
+    #     expert_actions = expert_actions.unsqueeze(-1)
     
-    pred_actions = pred_actions[partner_masks]
-    expert_actions = expert_actions[partner_masks]
-    if pred_actions.shape[-1] == 1:
-        expert_actions = expert_actions.unsqueeze(-1)
-    loss = F.smooth_l1_loss(pred_actions, expert_actions)
+    pred_actions = pred_actions[~partner_masks]
+    expert_actions = expert_actions[~partner_masks]
+    loss = F.smooth_l1_loss(pred_actions, expert_actions, reduction='none')
+    if 'no_weight' not in aux_style:
+        attn_weights_scaled = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
+        masked_weights = attn_weights_scaled[~partner_masks]
+        weighted_mse = loss * masked_weights.unsqueeze(-1)
+    else:
+        weighted_mse = loss
+    loss = weighted_mse.sum() / len(pred_actions)
     return loss
 
-def mse_loss(model, context, expert_actions, masks=None, attn_weights=None, aux_head=None):
+
+def l1_loss(model, context, expert_actions, masks=None, aux_info=None):
+    '''
+    compute the l1 loss between the predicted and expert actions
+    '''
+    if aux_info:
+        aux_task, attn_weights, aux_style = aux_info
+    if aux_task == 'action':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_action_head(context, partner_masks)
+        expert_actions[..., :2] /= 6 
+        expert_actions[..., 2] /= np.pi 
+    elif aux_task == 'pos':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_pos_head(context, partner_masks)
+    elif aux_task == 'heading':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_heading_head(context, partner_masks)
+    elif aux_task == 'speed':
+        partner_masks = masks[:, -1]
+        pred_actions = model.aux_speed_head(context, partner_masks)
+    else:
+        pred_actions = model.get_action(context)
+
+    if pred_actions.shape[-1] == 1:
+        expert_actions = expert_actions.unsqueeze(-1)
+    
+    pred_actions = pred_actions[~partner_masks]
+    expert_actions = expert_actions[~partner_masks]
+    loss = F.smooth_l1_loss(pred_actions, expert_actions, reduction='none')
+    if 'no_weight' not in aux_style:
+        attn_weights_scaled = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
+        masked_weights = attn_weights_scaled[~partner_masks]
+        weighted_mse = loss * masked_weights.unsqueeze(-1)
+    else:
+        weighted_mse = loss
+    loss = weighted_mse.sum() / len(pred_actions)
+    return loss
+
+def mse_loss(model, context, expert_actions, masks=None, aux_info=None):
     '''
     Compute the mean squared error loss between the predicted and expert actions
     '''
-    if aux_head == 'action':
+    if aux_info:
+        aux_task, attn_weights, aux_style = aux_info
+    if aux_task == 'action':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_action_head(context, partner_masks)
         expert_actions[..., :2] /= 6 
         expert_actions[..., 2] /= np.pi 
-    elif aux_head == 'pos':
+    elif aux_task == 'pos':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_pos_head(context, partner_masks)
-    elif aux_head == 'heading':
+    elif aux_task == 'heading':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_heading_head(context, partner_masks)
-    elif aux_head == 'speed':
+    elif aux_task == 'speed':
         partner_masks = masks[:, -1]
         pred_actions = model.aux_speed_head(context, partner_masks)
     else:
         pred_actions = model.get_action(context)
-    
-    attn_weights_scaled = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
-    pred_actions = pred_actions[~partner_masks]
-    expert_actions = expert_actions[~partner_masks]
-    masked_weights = attn_weights_scaled[~partner_masks]
+
     if pred_actions.shape[-1] == 1:
         expert_actions = expert_actions.unsqueeze(-1)
-    loss = F.mse_loss(pred_actions, expert_actions, reduction='none')
-    weighted_mse = loss * masked_weights.unsqueeze(-1)
-    loss = weighted_mse.sum() / masked_weights.sum()
+    
+    pred_actions = pred_actions[~partner_masks]
+    if expert_actions.size(1) == 1:
+        expert_actions = expert_actions.squeeze(1)
+    expert_actions = expert_actions[~partner_masks]
+    loss = F.smooth_l1_loss(pred_actions, expert_actions, reduction='none')
+    if 'no_weight' not in aux_style:
+        attn_weights_scaled = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
+        masked_weights = attn_weights_scaled[~partner_masks]
+        weighted_mse = loss * masked_weights.unsqueeze(-1)
+    else:
+        weighted_mse = loss
+    loss = weighted_mse.sum() / len(pred_actions)
     return loss
 
 def two_hot_loss(model, context, expert_actions, masks=None):
