@@ -219,6 +219,26 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
             norm=net_config.norm,
             separate_attn_weights=False
         )
+        
+        self.ro_attn = SelfAttentionBlock(
+            num_layers=1,
+            num_heads=4,
+            num_channels=net_config.network_dim,
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
+            separate_attn_weights=False
+        )
+
+        self.rg_attn = SelfAttentionBlock(
+            num_layers=1,
+            num_heads=4,
+            num_channels=net_config.network_dim,
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
+            separate_attn_weights=False
+        )
 
         if loss in ['l1', 'mse', 'twohot']: # make head module
             self.head = ContHead(
@@ -294,6 +314,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         ego_state = self.ego_state_net(ego_state)
         road_objects = self.road_object_net(road_objects)
         road_graph = self.road_graph_net(road_graph)
+        
         ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
         all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():
@@ -301,8 +322,8 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
                 setattr(norm_layer, 'mask', all_mask)
         all_objects = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
         all_attn  = self.fusion_attn(all_objects, pad_mask=all_mask)
-
-        masked_road_objects = all_attn["last_hidden_state"][:,1: 1 + self.ro_max][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        objects_attn = self.ro_attn(all_attn['last_hidden_state'][:, :self.ro_max + 1])
+        masked_road_objects = objects_attn["last_hidden_state"][:,1:][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
         masked_speed = masked_speed[~mask].view(-1, 1)
         masked_distances = masked_positions.norm(dim=-1)
@@ -320,7 +341,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
             normalized_distances = (masked_distances - dist_min) / dist_range
             normalized_speed = (masked_speed - dist_min) / speed_range
         return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
-    
+
     def get_context(self, obs, masks=None, other_info=None):
         """Get the embedded observation."""
         batch = obs.shape[0]
@@ -346,12 +367,19 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
                 setattr(norm_layer, 'mask', all_masks)
         all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
 
-        ego_attn = all_attn['last_hidden_state'][:, 0]
-        objects_attn = all_attn['last_hidden_state'][:, 1: self.ro_max + 1]
+        objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
         road_graph_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
+
+        objects_attn = self.ro_attn(objects_attn)     
+        road_graph_attn = self.rg_attn(road_graph_attn)     
+
+        ego_attn = objects_attn['last_hidden_state'][:, 0]
+        road_objects_attn = objects_attn['last_hidden_state'][:, 1:]
+        road_graph_attn = road_graph_attn['last_hidden_state']
+
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
-        max_indices_ro = torch.argmax(objects_attn.permute(0, 2, 1), dim=-1)
+        max_indices_ro = torch.argmax(road_objects_attn.permute(0, 2, 1), dim=-1)
         selected_mask_ro = torch.gather(ro_masks.squeeze(-1), 1, max_indices_ro)  # (B, D)
         mask_zero_ratio_ro = (selected_mask_ro == 0).sum().item() / selected_mask_ro.numel()
         
@@ -359,14 +387,15 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         selected_mask_rg = torch.gather(rg_masks.squeeze(-1), 1, max_indices_rg)  # (B, D)
         mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
         mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
-        max_neg = -torch.finfo(objects_attn.dtype).max
-        objects_attn.masked_fill(ro_masks.unsqueeze(-1), max_neg)
+        
+        max_neg = -torch.finfo(road_objects_attn.dtype).max
+        road_objects_attn.masked_fill(ro_masks.unsqueeze(-1), max_neg)
         road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), max_neg)
-        other_objects = objects_attn
-        other_weights = all_attn['ego_attn']
+        other_objects = road_objects_attn
+        other_weights = objects_attn['ego_attn']
 
         road_objects_max = F.max_pool1d(
-            objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
+            road_objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
         road_graph = F.max_pool1d(
             road_graph_attn.permute(0, 2, 1), kernel_size=self.rg_max

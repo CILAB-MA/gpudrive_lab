@@ -262,12 +262,12 @@ def train():
                                            attn_weights=other_weights[:, 1],aux_head='pos')
                 tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
                                             attn_weights=other_weights[:, 2], aux_head='heading')
-                # tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
-                #                            attn_weights=other_weights[:, 3], aux_head='action')
+                tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
+                                           attn_weights=other_weights[:, 3], aux_head='action')
                 pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                 partner_ratios += all_ratio[0]
                 road_ratios += all_ratio[1]
-                loss = pred_loss + 0.1 * (tom_pos_loss + tom_head_loss + tom_speed_loss)
+                loss = pred_loss + 0.1 * (tom_pos_loss + tom_head_loss + tom_speed_loss + tom_act_loss)
             else:
                 context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
@@ -351,17 +351,17 @@ def train():
                     other_info = None
                 with torch.no_grad():
                     if config.use_tom == 'aux_head':
-                        context, all_ratio, other_embeds, other_weights = bc_policy.get_context(obs, all_masks[1:])
+                        context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
                         tom_speed_loss = LOSS['mse'](bc_policy, other_embeds[..., :32], other_info[..., 0], aux_mask, 
                                              attn_weights=other_weights[:, 0], aux_head='speed')
                         tom_pos_loss = LOSS['mse'](bc_policy, other_embeds[..., 32:64], other_info[...,1:3], aux_mask, 
                                                 attn_weights=other_weights[:, 1],aux_head='pos')
                         tom_head_loss = LOSS['mse'](bc_policy, other_embeds[..., 64:96], other_info[...,3], aux_mask,
                                                     attn_weights=other_weights[:, 2], aux_head='heading')
-                        # tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
-                        #                         attn_weights=other_weights[:, 3], aux_head='action')
+                        tom_act_loss = LOSS['mse'](bc_policy, other_embeds[..., 96:], other_info[..., 4:7], aux_mask,
+                                                attn_weights=other_weights[:, 3], aux_head='action')
                     else:
-                        context, all_ratio = bc_policy.get_context(obs, all_masks[1:])
+                        context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                     partner_ratios += all_ratio[0]
                     road_ratios += all_ratio[1]
                     loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
@@ -375,7 +375,7 @@ def train():
                     dyaw_losses += dyaw_loss
                     losses += loss.mean().item()
                     if config.use_tom == 'aux_head':
-                        # aux_a_losses += tom_act_loss.mean().item()
+                        aux_a_losses += tom_act_loss.mean().item()
                         aux_p_losses += tom_pos_loss.mean().item()
                         aux_h_losses += tom_head_loss.mean().item()
                         aux_s_losses += tom_speed_loss.mean().item()
