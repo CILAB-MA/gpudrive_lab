@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
-    parser.add_argument('--aux-future-step', '-afs', type=int, default=1)
+    parser.add_argument('--aux-future-step', '-afs', type=int, default=None)
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
@@ -206,7 +206,7 @@ def train():
         ExpertDataset(
             eval_expert_obs, eval_expert_actions,
             eval_expert_masks, eval_partner_mask, eval_road_mask, other_info=eval_other_info,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
+            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
         ),
         batch_size=config.batch_size,
         shuffle=False,
@@ -313,7 +313,6 @@ def train():
         # Evaluation loop
         if epoch % 5 == 0:
             model_path = f"{config.model_path}/{exp_config['name']}" if config.use_wandb else config.model_path
-            # Save policy #todo: --use-wandb 안들어가도 돌아가게 하기
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
             bc_policy.eval()
@@ -383,7 +382,7 @@ def train():
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
                     losses += loss.mean().item()
-                    if config.use_tom == 'aux_head':
+                    if config.use_tom:
                         aux_a_losses += aux_losses[0].mean().item()
                         aux_p_losses += aux_losses[1].mean().item()
                         aux_h_losses += aux_losses[2].mean().item()
