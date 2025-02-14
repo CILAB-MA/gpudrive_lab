@@ -3,7 +3,7 @@ import numpy as np
 
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
-                 rollout_len=5, pred_len=1, tom_time='only_pred', other_info_future_step=1):
+                 rollout_len=5, pred_len=1, aux_future_step=None):
         # obs
         self.obs = obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
@@ -20,9 +20,19 @@ class ExpertDataset(torch.utils.data.Dataset):
 
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
+        self.aux_valid_mask = None
+        
+        aux_mask = np.empty_like(partner_mask) if aux_future_step else None
+        if aux_future_step:
+            # Aux Mask
+            aux_mask[:, :-aux_future_step - 1, :] = partner_mask[:, aux_future_step + 1:, :].copy()
+            aux_mask[:, -aux_future_step - 1:, :] = True
+            aux_mask_pad = np.ones_like(partner_mask_pad)
+            aux_mask = np.concatenate([aux_mask_pad, aux_mask], axis=1).astype('bool')
+            self.aux_mask = aux_mask
+
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
         self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
-        
         # road_mask
         self.road_mask = road_mask
         road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
@@ -31,31 +41,19 @@ class ExpertDataset(torch.utils.data.Dataset):
         if other_info is not None:
             # other_info
             other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *other_info.shape[2:]), dtype=np.float32)
+            other_info[:, :-aux_future_step, ...] = other_info[:, aux_future_step:, ...]
+            other_info[:, -aux_future_step:, ...] = 0
             other_info = np.concatenate([other_info_pad, other_info], axis=1)
-            other_info[:, :-other_info_future_step, ...] = other_info[:, other_info_future_step:, ...]
-            other_info[:, -other_info_future_step:, ...] = 0
-            other_info[:, :rollout_len - 1, ...] = 0
             self.other_info = other_info
-            self.other_info_future_step = other_info_future_step
-
-            # Aux Mask
-            aux_valid_mask = np.empty_like(self.partner_mask, dtype=bool)
-            aux_valid_mask[:, :-other_info_future_step - 1, :] = self.partner_mask[:, other_info_future_step + 1:, :].copy()
-            aux_valid_mask[:, -other_info_future_step - 1:, :] = True
-            aux_valid_mask[:, :rollout_len - 1, :] = True
-            self.aux_valid_mask = aux_valid_mask
-
-        if tom_time == 'only_pred':
-            self.tom_timestep = pred_len
-        elif tom_time == 'understand_pred':
-            self.tom_timestep = rollout_len
+            self.aux_future_step = aux_future_step
+        
         
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
-                         'other_info', 'aux_valid_mask']
+                         'other_info', 'aux_mask']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -76,12 +74,12 @@ class ExpertDataset(torch.utils.data.Dataset):
         if self.num_timestep > 1:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
-                    if var_name in ['obs', 'road_mask', 'partner_mask', 'aux_valid_mask']:
+                    if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
-                    elif var_name in ['other_info']:
-                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.tom_timestep] # idx 0 -> (0, 0:6) -> start with first timestep
+                    elif var_name in ['other_info', 'aux_mask']:
+                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.aux_future_step] # idx 0 -> (0, 0:6) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
                     else:
@@ -101,13 +99,13 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     
-    data = np.load("/data/tom_v3/train_subset/trajectory_0.npz")
+    data = np.load("/data/tom_v3/train_subset/trajectory_200.npz")
     
     expert_data_loader = DataLoader(
         ExpertDataset(
             data['obs'], data['actions'], 
             data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
-            rollout_len=5, pred_len=1, tom_time='only_pred', other_info_future_step=3
+            rollout_len=5, pred_len=1, aux_future_step=1
         ),
         batch_size=256,
         shuffle=True,

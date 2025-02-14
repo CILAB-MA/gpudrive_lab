@@ -42,12 +42,12 @@ def parse_args():
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v2')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_100.npz')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v3')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
-    parser.add_argument('--other-info-future-step', '-oifs', type=int, default=1)
+    parser.add_argument('--aux-future-step', '-afs', type=int, default=1)
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
@@ -183,7 +183,7 @@ def train():
         ExpertDataset(
             train_expert_obs, train_expert_actions, 
             train_expert_masks, train_partner_mask, train_road_mask, train_other_info, 
-            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
+            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
         ),
         batch_size=config.batch_size,
         shuffle=True,
