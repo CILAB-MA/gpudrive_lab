@@ -166,38 +166,35 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         other_input_dim = self.ro_input_dim * num_stack
         # Aux head
         self.use_tom = use_tom
-        if use_tom == 'aux_head':
-            self.aux_speed_head = AuxHead(
-                input_dim=int(self.hidden_dim / 4),
-                head_config=head_config,
-                num_ro=self.ro_max,
-                aux_action_dim=1
-            )
-            
-            self.aux_pos_head = AuxHead(
-                input_dim=int(self.hidden_dim / 4),
-                head_config=head_config,
-                num_ro=self.ro_max,
-                aux_action_dim=2
-            )
-            
-            self.aux_heading_head = AuxHead(
-                input_dim=int(self.hidden_dim / 4),
-                head_config=head_config,
-                num_ro=self.ro_max,
-                aux_action_dim=1
-            )
-            
-            self.aux_action_head = AuxHead(
-                input_dim=int(self.hidden_dim / 4),
-                head_config=head_config,
-                num_ro=self.ro_max,
-                aux_action_dim=3
-            )
-        elif use_tom == 'oracle':
-            other_input_dim += 7
-        else:
-            raise ValueError(f'ToM method "{use_tom}" is not implemented yet!!')
+        aux_input_dim = self.hidden_dim if 'no_guide' in use_tom else int(self.hidden_dim / 4)
+        self.aux_speed_head = AuxHead(
+            input_dim=aux_input_dim,
+            head_config=head_config,
+            num_ro=self.ro_max,
+            aux_action_dim=1
+        )
+        
+        self.aux_pos_head = AuxHead(
+            input_dim=aux_input_dim,
+            head_config=head_config,
+            num_ro=self.ro_max,
+            aux_action_dim=2
+        )
+        
+        self.aux_heading_head = AuxHead(
+            input_dim=aux_input_dim,
+            head_config=head_config,
+            num_ro=self.ro_max,
+            aux_action_dim=1
+        )
+        
+        self.aux_action_head = AuxHead(
+            input_dim=aux_input_dim,
+            head_config=head_config,
+            num_ro=self.ro_max,
+            aux_action_dim=3
+        )
+
         # Scene encoder
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
@@ -346,10 +343,6 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         """Get the embedded observation."""
         batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
-
-        if other_info != None:
-            other_info = other_info.transpose(1, 2).reshape(batch, self.ro_max, -1)
-            road_objects = torch.cat([road_objects, other_info], dim=-1)
         ego_masks = masks[0][:, -1]
         ro_masks = masks[1][:, -1]
         rg_masks = masks[2][:, -1]
@@ -409,10 +402,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         ego_attn_score = ego_attn_score[:, 0]
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
         
-        if self.use_tom == 'aux_head': 
-            return context, mask_zero_ratio, other_objects, other_weights, ego_attn_score, None
-        else:
-            return context, mask_zero_ratio, None, None, ego_attn_score, None
+        return context, mask_zero_ratio, other_objects, other_weights, ego_attn_score, None
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""
