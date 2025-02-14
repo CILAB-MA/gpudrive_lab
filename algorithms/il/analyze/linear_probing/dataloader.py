@@ -3,7 +3,7 @@ import numpy as np
 
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
-                 rollout_len=5, pred_len=1):
+                 rollout_len=5, pred_len=1, other_info_future_step=1):
         # obs
         self.obs = obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
@@ -26,14 +26,24 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.road_mask = road_mask
         road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
         self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
-        
-        # other_info
-        self.other_info = other_info
-        self.aux_valid_mask  = None
+
         if other_info is not None:
-            other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *self.other_info.shape[2:]), dtype=np.float32)
-            self.other_info = np.concatenate([other_info_pad, self.other_info], axis=1)
-        
+            # other_info
+            other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *other_info.shape[2:]), dtype=np.float32)
+            other_info = np.concatenate([other_info_pad, other_info], axis=1)
+            other_info[:, :-other_info_future_step, ...] = other_info[:, other_info_future_step:, ...]
+            other_info[:, -other_info_future_step:, ...] = 0
+            other_info[:, :rollout_len - 1, ...] = 0
+            self.other_info = other_info
+            self.other_info_future_step = other_info_future_step
+
+            # Aux Mask
+            aux_valid_mask = np.empty_like(self.partner_mask, dtype=bool)
+            aux_valid_mask[:, :-other_info_future_step - 1, :] = self.partner_mask[:, other_info_future_step + 1:, :].copy()
+            aux_valid_mask[:, -other_info_future_step - 1:, :] = True
+            aux_valid_mask[:, :rollout_len - 1, :] = True
+            self.aux_valid_mask = aux_valid_mask
+
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len

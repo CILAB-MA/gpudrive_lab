@@ -40,13 +40,14 @@ def parse_args():
                                                                                          'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
-    parser.add_argument('--rollout-len', '-rl', type=int, default=5)
-    parser.add_argument('--pred-len', '-pl', type=int, default=1)
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v2')
     parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_100.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
+    parser.add_argument('--rollout-len', '-rl', type=int, default=5)
+    parser.add_argument('--pred-len', '-pl', type=int, default=1)
+    parser.add_argument('--other-info-future-step', '-oifs', type=int, default=1)
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
