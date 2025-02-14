@@ -34,7 +34,7 @@ def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
     expert_actions = expert_actions[~partner_masks]
     loss = F.smooth_l1_loss(pred_actions, expert_actions, reduction='none')
     if 'no_weight' not in aux_style:
-        attn_weights_scaled = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
+        attn_weights_scaled = attn_weights / (attn_weights.mean(dim=-1, keepdim=True) + 1e-6)
         masked_weights = attn_weights_scaled[~partner_masks]
         weighted_mse = loss * masked_weights.unsqueeze(-1)
     else:
