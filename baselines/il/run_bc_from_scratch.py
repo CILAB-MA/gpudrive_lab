@@ -412,15 +412,15 @@ def train():
                     }
                     log_dict.update(aux_dict)
                 wandb.log(log_dict, step=epoch)
-        if test_loss < best_loss:
-            torch.save(bc_policy, f"{config.model_path}/{exp_config['name']}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
-            best_loss = test_loss
-            early_stopping = 0
-        else:
-            early_stopping += 1
-            if early_stopping > config.early_stop_num:
-                wandb.finish()
-            break
+            if test_loss < best_loss:
+                torch.save(bc_policy, f"{config.model_path}/{exp_config['name']}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
+                best_loss = test_loss
+                early_stopping = 0
+            else:
+                early_stopping += 1
+                if early_stopping > config.early_stop_num:
+                    wandb.finish()
+                break
 
 if __name__ == "__main__":
     args = parse_args()
