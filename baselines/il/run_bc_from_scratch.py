@@ -313,9 +313,10 @@ def train():
         
         # Evaluation loop
         if epoch % 5 == 0:
+            model_path = f"{config.model_path}/{exp_config['name']}" if config.use_wandb else config.model_path
             # Save policy #todo: --use-wandb 안들어가도 돌아가게 하기
-            if not os.path.exists(f"{config.model_path}/{exp_config['name']}"):
-                os.makedirs(f"{config.model_path}/{exp_config['name']}")
+            if not os.path.exists(model_path):
+                os.makedirs(model_path)
             bc_policy.eval()
             total_samples = 0
             losses = 0
@@ -413,7 +414,7 @@ def train():
                     log_dict.update(aux_dict)
                 wandb.log(log_dict, step=epoch)
             if test_loss < best_loss:
-                torch.save(bc_policy, f"{config.model_path}/{exp_config['name']}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
+                torch.save(bc_policy, f"{model_path}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
                 best_loss = test_loss
                 early_stopping = 0
             else:
