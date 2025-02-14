@@ -79,7 +79,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     dataloader = DataLoader(
         ExpertDataset(
             expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
-            rollout_len=config.rollout_len, pred_len=config.pred_len
+            rollout_len=config.rollout_len, pred_len=config.pred_len, other_info_future_step=config.other_info_future_step
         ),
         batch_size=config.batch_size,
         shuffle=isshuffle,
