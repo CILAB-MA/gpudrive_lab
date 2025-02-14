@@ -22,6 +22,8 @@ parameters:
     value: 5
   pred_len:
     value: 1
+  other_info_future_step:
+    value: 1
 
   # EXPERIMENT
   batch_size:

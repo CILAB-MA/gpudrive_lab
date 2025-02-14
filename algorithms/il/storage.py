@@ -241,10 +241,10 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                         current_relative_coords,
                         current_heading.unsqueeze(-1)
                     ], dim=-1)
-                    expert_partner_mask_lst[idx][time_step - after_t] = partner_mask[world_idx, agent_idx]
 
                 expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
+                expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
                 expert_other_info_lst[idx][time_step, :, 4:] = other_info[world_idx, agent_idx]
                 expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
@@ -295,7 +295,7 @@ if __name__ == "__main__":
     from pygpudrive.registration import make
     from pygpudrive.env.config import DynamicsModel, ActionSpace
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_worlds', type=int, default=100)
+    parser.add_argument('--num_worlds', type=int, default=5)
     parser.add_argument('--num_stack', type=int, default=1)
     parser.add_argument('--save_path', type=str, default='/')
     parser.add_argument('--save_index', type=int, default=0)
