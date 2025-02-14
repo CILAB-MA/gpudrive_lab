@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: aux_ablation
+name: aux_horizon
 metric:
   goal: minimize
   name: eval/loss
@@ -59,6 +59,6 @@ parameters:
   
   # AUXCONFIG
   use_tom:
-    values: ['guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'] # None, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+    values: ['guide_weighted'] # None, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
   aux_future_step:
-    values: [10] # 1, 5, 10, 20, 30
+    values: [1, 5, 10, 20, 30] # 1, 5, 10, 20, 30
