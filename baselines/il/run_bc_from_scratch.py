@@ -415,11 +415,12 @@ def train():
                 torch.save(bc_policy, f"{model_path}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
                 best_loss = test_loss
                 early_stopping = 0
+                print(f'EPOCH {epoch} gets BEST!')
             else:
                 early_stopping += 1
-                if early_stopping > config.early_stop_num:
+                if early_stopping > config.early_stop_num + 1:
                     wandb.finish()
-                break
+                    break
 
 if __name__ == "__main__":
     args = parse_args()
