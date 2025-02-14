@@ -74,12 +74,10 @@ class ExpertDataset(torch.utils.data.Dataset):
         if self.num_timestep > 1:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
-                    if var_name in ['obs', 'road_mask', 'partner_mask']:
+                    if var_name in ['obs', 'road_mask', 'partner_mask', 'other_info', 'aux_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
-                    elif var_name in ['other_info', 'aux_mask']:
-                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.aux_future_step] # idx 0 -> (0, 0:6) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
                     else:

@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v3')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v3/')
     parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
