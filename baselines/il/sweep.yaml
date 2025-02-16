@@ -1,21 +1,21 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: test
+name: aux_horizon
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # ARGS
   model_name:
-    values: ["early_attn", "early_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+    values: ["aux_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
 
   # EXPERIMENT
   batch_size:
-    values: [512]
+    values: [1024]
   epochs:
-    values: [5]
+    values: [500]
   lr:
     values: [0.0005]
   sample_per_epoch:
@@ -24,6 +24,12 @@ parameters:
     values: [42]
   early_stop_num:
     values: [3]
+  data_path:
+    values: ['/data/tom_v3']
+  train_data_file:
+    values: ['train_trajectory_1000.npz']
+  test_data_file:
+    values: ['test_trajectory_200.npz']
   
   # NETWORKCONFIG
   network_dim:
@@ -51,3 +57,8 @@ parameters:
   clip_value:
     values: [-20.0]
   
+  # AUXCONFIG
+  use_tom:
+    values: ['no_guide_no_weighted'] # None, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+  aux_future_step:
+    values: [1, 5, 10, 20, 30] # 1, 5, 10, 20, 30

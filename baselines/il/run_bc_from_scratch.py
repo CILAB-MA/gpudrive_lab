@@ -42,12 +42,12 @@ def parse_args():
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v2')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_100.npz')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v3/')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
-    parser.add_argument('--other-info-future-step', '-oifs', type=int, default=1)
+    parser.add_argument('--aux-future-step', '-afs', type=int, default=None)
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
@@ -87,11 +87,10 @@ def train():
     env_config = EnvConfig()
     net_config = NetworkConfig()
     head_config = HeadConfig()
-
+    current_time = datetime.now().strftime("%Y%m%d_%H%M")
     if args.use_wandb:
         wandb.init()
         # Tag Update
-        current_time = datetime.now().strftime("%Y%m%d_%H%M")
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(current_time)
         for key, value in wandb.config.items():
@@ -184,7 +183,7 @@ def train():
         ExpertDataset(
             train_expert_obs, train_expert_actions, 
             train_expert_masks, train_partner_mask, train_road_mask, train_other_info, 
-            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
+            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
         ),
         batch_size=config.batch_size,
         shuffle=True,
@@ -207,7 +206,7 @@ def train():
         ExpertDataset(
             eval_expert_obs, eval_expert_actions,
             eval_expert_masks, eval_partner_mask, eval_road_mask, other_info=eval_other_info,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, tom_time='only_pred'
+            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
         ),
         batch_size=config.batch_size,
         shuffle=False,
@@ -278,9 +277,11 @@ def train():
             optimizer.zero_grad()
             loss.backward()
 
+            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
+
             optimizer.step()
 
             with torch.no_grad():
@@ -313,9 +314,9 @@ def train():
         
         # Evaluation loop
         if epoch % 5 == 0:
-            # Save policy #todo: --use-wandb 안들어가도 돌아가게 하기
-            if not os.path.exists(f"{config.model_path}/{exp_config['name']}"):
-                os.makedirs(f"{config.model_path}/{exp_config['name']}")
+            model_path = f"{config.model_path}/{exp_config['name']}" if config.use_wandb else config.model_path
+            if not os.path.exists(model_path):
+                os.makedirs(model_path)
             bc_policy.eval()
             total_samples = 0
             losses = 0
@@ -383,7 +384,7 @@ def train():
                     dy_losses += dy_loss
                     dyaw_losses += dyaw_loss
                     losses += loss.mean().item()
-                    if config.use_tom == 'aux_head':
+                    if config.use_tom:
                         aux_a_losses += aux_losses[0].mean().item()
                         aux_p_losses += aux_losses[1].mean().item()
                         aux_h_losses += aux_losses[2].mean().item()
@@ -413,14 +414,15 @@ def train():
                     log_dict.update(aux_dict)
                 wandb.log(log_dict, step=epoch)
             if test_loss < best_loss:
-                torch.save(bc_policy, f"{config.model_path}/{exp_config['name']}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
+                torch.save(bc_policy, f"{model_path}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
                 best_loss = test_loss
                 early_stopping = 0
+                print(f'EPOCH {epoch} gets BEST!')
             else:
                 early_stopping += 1
-                if early_stopping > config.early_stop_num:
+                if early_stopping > config.early_stop_num + 1:
                     wandb.finish()
-                break
+                    break
 
 if __name__ == "__main__":
     args = parse_args()
