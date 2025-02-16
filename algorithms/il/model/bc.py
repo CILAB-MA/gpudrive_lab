@@ -584,9 +584,9 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         objects_attn = self.ro_attn(ego_attn, objects_attn, pad_mask=ro_masks)     
         road_graph_attn = self.rg_attn(ego_attn, road_graph_attn, pad_mask=rg_masks)     
 
+
         road_objects_attn = objects_attn['last_hidden_state']
         road_graph_attn = road_graph_attn['last_hidden_state']
-
         # max_indices_ro = torch.argmax(road_objects_attn.permute(0, 2, 1), dim=-1)
         # selected_mask_ro = torch.gather(ro_masks.squeeze(-1), 1, max_indices_ro)  # (B, D)
         # mask_zero_ratio_ro = (selected_mask_ro == 0).sum().item() / selected_mask_ro.numel()
@@ -612,7 +612,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         context = torch.cat((ego_attn.squeeze(1), road_objects, road_graph), dim=1)
 
         ego_attn_score = objects_attn['ego_attn'].clone()
-        ego_attn_score = ego_attn_score[:, 0]
+        ego_attn_score = ego_attn_score[:, 1]
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
 
         return context, mask_zero_ratio, ego_attn_score, None
