@@ -361,7 +361,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         ego_attn = all_attn['last_hidden_state'][:, 0].unsqueeze(1)
         objects_attn = all_attn['last_hidden_state'][:, 1:self.ro_max + 1]
         road_graph_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
-
+        other_attn = objects_attn.clone()
         objects_attn = self.ro_attn(ego_attn, objects_attn, pad_mask=ro_masks)     
         road_graph_attn = self.rg_attn(ego_attn, road_graph_attn, pad_mask=rg_masks)   
 
@@ -371,29 +371,14 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         # Max pooling across the object dimension
         # (M, E) -> (1, E) (max pool across features)
         mask_zero_ratio = [0, 0]
-        
-        # max_neg = -torch.finfo(road_objects_attn.dtype).max
-        # road_objects_attn.masked_fill(ro_masks.unsqueeze(-1), max_neg)
-        # road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), max_neg)
-        # other_objects = road_objects_attn
-        # other_weights = objects_attn['ego_attn']
-
-        # road_objects_max = F.max_pool1d(
-        #     road_objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
-        # ).squeeze(-1)
-        # road_graph = F.max_pool1d(
-        #     road_graph_attn.permute(0, 2, 1), kernel_size=self.rg_max
-        # ).squeeze(-1)
-
         road_objects = road_objects_attn.reshape(batch, -1)
         road_graph = road_graph_attn.reshape(batch, -1)
-        context = torch.cat((ego_attn, road_objects, road_graph), dim=1)
+        context = torch.cat((ego_attn.squeeze(1), road_objects, road_graph), dim=1)
         
         ego_attn_score = objects_attn['ego_attn'].clone()
         ego_attn_score = ego_attn_score[:, 1]
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
-        
-        return context, mask_zero_ratio, road_objects_attn, objects_attn['ego_attn'], ego_attn_score, None
+        return context, mask_zero_ratio, other_attn, objects_attn['ego_attn'], ego_attn_score, None
 
     def get_action(self, context, deterministic=False):
         """Get the action from the context."""

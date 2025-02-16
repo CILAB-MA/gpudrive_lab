@@ -584,29 +584,9 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         objects_attn = self.ro_attn(ego_attn, objects_attn, pad_mask=ro_masks)     
         road_graph_attn = self.rg_attn(ego_attn, road_graph_attn, pad_mask=rg_masks)     
 
-
         road_objects_attn = objects_attn['last_hidden_state']
         road_graph_attn = road_graph_attn['last_hidden_state']
-        # max_indices_ro = torch.argmax(road_objects_attn.permute(0, 2, 1), dim=-1)
-        # selected_mask_ro = torch.gather(ro_masks.squeeze(-1), 1, max_indices_ro)  # (B, D)
-        # mask_zero_ratio_ro = (selected_mask_ro == 0).sum().item() / selected_mask_ro.numel()
-        
-        # max_indices_rg = torch.argmax(road_graph_attn.permute(0, 2, 1), dim=-1)
-        # selected_mask_rg = torch.gather(rg_masks.squeeze(-1), 1, max_indices_rg)  # (B, D)
-        # mask_zero_ratio_rg = (selected_mask_rg == 0).sum().item() / selected_mask_rg.numel()
-        # mask_zero_ratio = [mask_zero_ratio_ro, mask_zero_ratio_rg]
         mask_zero_ratio = [0, 0]
-        # max_neg = -torch.finfo(road_objects_attn.dtype).max
-        # road_objects_attn.masked_fill(ro_masks.unsqueeze(-1), max_neg)
-        # road_graph_attn.masked_fill(rg_masks.unsqueeze(-1), max_neg)
-
-        # road_objects = F.max_pool1d(
-        #     road_objects_attn.permute(0, 2, 1), kernel_size=self.ro_max
-        # ).squeeze(-1)
-        # road_graph = F.max_pool1d(
-        #     road_graph_attn.permute(0, 2, 1), kernel_size=self.rg_max
-        # ).squeeze(-1)
-
         road_objects = road_objects_attn.reshape(batch, -1)
         road_graph = road_graph_attn.reshape(batch, -1)
         context = torch.cat((ego_attn.squeeze(1), road_objects, road_graph), dim=1)
