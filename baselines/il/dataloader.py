@@ -23,6 +23,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.aux_valid_mask = None
         
         aux_mask = np.empty_like(partner_mask) if aux_future_step else None
+        self.aux_mask = None
         if aux_future_step:
             # Aux Mask
             aux_mask[:, :-aux_future_step - 1, :] = partner_mask[:, aux_future_step + 1:, :].copy()
@@ -37,7 +38,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.road_mask = road_mask
         road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
         self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
-        
+        self.other_info = other_info
         if other_info is not None:
             # other_info
             other_info_pad = np.zeros((other_info.shape[0], rollout_len - 1, *other_info.shape[2:]), dtype=np.float32)
