@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
-    parser.add_argument('--aux-future-step', '-afs', type=int, default=None)
+    parser.add_argument('--aux-future-step', '-afs', default=None)
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
@@ -391,11 +391,11 @@ def train():
                         aux_s_losses += aux_losses[3].mean().item()
             test_loss = losses / (i + 1) 
             if config.use_wandb:
-                with torch.no_grad():
-                    others_tsne, other_distance, other_speed = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
-                fig = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
-                wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
-                plt.close(fig)
+                # with torch.no_grad():
+                #     others_tsne, other_distance, other_speed = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
+                # fig = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                # wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
+                # plt.close(fig)
                 log_dict = {
                         "eval/loss": test_loss,
                         "eval/dx_loss": dx_losses / (i + 1),
