@@ -433,8 +433,25 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
             norm=net_config.norm,
             separate_attn_weights=False
         )
-
-        self.ro_attn = CrossAttentionLayer(
+        self.ro_attn = SelfAttentionBlock(
+            num_layers=1,
+            num_heads=4,
+            num_channels=net_config.network_dim,
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
+            separate_attn_weights=False
+        )
+        self.rg_attn = SelfAttentionBlock(
+            num_layers=1,
+            num_heads=4,
+            num_channels=net_config.network_dim,
+            num_qk_channels=net_config.network_dim,
+            num_v_channels=net_config.network_dim,
+            norm=net_config.norm,
+            separate_attn_weights=False
+        )
+        self.ego_ro_attn = CrossAttentionLayer(
             num_heads=4,
             num_q_input_channels=net_config.network_dim,
             num_kv_input_channels=net_config.network_dim,
@@ -442,7 +459,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
             num_v_channels=net_config.network_dim,
         )
 
-        self.rg_attn = CrossAttentionLayer(
+        self.ego_rg_attn = CrossAttentionLayer(
             num_heads=4,
             num_q_input_channels=net_config.network_dim,
             num_kv_input_channels=net_config.network_dim,
@@ -573,26 +590,32 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         # Road object-map attention
         all_objs_map = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
         all_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks, rg_masks], dim=-1)
+        obj_masks = torch.cat([ego_masks.unsqueeze(1), ro_masks], dim=-1)
         for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_masks)
         all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
-        ego_attn = all_attn['last_hidden_state'][:, 0].unsqueeze(1)
-        objects_attn = all_attn['last_hidden_state'][:, 1:self.ro_max + 1]
+        objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
         road_graph_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
 
-        objects_attn = self.ro_attn(ego_attn, objects_attn, pad_mask=ro_masks)     
-        road_graph_attn = self.rg_attn(ego_attn, road_graph_attn, pad_mask=rg_masks)     
+        all_objects_attn = self.ro_attn(objects_attn, pad_mask=obj_masks)
+        ego_attn = all_objects_attn['last_hidden_state'][:, 0].unsqueeze(1)
+        objects_attn = all_objects_attn['last_hidden_state'][:, 1:self.ro_max + 1]
+        road_graph_attn = self.rg_attn(road_graph_attn, pad_mask=rg_masks)
+        road_graph_attn = road_graph_attn['last_hidden_state']
+
+        objects_attn = self.ego_ro_attn(ego_attn, objects_attn, pad_mask=ro_masks)     
+        road_graph_attn = self.ego_rg_attn(ego_attn, road_graph_attn, pad_mask=rg_masks)   
 
         road_objects_attn = objects_attn['last_hidden_state']
-        road_graph_attn = road_graph_attn['last_hidden_state']
+        road_graph_attn = road_graph_attn['last_hidden_state'] 
+
         mask_zero_ratio = [0, 0]
         road_objects = road_objects_attn.reshape(batch, -1)
         road_graph = road_graph_attn.reshape(batch, -1)
         context = torch.cat((ego_attn.squeeze(1), road_objects, road_graph), dim=1)
 
         ego_attn_score = objects_attn['ego_attn'].clone()
-        ego_attn_score = ego_attn_score[:, 1]
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
 
         return context, mask_zero_ratio, ego_attn_score, None

@@ -355,7 +355,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
             normalized_speed = (masked_speed - dist_min) / speed_range
         return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
 
-    def get_context(self, obs, masks=None, viz_head_idx=0):
+    def get_context(self, obs, masks=None):
         """Get the embedded observation."""
         batch = obs.shape[0]
         ego_state, road_objects, road_graph = self._unpack_obs(obs, num_stack=self.num_stack)
@@ -392,7 +392,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         road_objects_attn = objects_attn['last_hidden_state']
         road_graph_attn = road_graph_attn['last_hidden_state']
 
-        # Max pooling across the object dimension
+        # Max pooling across the object dimensions
         # (M, E) -> (1, E) (max pool across features)
         mask_zero_ratio = [0, 0]
         road_objects = road_objects_attn.reshape(batch, -1)
@@ -400,7 +400,6 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         context = torch.cat((ego_attn.squeeze(1), road_objects, road_graph), dim=1)
         
         ego_attn_score = objects_attn['ego_attn'].clone()
-        ego_attn_score = ego_attn_score[:, viz_head_idx]
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
         return context, mask_zero_ratio, other_attn, objects_attn['ego_attn'], ego_attn_score, None
 
