@@ -667,7 +667,9 @@ class PyGameVisualizer:
                         * self.zoom_scales_x[world_render_idx],
                         color,
                     )
-            self.draw_attention(agent_info, world_render_idx, agent_response_types) if self.render_config.draw_ego_attention else None
+            if self.render_config.draw_ego_attention:
+                self.attn_surfs = [self.surf.copy() for _ in range(self.ego_attn_score.shape[1])]
+                self.draw_attention(agent_info, world_render_idx, agent_response_types)
             
             if self.render_config.view_option == PygameOption.HUMAN:
                 pygame.event.pump()
@@ -677,7 +679,10 @@ class PyGameVisualizer:
                 self.screen.blit(self.surf, (0, 0))
                 pygame.display.flip()
             elif self.render_config.view_option == PygameOption.RGB:
-                return PyGameVisualizer._create_image_array(self.surf)
+                if self.render_config.draw_ego_attention:
+                    return PyGameVisualizer._create_attn_image_array(self.attn_surfs)
+                else:    
+                    return PyGameVisualizer._create_image_array(self.surf)
             else:
                 return self.isopen
         elif self.render_config.render_mode == RenderMode.PYGAME_LIDAR:
@@ -760,6 +765,21 @@ class PyGameVisualizer:
         return np.transpose(
             np.array(pygame.surfarray.pixels3d(surf)), axes=(1, 0, 2)
         )
+        
+    @staticmethod
+    def _create_attn_image_array(surfs):
+        width, height = surfs[0].get_size()
+        
+        new_surf = pygame.Surface((width * 2, height * 2))
+        
+        new_surf.blit(surfs[0], (0, 0))
+        new_surf.blit(surfs[1], (width, 0))
+        new_surf.blit(surfs[2], (0, height))
+        new_surf.blit(surfs[3], (width, height))
+
+        return np.transpose(
+            np.array(pygame.surfarray.pixels3d(new_surf)), axes=(1, 0, 2)
+        )
 
     def destroy(self):
         pygame.display.quit()
@@ -810,6 +830,7 @@ class PyGameVisualizer:
                     break
 
     def saveEgoAttnScore(self, ego_attn_score):
+        """ego_attn_score: shape (num_worlds, num_multi_head, num_agents)"""
         setattr(self, "ego_attn_score", ego_attn_score)
 
     def draw_attention(self, agent_info, world_render_idx, agent_response_types):
@@ -819,43 +840,46 @@ class PyGameVisualizer:
         # Get Attention score scaling
         ego_attn_score = self.ego_attn_score[world_render_idx]
         ego_attn_score = ego_attn_score.cpu().numpy()
-        partner_ids = np.where(ego_attn_score > 0)[0]
-        mu = 1 / len(partner_ids) if len(partner_ids) != 0 else 0
-        max_attn_score = ego_attn_score.max()
-        nonzero_scores = ego_attn_score[ego_attn_score > 0]
-        if nonzero_scores.size > 0:
-            min_attn_score = nonzero_scores.min()
-        else:
-            min_attn_score = ego_attn_score.min()
-        ego_attn_score = (ego_attn_score - min_attn_score) / (max_attn_score - min_attn_score + 1e-6)
+        
+        for head_idx in range(ego_attn_score.shape[0]):
+            attn_score = ego_attn_score[head_idx]
+            partner_ids = np.where(attn_score > 0)[0]
+            mu = 1 / len(partner_ids) if len(partner_ids) != 0 else 0
+            max_attn_score = attn_score.max()
+            nonzero_scores = attn_score[attn_score > 0]
+            if nonzero_scores.size > 0:
+                min_attn_score = nonzero_scores.min()
+            else:
+                min_attn_score = attn_score.min()
+            attn_score = (attn_score - min_attn_score) / (max_attn_score - min_attn_score + 1e-6)
 
-        for partner_id in partner_ids:
-            pos = agent_info[partner_id, :2]
-            sizes = agent_info[partner_id, 10:12]
-            rot = agent_info[partner_id, 7]
+            for partner_id in partner_ids:
+                pos = agent_info[partner_id, :2]
+                sizes = agent_info[partner_id, 10:12]
+                rot = agent_info[partner_id, 7]
 
-            agent_corners = PyGameVisualizer.compute_agent_corners(
-                pos,
-                sizes[1],
-                sizes[0],
-                rot,
-            )
+                agent_corners = PyGameVisualizer.compute_agent_corners(
+                    pos,
+                    sizes[1],
+                    sizes[0],
+                    rot,
+                )
 
-            for i, agent_corner in enumerate(agent_corners):
-                    agent_corners[i] = self.scale_coords(
-                        agent_corner, world_render_idx
-                    )
+                for i, agent_corner in enumerate(agent_corners):
+                        agent_corners[i] = self.scale_coords(
+                            agent_corner, world_render_idx
+                        )
 
-            attention_strength = ego_attn_score[partner_id]
-            viridis_color = cm.viridis(attention_strength)
-            color = tuple(int(c * 255) for c in viridis_color[:3])
+                attention_strength = attn_score[partner_id]
+                viridis_color = cm.viridis(attention_strength)
+                color = tuple(int(c * 255) for c in viridis_color[:3])
 
-            pygame.gfxdraw.aapolygon(self.surf, agent_corners, color)
-            pygame.gfxdraw.filled_polygon(self.surf, agent_corners, color)
+                pygame.gfxdraw.aapolygon(self.attn_surfs[head_idx], agent_corners, color)
+                pygame.gfxdraw.filled_polygon(self.attn_surfs[head_idx], agent_corners, color)
 
-        self.draw_colorbar(min_attn_score, max_attn_score, mu)
+            self.draw_colorbar(min_attn_score, max_attn_score, mu, head_idx=head_idx)
 
-    def draw_colorbar(self, min_val, max_val, mu):
+    def draw_colorbar(self, min_val, max_val, mu, head_idx):
         width, height = 300, 30
         colorbar_surface = pygame.Surface((width, height))
 
@@ -865,14 +889,14 @@ class PyGameVisualizer:
 
         pygame.surfarray.blit_array(colorbar_surface, colorbar_image.swapaxes(0, 1))
 
-        screen_width, screen_height = self.surf.get_size()
+        screen_width, screen_height = self.attn_surfs[head_idx].get_size()
         colorbar_position = (screen_width - width - 20 - 20, screen_height - height - 20 - 20)
 
-        self.surf.blit(colorbar_surface, colorbar_position)
+        self.attn_surfs[head_idx].blit(colorbar_surface, colorbar_position)
         mu_position = int((mu - min_val) / (max_val - min_val + 1e-6) * width)
         mu_position = max(0, min(mu_position, width - 1))
         pygame.draw.line(
-            self.surf,
+            self.attn_surfs[head_idx],
             (255, 0, 0),
             (colorbar_position[0] + mu_position, colorbar_position[1] - 2),
             (colorbar_position[0] + mu_position, colorbar_position[1] + height + 2),
@@ -881,13 +905,21 @@ class PyGameVisualizer:
 
         font = pygame.font.SysFont(None, 20)
         small_font = pygame.font.SysFont(None, 16)
-        pygame.draw.rect(self.surf, (0, 0, 0), (*colorbar_position, width, height), 2)
+        pygame.draw.rect(self.attn_surfs[head_idx], (0, 0, 0), (*colorbar_position, width, height), 2)
 
-        title_text = font.render("Attention Weight", True, (0, 0, 0))
+        # TODO: Fix title_dict if auxiliary tasks are added
+        title_dict = {
+            0: "Speed",
+            1: "Pos",
+            2: "Heading",
+            3: "Action"
+        }
+        
+        title_text = font.render(f"{title_dict[head_idx]} Attention Weight", True, (0, 0, 0))
         title_x = colorbar_position[0] + width // 2 - title_text.get_width() // 2
         title_y = colorbar_position[1] - 25
-        self.surf.blit(title_text, (title_x, title_y))
+        self.attn_surfs[head_idx].blit(title_text, (title_x, title_y))
         min_text = small_font.render(f"{float(min_val):.3f}", True, (0, 0, 0))
         max_text = small_font.render(f"{float(max_val):.3f}", True, (0, 0, 0))
-        self.surf.blit(min_text, (colorbar_position[0] - 40, colorbar_position[1] + height // 2 - min_text.get_height() // 2))
-        self.surf.blit(max_text, (colorbar_position[0] + width + 10, colorbar_position[1] + height // 2 - max_text.get_height() // 2))
+        self.attn_surfs[head_idx].blit(min_text, (colorbar_position[0] - 40, colorbar_position[1] + height // 2 - min_text.get_height() // 2))
+        self.attn_surfs[head_idx].blit(max_text, (colorbar_position[0] + width + 10, colorbar_position[1] + height // 2 - max_text.get_height() // 2))
