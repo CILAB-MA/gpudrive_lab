@@ -594,10 +594,13 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_masks)
+        all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
+        objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
+        road_graph_attn = all_attn['last_hidden_state'][:, self.ro_max + 1:]
+
         all_objects_attn = self.ro_attn(objects_attn, pad_mask=obj_masks)
         ego_attn = all_objects_attn['last_hidden_state'][:, 0].unsqueeze(1)
         objects_attn = all_objects_attn['last_hidden_state'][:, 1:self.ro_max + 1]
-        other_attn = objects_attn.clone()
         road_graph_attn = self.rg_attn(road_graph_attn, pad_mask=rg_masks)
         road_graph_attn = road_graph_attn['last_hidden_state']
 
