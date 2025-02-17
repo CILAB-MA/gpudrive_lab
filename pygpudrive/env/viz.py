@@ -820,6 +820,7 @@ class PyGameVisualizer:
         ego_attn_score = self.ego_attn_score[world_render_idx]
         ego_attn_score = ego_attn_score.cpu().numpy()
         partner_ids = np.where(ego_attn_score > 0)[0]
+        mu = 1 / len(partner_ids) if len(partner_ids) != 0 else 0
         max_attn_score = ego_attn_score.max()
         nonzero_scores = ego_attn_score[ego_attn_score > 0]
         if nonzero_scores.size > 0:
@@ -852,9 +853,9 @@ class PyGameVisualizer:
             pygame.gfxdraw.aapolygon(self.surf, agent_corners, color)
             pygame.gfxdraw.filled_polygon(self.surf, agent_corners, color)
 
-        self.draw_colorbar(min_attn_score, max_attn_score)
+        self.draw_colorbar(min_attn_score, max_attn_score, mu)
 
-    def draw_colorbar(self, min_val, max_val):
+    def draw_colorbar(self, min_val, max_val, mu):
         width, height = 300, 30
         colorbar_surface = pygame.Surface((width, height))
 
@@ -868,6 +869,16 @@ class PyGameVisualizer:
         colorbar_position = (screen_width - width - 20 - 20, screen_height - height - 20 - 20)
 
         self.surf.blit(colorbar_surface, colorbar_position)
+        mu_position = int((mu - min_val) / (max_val - min_val + 1e-6) * width)
+        mu_position = max(0, min(mu_position, width - 1))
+        pygame.draw.line(
+            self.surf,
+            (255, 0, 0),
+            (colorbar_position[0] + mu_position, colorbar_position[1] - 2),
+            (colorbar_position[0] + mu_position, colorbar_position[1] + height + 2),
+            2 
+        )
+
         font = pygame.font.SysFont(None, 20)
         small_font = pygame.font.SysFont(None, 16)
         pygame.draw.rect(self.surf, (0, 0, 0), (*colorbar_position, width, height), 2)

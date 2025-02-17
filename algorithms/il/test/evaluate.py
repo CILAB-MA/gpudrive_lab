@@ -24,7 +24,7 @@ def parse_args():
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model/')
-    parser.add_argument('--model-name', '-m', type=str, default='aux_attn_gmm_aux_eval_log_20250211_2030')
+    parser.add_argument('--model-name', '-mn', type=str, default='.csv')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
@@ -76,8 +76,8 @@ if __name__ == "__main__":
         "num_stack": args.num_stack
     }
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
-    print(f'model: {args.model_path}/{args.model_name}.pth', )
-    bc_policy = torch.load(f"{args.model_path}/{args.model_name}.pth").to(args.device)
+    print(f'model: {args.model_path}/{args.model_name}', )
+    bc_policy = torch.load(f"{args.model_path}/{args.model_name}").to(args.device)
     bc_policy.eval()
 
     # To make video with expert trajectories footprint
@@ -110,24 +110,9 @@ if __name__ == "__main__":
         partner_mask_bool = (partner_masks == 2)
         road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
         all_masks = [ego_masks[~dead_agent_mask], partner_mask_bool[~dead_agent_mask], road_masks[~dead_agent_mask]]
-        
-        # OTHER INFO
-        if hasattr(bc_policy, 'use_tom'):
-            if bc_policy.use_tom == 'oracle':
-                other_info = env.get_other_infos(step=time_step)
-                other_info = other_info[~dead_agent_mask]
-            elif bc_policy.use_tom == 'aux_head':
-                other_info = None
-            else:
-                raise ValueError(f'ToM method "{bc_policy.use_tom}" is not implemented yet!!')
-        else:
-            other_info = None
             
         with torch.no_grad():
-            try:
-                context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs[~dead_agent_mask], all_masks, other_info=other_info))
-            except TypeError:
-                context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs[~dead_agent_mask], all_masks))
+            context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(obs[~dead_agent_mask], all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
         all_actions[~dead_agent_mask, :] = actions
@@ -199,10 +184,11 @@ if __name__ == "__main__":
             os.makedirs(video_path)
         for world_render_idx in range(NUM_WORLDS):
             if world_render_idx in torch.where(veh_collision >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=10)
             elif world_render_idx in torch.where(off_road >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=10)
             elif world_render_idx in torch.where(goal_achieved >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=10)
             else:
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=30)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10)
+    

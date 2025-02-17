@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
-    parser.add_argument('--aux-future-step', '-afs', default=None)
+    parser.add_argument('--aux-future-step', '-afs', type=int, default=10)
     
     # EXPERIMENT
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
@@ -160,7 +160,6 @@ def train():
     tsne_data_mask = train_partner_mask[0][:10, 6].copy()
     tsne_partner_mask = np.where(tsne_data_mask == 2, 1, 0).astype('bool')
     tsne_road_mask = train_road_mask[0][:10, 6].copy()
-
     # Training loop
     if config.use_wandb:
         raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs[0], tsne_data_mask[0])
