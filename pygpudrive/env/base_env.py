@@ -285,7 +285,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             RenderMode.PYGAME_ABSOLUTE,
         }:
             return self.visualizer.saveEgoAttnScore(
-                ego_attn_score=ego_attn_score,
+                ego_attn_score=ego_attn_score
             )
         else:
             raise ValueError(

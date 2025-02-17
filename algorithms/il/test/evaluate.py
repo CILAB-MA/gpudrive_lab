@@ -23,8 +23,8 @@ def parse_args():
     parser.add_argument('--num-world', '-w', type=int, default=10)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/')
-    parser.add_argument('--model-name', '-mn', type=str, default='.csv')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/new_aux_horizon')
+    parser.add_argument('--model-name', '-mn', type=str, default='aux_attn_gmm_guide_weight_20250217_1245.pth')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
@@ -46,7 +46,6 @@ if __name__ == "__main__":
     ROLLOUT_LEN = 5
 
     # Initialize configurations
-    print(args.start_idx)
     scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
                                num_scenes=NUM_WORLDS,
                                start_idx=args.start_idx,
@@ -121,26 +120,28 @@ if __name__ == "__main__":
             if render_config.draw_ego_attention:
                 # Save ego attention score
                 partner_idx = env.partner_id[~dead_agent_mask].clone()
-                ego_attn_score = ego_attn_score
                 
-                def fill_tensor(id_tensor, attn_weight, partner_mask):
-                    n, _ = id_tensor.shape
-                    filled_tensor = torch.zeros((n, 128)).to(args.device)
+                def fill_tensor(partner_idx, ego_attn_score, partner_mask):
+                    multi_head_num = ego_attn_score.shape[1]
+                    ego_attn_score = ego_attn_score.transpose(1, 2)
+                    n, _ = partner_idx.shape
+                    filled_tensor = torch.zeros((n, 128, multi_head_num)).to(args.device)
 
-                    row_indices = torch.arange(n).unsqueeze(1).expand_as(id_tensor).to(args.device)
+                    row_indices = torch.arange(n).unsqueeze(1).expand_as(partner_idx).to(args.device)
                     valid_rows = row_indices[~partner_mask]
-                    valid_cols = id_tensor[~partner_mask].int()
-                    valid_values = attn_weight[~partner_mask]
+                    valid_cols = partner_idx[~partner_mask].int()
+                    valid_values = ego_attn_score[~partner_mask]
 
                     filled_tensor[valid_rows, valid_cols] = valid_values
                     
                     return filled_tensor
                 
                 viz_ego_attn = fill_tensor(partner_idx, ego_attn_score, partner_mask_bool[:,:,-1,:][~dead_agent_mask])
-                real_viz_ego_attn = torch.zeros(NUM_WORLDS, NUM_PARTNER).to(args.device)
-                real_viz_ego_attn[(~dead_agent_mask).sum(dim=-1) == 1] = viz_ego_attn
+                world_viz_ego_attn = torch.zeros(NUM_WORLDS, NUM_PARTNER, ego_attn_score.shape[1]).to(args.device)
+                world_viz_ego_attn[(~dead_agent_mask).sum(dim=-1) == 1] = viz_ego_attn
+                world_viz_ego_attn = world_viz_ego_attn.transpose(1, 2)
 
-                env.save_ego_attn_score(real_viz_ego_attn)
+                env.save_ego_attn_score(world_viz_ego_attn)
 
             for world_render_idx in range(NUM_WORLDS):
                 frame = env.render(world_render_idx=world_render_idx)
@@ -184,11 +185,11 @@ if __name__ == "__main__":
             os.makedirs(video_path)
         for world_render_idx in range(NUM_WORLDS):
             if world_render_idx in torch.where(veh_collision >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=10)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=30)
             elif world_render_idx in torch.where(off_road >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=10)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=30)
             elif world_render_idx in torch.where(goal_achieved >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=10)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=30)
             else:
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10)
+                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=30)
     
