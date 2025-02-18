@@ -176,10 +176,9 @@ inline void collectPartnerObsSystem(Engine &ctx,
 
     auto &partner_obs = ctx.get<PartnerObservations>(agent_iface.e);
 
-    CountT arrIndex = 0; CountT agentIdx = 0;
-    while(agentIdx < ctx.data().numAgents - 1)
+    for(CountT agentIdx = 0; agentIdx < ctx.data().numAgents - 1; agentIdx++)
     {
-        Entity other = other_agents.e[agentIdx++];
+        Entity other = other_agents.e[agentIdx];
 
         const Position &other_position = ctx.get<Position>(other);
         const Velocity &other_velocity = ctx.get<Velocity>(other);
@@ -194,21 +193,27 @@ inline void collectPartnerObsSystem(Engine &ctx,
 
         float relative_heading = utils::quatToYaw(relative_orientation);
 
+        // if agent is outside of observation radius, return zero observation
         if(relative_pos.length() > ctx.data().params.observationRadius)
         {
-            continue;
+            partner_obs.obs[agentIdx] = PartnerObservation::zero();
         }
-        partner_obs.obs[arrIndex++] = {
-            .speed = relative_speed,
-            .position = relative_pos,
-            .heading = relative_heading,
-            .vehicle_size = other_size,
-            .type = (float)ctx.get<EntityType>(other),
-            .id = (float)ctx.get<AgentID>(ctx.get<AgentInterfaceEntity>(other).e).id
-        };
+        else
+        {
+            partner_obs.obs[agentIdx] = {
+                .speed = relative_speed,
+                .position = relative_pos,
+                .heading = relative_heading,
+                .vehicle_size = other_size,
+                .type = (float)ctx.get<EntityType>(other),
+                .id = (float)ctx.get<AgentID>(ctx.get<AgentInterfaceEntity>(other).e).id
+            };   
+        }
     }
-    while(arrIndex < ctx.data().numAgents - 1) {
-        partner_obs.obs[arrIndex++] = PartnerObservation::zero();
+
+    for (CountT agentIdx = ctx.data().numAgents - 1; agentIdx < consts::kMaxAgentCount - 1; agentIdx++)
+    {
+        partner_obs.obs[agentIdx] = PartnerObservation::zero();
     }
 }
 
