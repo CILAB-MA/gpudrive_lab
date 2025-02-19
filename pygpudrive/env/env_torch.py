@@ -89,7 +89,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         
         return gathered_actions
 
-
+    def get_partner_id(self):
+        return self.partner_id.clone()
+        
     def get_rewards(
         self, collision_weight=0, goal_achieved_weight=1.0, off_road_weight=0
     ):

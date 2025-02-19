@@ -11,18 +11,18 @@ def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
     if aux_info:
         aux_task, attn_weights, aux_style = aux_info
     if aux_task == 'action':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_action_head(context, partner_masks)
         expert_actions[..., :2] /= 6 
         expert_actions[..., 2] /= np.pi 
     elif aux_task == 'pos':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_pos_head(context, partner_masks)
     elif aux_task == 'heading':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_heading_head(context, partner_masks)
     elif aux_task == 'speed':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_speed_head(context, partner_masks)
     else:
         pred_actions = model.get_action(context)
