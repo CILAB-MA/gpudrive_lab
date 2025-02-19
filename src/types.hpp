@@ -198,6 +198,15 @@ struct ResetMap {
             .type = static_cast<float>(EntityType::None),
             .id = -1};
     }
+    static inline PartnerObservation zero_static() {
+        return PartnerObservation{
+            .speed = 0,
+            .position = {0, 0},
+            .heading = 0,
+            .vehicle_size = {0, 0},
+            .type = static_cast<float>(EntityType::None),
+            .id = -2};
+    }
 };
 
     // Egocentric observations of other agents
