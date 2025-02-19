@@ -174,8 +174,12 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             partner_observations = (
                 self.sim.partner_observations_tensor().to_torch()
             )
-            # Omit vehicle ids (last feature)
+            
+            # Get partner_id and partner_mask
             self.partner_id = partner_observations[:, :, :, -1]
+            self.partner_mask = self.set_partner_mask(self.partner_id, self.cont_agent_mask)
+            
+            # Get the partner observations
             partner_observations = partner_observations[:, :, :, :-1]
             if self.config.norm_obs:  # Normalize observations and then flatten
                 partner_observations = self.normalize_and_flatten_partner_obs(
@@ -265,6 +269,20 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
     def get_partner_mask(self):
         """Get the mask for partner observations."""
         return self.partner_mask.clone()
+    
+    def set_partner_mask(self, partner_id, cont_mask):
+        """0: control, 1: static, 2: not existed"""
+        # Get the mask for the partner vehicles that remove the ego vehicle
+        vehicle_num = cont_mask.shape[1]
+        ego_mask = ~torch.eye(vehicle_num, device=partner_id.device).bool()
+        partner_mask = (~cont_mask).unsqueeze(1).expand(-1, vehicle_num, -1)[:, ego_mask].reshape(-1, vehicle_num, vehicle_num - 1)
+
+        # Get the mask for the partner vehicles that are visible
+        _partner_mask = torch.zeros_like(partner_id)
+        _partner_mask[(partner_mask == True) & (partner_id >= 0)] = 1 # static
+        _partner_mask[(partner_mask == True) & ((partner_id == -1) | (partner_id == -2))] = 2 # dead(-1) or not existed(-2)
+        
+        return _partner_mask
 
     def get_stacked_partner_mask(self):
         """Get the stacked partner mask."""
@@ -434,23 +452,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Concat the one-hot encoding with the rest of the features
         obs = torch.concat((obs[:, :, :, :6], one_hot_encoded_object_types), dim=-1)
 
-        filtered_partner_id = self.partner_id.clone() 
-        cont_mask = self.cont_agent_mask.clone()
-        filtered_partner_id[..., 1:][filtered_partner_id[..., 1:] <= 0] = -2
-        filtered_partner_id[..., 0][filtered_partner_id[..., 0] < 0] = -2
-        b, o, _ = filtered_partner_id.shape
-        not_existed = filtered_partner_id == -2
-        partner_mask_values = torch.gather(
-        ~cont_mask.unsqueeze(1).expand(-1, o, -1),  # Expand to (b, o, o)
-        2,
-        filtered_partner_id.long().clamp(min=0, max=o - 1),  # Clamp invalid indices
-        ).long()
-        partner_mask2 = ((obs.sum(-1) == 0) | (obs.sum(-1) == 1))
-        not_existed = torch.logical_or(not_existed, partner_mask2)
-        partner_mask_values[not_existed] = 2
-        self.partner_mask = partner_mask_values
-        new_mask = torch.where(partner_mask_values == 2, 1, 0)
-        # print((new_mask - partner_mask2.int()).abs().sum())
         return obs.flatten(start_dim=2)
 
     def one_hot_encode_roadpoints(self, roadmap_type_tensor):
