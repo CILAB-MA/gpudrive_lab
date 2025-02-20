@@ -265,7 +265,7 @@ def train():
                     tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
                                     aux_info=aux_info)
                     aux_losses[aux_ind] = tom_loss
-                    loss = loss + 0.25 * tom_loss
+                    loss = loss + 0.2 * tom_loss
             else:
                 context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)

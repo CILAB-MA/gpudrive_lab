@@ -6,6 +6,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                  rollout_len=5, pred_len=1, aux_future_step=None):
         # obs
         self.obs = obs
+        B, T, *_ = obs.shape
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
         self.obs = np.concatenate([obs_pad, self.obs], axis=1)
 
@@ -21,13 +22,14 @@ class ExpertDataset(torch.utils.data.Dataset):
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
         self.aux_valid_mask = None
+        partner_info = obs[..., 6:1276].reshape(B, T, 127, 10)[..., :4]
         if other_info is not None:
-            aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, future_timestep=aux_future_step)
+            aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, 
+                                                     future_timestep=aux_future_step)
         aux_mask = np.empty_like(partner_mask) if aux_future_step else None
         self.aux_mask = None
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
         self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
-
         # road_mask
         self.road_mask = road_mask
         road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
@@ -52,18 +54,18 @@ class ExpertDataset(torch.utils.data.Dataset):
         valid_idx2 = valid_time[valid_idx2]
         return list(zip(valid_idx1, valid_idx2))
     
-    def _make_aux_info(self, partner_mask, info, future_timestep):
+    def _make_aux_info(self, partner_mask, info, partner_info, future_timestep):
         partner_mask_bool = np.where(partner_mask == 2, 1, 0).astype(bool)
         current_info_id = info[:, :, :, -1]
-
-        other_info_pad = np.zeros((info.shape[0], future_timestep, *info.shape[2:]), dtype=np.float32)
+        all_infos = np.concatenate([partner_info, info], axis=-1)
+        other_info_pad = np.zeros((all_infos.shape[0], future_timestep, *all_infos.shape[2:]), dtype=np.float32)
         partner_mask_pad = np.full((partner_mask.shape[0], future_timestep, *partner_mask.shape[2:]), 2, dtype=np.float32)
 
         future_mask = np.concatenate([partner_mask, partner_mask_pad], axis=1)
         future_mask_bool = np.where(future_mask == 2, 1, 0).astype(bool)[:, future_timestep:]
-        other_info = np.concatenate([info, other_info_pad], axis=1)[:, future_timestep:]
+        other_info = np.concatenate([all_infos, other_info_pad], axis=1)[:, future_timestep:]
         future_info_id = other_info[:, :, :, -1]
-        future_acton_sum = other_info[:, :, :, :3]
+        future_acton_sum = other_info[:, :, :, :-1]
 
         future_info_id_masked = future_info_id * ~future_mask_bool - future_mask_bool
         current_info_id_masked = current_info_id * ~partner_mask_bool - partner_mask_bool

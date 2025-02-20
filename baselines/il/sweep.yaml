@@ -13,7 +13,7 @@ parameters:
 
   # EXPERIMENT
   batch_size:
-    values: [1024]
+    values: [512]
   epochs:
     values: [500]
   lr:
