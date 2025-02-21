@@ -13,38 +13,14 @@ from datetime import datetime
 from collections import OrderedDict
 import matplotlib
 matplotlib.use('Agg')
-import pandas as pd
-import matplotlib.pyplot as plt
-import statsmodels.api as sm
 # GPUDrive
 from algorithms.il.analyze.linear_probing.dataloader import ExpertDataset
 from algorithms.il.analyze.linear_probing.config import ExperimentConfig
 from algorithms.il.analyze.linear_probing.model import *
+from algorithms.il.utils import compute_correlation_scatter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-def compute_correlation_scatter(dist, coll, loss):
-    data = np.vstack([dist, coll, loss])
-    corr_matrix = np.corrcoef(data)
-    df_corr = pd.DataFrame(corr_matrix, index=['Current Distance', 'Distance Difference', 'Loss'], 
-                           columns=['Current Distance', 'Distance Difference', 'Loss'])
-    x = np.column_stack((dist, coll))
-    x = sm.add_constant(x)
-    model = sm.OLS(loss, x).fit()
-    print(model.summary())
-    r_squared = model.rsquared
-    multiple_correlation = np.sqrt(r_squared)
-    print(f"Multiple Correlation Coefficient (R): {multiple_correlation:.4f}")
-    fig, ax = plt.subplots(figsize=(8, 6))
-    scatter = ax.scatter(dist, coll, c=loss, cmap='viridis', edgecolor='none', alpha=0.7)
-    plt.colorbar(scatter, label="Loss Value")
-    ax.set_xlabel("Current Distance")
-    ax.set_ylabel("Distance Difference")
-    ax.set_title("Evaluation of Collision Risk")
-    ax.grid(True)
-
-    return df_corr, fig
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')

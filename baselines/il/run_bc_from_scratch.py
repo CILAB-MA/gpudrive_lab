@@ -21,7 +21,7 @@ import matplotlib.patches as mpatches
 from baselines.il.config import *
 from baselines.il.dataloader import ExpertDataset
 from algorithms.il import MODELS, LOSS
-from algorithms.il.utils import visualize_partner_obs_final ,visualize_embedding
+from algorithms.il.utils import *
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -156,10 +156,10 @@ def train():
         eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
         eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
         
-    tsne_obs = train_expert_obs[0][:10, 2:7].copy()
-    tsne_data_mask = train_partner_mask[0][:10, 6].copy()
+    tsne_obs = eval_expert_obs[0][:10, 2:7].copy()
+    tsne_data_mask = eval_partner_mask[0][:10, 6].copy()
     tsne_partner_mask = np.where(tsne_data_mask == 2, 1, 0).astype('bool')
-    tsne_road_mask = train_road_mask[0][:10, 6].copy()
+    tsne_road_mask = eval_road_mask[0][:10, 6].copy()
     # Training loop
     if config.use_wandb:
         raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs[0], tsne_data_mask[0])
@@ -391,10 +391,14 @@ def train():
             test_loss = losses / (i + 1) 
             if config.use_wandb:
                 with torch.no_grad():
-                    others_tsne, other_distance, other_speed = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
-                fig = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
-                wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
-                plt.close(fig)
+                    others_tsne, other_distance, other_speed, other_weights = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
+                fig1 = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                wandb.log({"embedding/tsne_subplots": wandb.Image(fig1)}, step=epoch)
+                plt.close(fig1)
+                if config.use_tom:
+                    fig2 = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                    wandb.log({"embedding/attn_subplots": wandb.Image(fig2)}, step=epoch)
+                    plt.close(fig2)
                 log_dict = {
                         "eval/loss": test_loss,
                         "eval/dx_loss": dx_losses / (i + 1),

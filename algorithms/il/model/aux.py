@@ -334,6 +334,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
             if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_masks)
         all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
+        ego_attn = all_objects_attn['last_hidden_state'][:, 0].unsqueeze(1)
         objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
 
         all_objects_attn = self.ro_attn(objects_attn, pad_mask=obj_masks)
@@ -342,6 +343,10 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
         masked_speed = masked_speed[~mask].view(-1, 1)
         masked_distances = masked_positions.norm(dim=-1)
+        objects_attn = self.ego_ro_attn(ego_attn, objects_attn, pad_mask=mask) 
+        ego_attn_score = objects_attn['ego_attn'].clone()
+        ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
+        ego_attn_score = ego_attn_score[~mask]
         dist_min = masked_distances.min()
         dist_max = masked_distances.max()
         dist_range = dist_max - dist_min
@@ -355,7 +360,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         else:
             normalized_distances = (masked_distances - dist_min) / dist_range
             normalized_speed = (masked_speed - dist_min) / speed_range
-        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy(), ego_attn_score.cpu().numpy()
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""

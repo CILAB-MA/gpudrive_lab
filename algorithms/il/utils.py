@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import torch
 
+import pandas as pd
+import statsmodels.api as sm
+
 def visualize_partner_obs_final(obs, partner_mask):
     """
     Final refined visualization for partner_obs.
@@ -212,3 +215,56 @@ def visualize_embedding(
 
     plt.tight_layout()
     return fig
+
+def visualize_tsne_with_weights(
+    other_tsne,
+    other_weights,
+    tsne_data_mask,
+    tsne_partner_mask
+):
+    filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).cpu().numpy()]
+    tsne_model = TSNE(
+        n_components=2, perplexity=30, learning_rate='auto',
+        init='random', random_state=42
+    )
+    aux_task = ['action', 'pos', 'heading', 'speed']
+    emb_tsne = tsne_model.fit_transform(other_tsne)
+    x, y = emb_tsne[:, 0], emb_tsne[:, 1]
+    fig, axes = plt.subplots(1, 4, figsize=(24, 6), sharex=True, sharey=True)
+    for i in range(4):
+        sc = axes[i].scatter(
+            x,
+            y,
+            c=other_weights[:, i],
+            cmap='viridis',
+            edgecolors='none',
+            s=50
+        )
+        cbar = fig.colorbar(sc, ax=axes[i])
+        cbar.set_label(f'Weight {aux_task[i]}')
+        axes[i].set_title(f'TSNE Visualization (Weight {aux_task[i]})')
+
+    plt.tight_layout()
+    return fig
+
+def compute_correlation_scatter(dist, coll, loss):
+    data = np.vstack([dist, coll, loss])
+    corr_matrix = np.corrcoef(data)
+    df_corr = pd.DataFrame(corr_matrix, index=['Current Distance', 'Distance Difference', 'Loss'], 
+                           columns=['Current Distance', 'Distance Difference', 'Loss'])
+    x = np.column_stack((dist, coll))
+    x = sm.add_constant(x)
+    model = sm.OLS(loss, x).fit()
+    print(model.summary())
+    r_squared = model.rsquared
+    multiple_correlation = np.sqrt(r_squared)
+    print(f"Multiple Correlation Coefficient (R): {multiple_correlation:.4f}")
+    fig, ax = plt.subplots(figsize=(8, 6))
+    scatter = ax.scatter(dist, coll, c=loss, cmap='viridis', edgecolor='none', alpha=0.7)
+    plt.colorbar(scatter, label="Loss Value")
+    ax.set_xlabel("Current Distance")
+    ax.set_ylabel("Distance Difference")
+    ax.set_title("Evaluation of Collision Risk")
+    ax.grid(True)
+
+    return df_corr, fig

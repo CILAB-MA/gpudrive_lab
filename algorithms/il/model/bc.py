@@ -573,7 +573,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         else:
             normalized_distances = (masked_distances - dist_min) / dist_range
             normalized_speed = (masked_speed - dist_min) / speed_range
-        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy(), None
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
