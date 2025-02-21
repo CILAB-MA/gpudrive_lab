@@ -275,13 +275,13 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_other_info_lst = expert_other_info_lst.to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
-    # np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
-    #                     obs=expert_trajectory_lst,
-    #                     actions=expert_actions_lst,
-    #                     dead_mask=expert_dead_mask_lst,
-    #                     partner_mask=expert_partner_mask_lst,
-    #                     road_mask=expert_road_mask_lst,
-    #                     other_info=expert_other_info_lst)
+    np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
+                        obs=expert_trajectory_lst,
+                        actions=expert_actions_lst,
+                        dead_mask=expert_dead_mask_lst,
+                        partner_mask=expert_partner_mask_lst,
+                        road_mask=expert_road_mask_lst,
+                        other_info=expert_other_info_lst)
 
 
 if __name__ == "__main__":
