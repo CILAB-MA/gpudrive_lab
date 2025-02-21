@@ -470,30 +470,24 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
     def one_hot_encode_object_type(self, object_type_tensor):
         """One-hot encode the object type."""
-
+        NONE = self.ENTITY_TYPE_TO_INT[gpudrive.EntityType._None]
         VEHICLE = self.ENTITY_TYPE_TO_INT[gpudrive.EntityType.Vehicle]
         PEDESTRIAN = self.ENTITY_TYPE_TO_INT[gpudrive.EntityType.Pedestrian]
         CYCLIST = self.ENTITY_TYPE_TO_INT[gpudrive.EntityType.Cyclist]
-        PADDING = self.ENTITY_TYPE_TO_INT[gpudrive.EntityType._None]
 
-        # Set garbage object elements to zero
-        object_types = torch.where(
-            (object_type_tensor < self.MIN_OBJ_ENTITY_ENUM)
-            | (object_type_tensor > self.MAX_OBJ_ENTITY_ENUM),
-            0.0,
-            object_type_tensor,
-        ).int()
+        def map_obj_type_to_int(obj_type, keys, min_obj_enum, max_obj_enum):
+            keys = torch.tensor(keys, device=obj_type.device)
+            values = torch.tensor([0, 1, 2, 3], device=obj_type.device)
+            index = torch.bucketize(obj_type, keys)
+            return torch.where((index >= min_obj_enum) & (index < max_obj_enum), values[index], 0).int()
+
+        object_types = map_obj_type_to_int(object_type_tensor,
+                                           keys=[NONE, VEHICLE, PEDESTRIAN, CYCLIST],
+                                           min_obj_enum=self.MIN_OBJ_ENTITY_ENUM,
+                                           max_obj_enum=self.ROAD_OBJECT_TYPES)
 
         one_hot_object_type = torch.nn.functional.one_hot(
-            torch.where(
-                condition=(object_types == VEHICLE)
-                | (object_types == PEDESTRIAN)
-                | (object_types == CYCLIST)
-                | object_types
-                == PADDING,
-                input=object_types,
-                other=0,
-            ).long(),
+            object_types.long(),
             num_classes=self.ROAD_OBJECT_TYPES,
         )
         return one_hot_object_type
