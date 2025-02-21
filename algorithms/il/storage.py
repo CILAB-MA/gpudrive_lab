@@ -254,6 +254,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
 
         # Check mask
         partner_mask_bool = (partner_mask == 2)
+        action_valid_mask = torch.where(partner_mask == 0, 1, 0).bool()
         total_other_agent_obs = obs[..., 6:1276].reshape(-1, 128, 127, 10)
         total_road_obs = obs[..., 1276:].reshape(-1, 128, 200, 13)
         sum_alive_partner = torch.logical_or((total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 0), (total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 1)).sum().item()
@@ -262,6 +263,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         sum_dead_road = torch.logical_and((total_road_obs[road_mask].sum(dim=-1) != 0), (total_road_obs[road_mask].sum(dim=-1) != 1)).sum().item()
         print("Checking alive but, sum is 0 or 1 ->", sum_alive_partner, sum_alive_road)
         print("Checking dead but, sum is not 0 and 1 ->", sum_dead_partner, sum_dead_road)
+
         if (dead_agent_mask == True).all():
             break
     
@@ -273,13 +275,13 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_other_info_lst = expert_other_info_lst.to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
-    np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
-                        obs=expert_trajectory_lst,
-                        actions=expert_actions_lst,
-                        dead_mask=expert_dead_mask_lst,
-                        partner_mask=expert_partner_mask_lst,
-                        road_mask=expert_road_mask_lst,
-                        other_info=expert_other_info_lst)
+    # np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
+    #                     obs=expert_trajectory_lst,
+    #                     actions=expert_actions_lst,
+    #                     dead_mask=expert_dead_mask_lst,
+    #                     partner_mask=expert_partner_mask_lst,
+    #                     road_mask=expert_road_mask_lst,
+    #                     other_info=expert_other_info_lst)
 
 
 if __name__ == "__main__":

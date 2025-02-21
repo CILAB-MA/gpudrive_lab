@@ -56,6 +56,8 @@ class ExpertDataset(torch.utils.data.Dataset):
     
     def _make_aux_info(self, partner_mask, info, partner_info, future_timestep):
         partner_mask_bool = np.where(partner_mask == 2, 1, 0).astype(bool)
+        action_valid_mask = np.where(partner_mask == 0, 1, 0).astype(bool)
+        info[..., :-1] *= action_valid_mask[..., np.newaxis]
         current_info_id = info[:, :, :, -1]
         all_infos = np.concatenate([partner_info, info], axis=-1)
         other_info_pad = np.zeros((all_infos.shape[0], future_timestep, *all_infos.shape[2:]), dtype=np.float32)
@@ -145,7 +147,7 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     
-    data = np.load("/data/tom_v3/train_subset/trajectory_200.npz")
+    data = np.load("/data/tom_v4/train_subset/trajectory_200.npz")
     
     expert_data_loader = DataLoader(
         ExpertDataset(

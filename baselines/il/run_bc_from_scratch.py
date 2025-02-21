@@ -390,11 +390,11 @@ def train():
                         aux_s_losses += aux_losses[3].mean().item()
             test_loss = losses / (i + 1) 
             if config.use_wandb:
-                # with torch.no_grad():
-                #     others_tsne, other_distance, other_speed = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
-                # fig = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
-                # wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
-                # plt.close(fig)
+                with torch.no_grad():
+                    others_tsne, other_distance, other_speed = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
+                fig = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                wandb.log({"embedding/tsne_subplots": wandb.Image(fig)}, step=epoch)
+                plt.close(fig)
                 log_dict = {
                         "eval/loss": test_loss,
                         "eval/dx_loss": dx_losses / (i + 1),
