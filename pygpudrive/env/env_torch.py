@@ -85,13 +85,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             2,  # Gather along the second dimension of agents
             filtered_partner_id.clamp(min=0).long().unsqueeze(-1).expand(-1, -1, -1, d)  # Expand partner_id for features
         )
-        gathered_actions[self.partner_mask == 0] = 0
+        gathered_actions[self.partner_mask != 0] = 0
         
         return gathered_actions
 
     def get_partner_id(self):
         return self.partner_id.clone()
-        
+
     def get_rewards(
         self, collision_weight=0, goal_achieved_weight=1.0, off_road_weight=0
     ):
