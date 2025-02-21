@@ -328,25 +328,31 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
         # Road object-map attention
         all_objs_map = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
-        all_masks = torch.cat([ego_mask.unsqueeze(1), mask, road_mask], dim=-1)
-        obj_masks = torch.cat([ego_mask.unsqueeze(1), mask], dim=-1)
+        all_masks = torch.cat([ego_mask, mask, road_mask], dim=-1)
+        obj_masks = torch.cat([ego_mask, mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_masks)
         all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
-        ego_attn = all_objects_attn['last_hidden_state'][:, 0].unsqueeze(1)
+        ego_attn = all_attn['last_hidden_state'][:, 0].unsqueeze(1)
         objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
 
         all_objects_attn = self.ro_attn(objects_attn, pad_mask=obj_masks)
         objects_attn = all_objects_attn['last_hidden_state'][:, 1:self.ro_max + 1]
+
         masked_road_objects = objects_attn[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
         masked_speed = masked_speed[~mask].view(-1, 1)
         masked_distances = masked_positions.norm(dim=-1)
+
         objects_attn = self.ego_ro_attn(ego_attn, objects_attn, pad_mask=mask) 
         ego_attn_score = objects_attn['ego_attn'].clone()
         ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
-        ego_attn_score = ego_attn_score[~mask]
+        attn_score0 = objects_attn['ego_attn'][:, 0][~mask].unsqueeze(-1)
+        attn_score1 = objects_attn['ego_attn'][:, 1][~mask].unsqueeze(-1)
+        attn_score2 = objects_attn['ego_attn'][:, 2][~mask].unsqueeze(-1)
+        attn_score3 = objects_attn['ego_attn'][:, 3][~mask].unsqueeze(-1)
+        ego_attn_score = torch.cat([attn_score0, attn_score1, attn_score2, attn_score3], dim=-1)
         dist_min = masked_distances.min()
         dist_max = masked_distances.max()
         dist_range = dist_max - dist_min

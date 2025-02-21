@@ -43,7 +43,7 @@ def parse_args():
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v4/')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -265,7 +265,7 @@ def train():
                     tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
                                     aux_info=aux_info)
                     aux_losses[aux_ind] = tom_loss
-                    loss = loss + 0.2 * tom_loss
+                    loss = loss + 0.1 * tom_loss
             else:
                 context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
                 loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
@@ -396,7 +396,7 @@ def train():
                 wandb.log({"embedding/tsne_subplots": wandb.Image(fig1)}, step=epoch)
                 plt.close(fig1)
                 if config.use_tom:
-                    fig2 = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                    fig2 = visualize_tsne_with_weights(others_tsne, other_weights, tsne_data_mask, tsne_partner_mask)
                     wandb.log({"embedding/attn_subplots": wandb.Image(fig2)}, step=epoch)
                     plt.close(fig2)
                 log_dict = {

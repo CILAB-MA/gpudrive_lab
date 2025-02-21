@@ -545,8 +545,8 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
         # Road object-map attention
         all_objs_map = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
-        all_masks = torch.cat([ego_mask.unsqueeze(1), mask, road_mask], dim=-1)
-        obj_masks = torch.cat([ego_mask.unsqueeze(1), mask], dim=-1)
+        all_masks = torch.cat([ego_mask, mask, road_mask], dim=-1)
+        obj_masks = torch.cat([ego_mask, mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
                 setattr(norm_layer, 'mask', all_masks)
