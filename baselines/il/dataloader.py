@@ -15,8 +15,8 @@ class ExpertDataset(torch.utils.data.Dataset):
         
         # masks
         self.valid_masks = 1 - masks
-        dead_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32).astype('bool')
-        self.valid_masks = np.concatenate([dead_masks_pad, self.valid_masks], axis=1).astype('bool')
+        valid_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32).astype('bool')
+        self.valid_masks = np.concatenate([valid_masks_pad, self.valid_masks], axis=1).astype('bool')
         self.use_mask = True if self.valid_masks is not None else False
 
         # partner_mask
@@ -136,6 +136,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                     if var_name == 'valid_masks':
                         ego_mask_data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len]
                         batch = batch + (ego_mask_data, )
+            batch = batch + (torch.tensor([idx1, idx2]),)
         else:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
@@ -165,11 +166,11 @@ if __name__ == "__main__":
     for i, batch in enumerate(expert_data_loader):
         batch_size = batch[0].size(0)
 
-        if len(batch) == 8:
-            obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch
-        elif len(batch) == 6:
-            obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
-        elif len(batch) == 3:
-            obs, expert_action, masks = batch
+        if len(batch) == 9:
+            obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, data_idx = batch
+        elif len(batch) == 7:
+            obs, expert_action, masks, ego_masks, partner_masks, road_masks, data_idx = batch 
+        elif len(batch) == 4:
+            obs, expert_action, masks, data_idx = batch
         else:
-            obs, expert_action = batch
+            obs, expert_action, data_idx = batch
