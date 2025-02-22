@@ -207,7 +207,7 @@ def gmm_loss(model, context, expert_actions, masks=None, aux_head=None):
     else:
         mask = mask.unsqueeze(-1)
     loss = loss[mask > 0] 
-    return loss.mean()
+    return loss.mean(), loss.clone()
 
 def new_gmm_loss(model, context, expert_actions, masks=None, aux_head=None):
     '''
