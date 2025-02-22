@@ -144,7 +144,6 @@ def train():
         train_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
         train_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
        
-
     with np.load(os.path.join(config.data_path, config.eval_data_file)) as npz:
         eval_expert_obs = [npz['obs']]
         eval_expert_actions = [npz['actions']]
@@ -210,6 +209,7 @@ def train():
         prefetch_factor=4,
         pin_memory=True
     )
+
     del eval_expert_obs
     del eval_expert_actions
     del eval_expert_masks
@@ -413,11 +413,11 @@ def train():
             if config.use_wandb:
                 with torch.no_grad():
                     others_tsne, other_distance, other_speed, other_weights = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
-                fig1 = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                fig1, emb_tsne_all = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
                 wandb.log({"embedding/tsne_subplots": wandb.Image(fig1)}, step=epoch)
                 plt.close(fig1)
                 if config.use_tom:
-                    fig2 = visualize_tsne_with_weights(others_tsne, other_weights, tsne_data_mask, tsne_partner_mask)
+                    fig2 = visualize_tsne_with_weights(emb_tsne_all, other_weights, tsne_data_mask, tsne_partner_mask)
                     wandb.log({"embedding/attn_subplots": wandb.Image(fig2)}, step=epoch)
                     plt.close(fig2)
                 log_dict = {

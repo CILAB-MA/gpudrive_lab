@@ -214,22 +214,16 @@ def visualize_embedding(
     ax_dist.set_title("TSNE Visualization (By Distance)")
 
     plt.tight_layout()
-    return fig
+    return fig, emb_tsne_all
 
 def visualize_tsne_with_weights(
-    other_tsne,
+    emb_tsne_all,
     other_weights,
     tsne_data_mask,
     tsne_partner_mask
 ):
-    filtered_tsne_mask = tsne_data_mask[(~tsne_partner_mask).cpu().numpy()]
-    tsne_model = TSNE(
-        n_components=2, perplexity=30, learning_rate='auto',
-        init='random', random_state=42
-    )
     aux_task = ['action', 'pos', 'heading', 'speed']
-    emb_tsne = tsne_model.fit_transform(other_tsne)
-    x, y = emb_tsne[:, 0], emb_tsne[:, 1]
+    x, y = emb_tsne_all[:, 0], emb_tsne_all[:, 1]
     fig, axes = plt.subplots(1, 4, figsize=(24, 6), sharex=True, sharey=True)
     for i in range(4):
         sc = axes[i].scatter(
