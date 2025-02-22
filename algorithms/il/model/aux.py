@@ -347,7 +347,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
 
         objects_attn = self.ego_ro_attn(ego_attn, objects_attn, pad_mask=mask) 
         ego_attn_score = objects_attn['ego_attn'].clone()
-        ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True)
+        ego_attn_score = ego_attn_score / ego_attn_score.sum(dim=-1, keepdim=True) # relative score by scene
         attn_score0 = objects_attn['ego_attn'][:, 0][~mask].unsqueeze(-1)
         attn_score1 = objects_attn['ego_attn'][:, 1][~mask].unsqueeze(-1)
         attn_score2 = objects_attn['ego_attn'][:, 2][~mask].unsqueeze(-1)
