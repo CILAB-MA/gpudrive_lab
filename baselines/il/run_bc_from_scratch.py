@@ -3,7 +3,6 @@ import logging
 import numpy as np
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 import os, sys, torch
 torch.backends.cudnn.benchmark = True
@@ -11,11 +10,9 @@ sys.path.append(os.getcwd())
 import wandb, yaml, argparse
 from tqdm import tqdm
 from datetime import datetime
-from sklearn.manifold import TSNE
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 
 # GPUDrive
 from baselines.il.config import *
@@ -36,7 +33,7 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='early_attn', choices=['bc', 'late_fusion', 'attention', 'early_attn',
+    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'early_attn',
                                                                                          'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
@@ -228,18 +225,19 @@ def train():
         max_names = []
         partner_ratios = 0
         road_ratios = 0
+        max_losses = []
         
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             
-            if len(batch) == 8:
-                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch
-            elif len(batch) == 6:
-                obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
-            elif len(batch) == 3:
-                obs, expert_action, masks = batch
+            if len(batch) == 9:
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, data_idx = batch
+            elif len(batch) == 7:
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, data_idx = batch 
+            elif len(batch) == 4:
+                obs, expert_action, masks, data_idx = batch
             else:
-                obs, expert_action = batch
+                obs, expert_action, data_idx = batch
             
             obs, expert_action = obs.to(config.device), expert_action.to(config.device)
             masks = masks.to(config.device) if len(batch) > 2 else None
@@ -251,8 +249,7 @@ def train():
             # Forward pass
             if config.use_tom != None:
                 context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
-                pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                loss = pred_loss
+                pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)                
                 aux_task = ['action', 'pos', 'heading', 'speed']
                 aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
                 aux_losses = torch.zeros(4).to(config.device)
@@ -265,11 +262,19 @@ def train():
                     tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
                                     aux_info=aux_info)
                     aux_losses[aux_ind] = tom_loss
-                    loss = loss + 0.1 * tom_loss
+                    loss = pred_loss + 0.1 * tom_loss
             else:
                 context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
-                loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                pred_loss = loss
+                pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                loss = pred_loss
+            
+            # To write data idx that has the highest loss
+            if config.use_wandb:
+                max_loss, max_loss_idx = torch.max(pred_loss_wandb, dim=-1)
+                max_loss_idx = data_idx[max_loss_idx]
+                max_losses.append((max_loss.item(), (max_loss_idx.detach().cpu().numpy())))
+            
+            loss = loss.mean()
             partner_ratios += all_ratio[0]
             road_ratios += all_ratio[1]
             # Backward pass
@@ -310,6 +315,20 @@ def train():
                     "gmm/min_component_probs": min(component_probs),
                 }
             wandb.log(log_dict, step=epoch)
+            
+            # make csv file for max loss
+            model_path = f"{config.model_path}/{exp_config['name']}"
+            if not os.path.exists(model_path):
+                os.makedirs(model_path)
+            csv_path = f"{model_path}/max_loss({config.exp_name}).csv"
+            
+            # write csv file for max loss
+            max_loss_value, best_max_loss_idx = max(max_losses, key=lambda x: x[0])
+            file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
+            with open(csv_path, 'a') as f:
+                if file_is_empty:
+                    f.write("epoch, max_loss, data_idx\n")
+                f.write(f"{epoch}, {max_loss_value}, {best_max_loss_idx[0]}, {best_max_loss_idx[1]}\n")
         
         # Evaluation loop
         if epoch % 5 == 0:
@@ -334,14 +353,14 @@ def train():
                     break
                 total_samples += batch_size
                 
-                if len(batch) == 8:
-                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch  
-                elif len(batch) == 6:
-                    obs, expert_action, masks, ego_masks, partner_masks, road_masks = batch  
-                elif len(batch) == 3:
-                    obs, expert_action, masks = batch
+                if len(batch) == 9:
+                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, _ = batch  
+                elif len(batch) == 7:
+                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, _ = batch  
+                elif len(batch) == 4:
+                    obs, expert_action, masks, _ = batch
                 else:
-                    obs, expert_action = batch
+                    obs, expert_action, _ = batch
                 obs, expert_action = obs.to(config.device), expert_action.to(config.device)
                 masks = masks.to(config.device) if len(batch) > 2 else None
                 ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
@@ -354,7 +373,7 @@ def train():
                 with torch.no_grad():
                     if config.use_tom != None:
                         context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
-                        pred_loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                        pred_loss, _ = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
                         loss = pred_loss
                         aux_task = ['action', 'pos', 'heading', 'speed']
                         aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
@@ -370,10 +389,12 @@ def train():
                             aux_losses[aux_ind] = tom_loss
                     else:
                         context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
+                        pred_loss, _ = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                        loss = pred_loss
 
                     partner_ratios += all_ratio[0]
                     road_ratios += all_ratio[1]
-                    loss = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+
                     pred_actions = bc_policy.get_action(context, deterministic=True)
                     action_loss = torch.abs(pred_actions - expert_action)
                     dx_loss = action_loss[..., 0].mean().item()
