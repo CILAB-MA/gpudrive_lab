@@ -43,7 +43,7 @@ def parse_args():
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v4/')
-    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_1000.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)

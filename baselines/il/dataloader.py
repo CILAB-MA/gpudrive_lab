@@ -23,11 +23,11 @@ class ExpertDataset(torch.utils.data.Dataset):
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
         self.aux_valid_mask = None
         partner_info = obs[..., 6:1276].reshape(B, T, 127, 10)[..., :4]
+        self.aux_mask = None
         if other_info is not None:
             aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, 
                                                      future_timestep=aux_future_step)
-        aux_mask = np.empty_like(partner_mask) if aux_future_step else None
-        self.aux_mask = None
+            self.aux_mask = aux_mask.astype('bool')
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
         self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
         # road_mask
@@ -40,7 +40,6 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
         self.other_info = aux_info
-        self.aux_mask = aux_mask.astype('bool')
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
                          'other_info', 'aux_mask']
 
