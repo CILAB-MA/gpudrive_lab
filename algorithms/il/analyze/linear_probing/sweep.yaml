@@ -1,21 +1,21 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: linear_prob
+name: linear_prob_unseen_future
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/model"
+    value: "/data/model/tom_only_move"
   model_name:
-    values: ["late_fusion_gmm_train_100_20250205_0806"]
+    values: ["aux_attn_gmm_only_move_infer_20250223_1519"]
 
   # DATA
   data_path:
-    value: "/data/tom_v2"
+    value: "/data/tom_v4"
   train_data:
-    value: "train_trajectory_100.npz"
+    value: "train_trajectory_1000.npz"
   test_data:
     value: "test_trajectory_200.npz"
   rollout_len:

@@ -54,7 +54,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         return list(zip(valid_idx1, valid_idx2))
     
     def _make_aux_info(self, partner_mask, info, partner_info, future_timestep):
-        partner_mask_bool = np.where(partner_mask == 2, 1, 0).astype(bool)
+        partner_mask_bool = np.where(partner_mask == 0, 0, 1).astype(bool)
         action_valid_mask = np.where(partner_mask == 0, 1, 0).astype(bool)
         info[..., :-1] *= action_valid_mask[..., np.newaxis]
         current_info_id = info[:, :, :, -1]
@@ -63,7 +63,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         partner_mask_pad = np.full((partner_mask.shape[0], future_timestep, *partner_mask.shape[2:]), 2, dtype=np.float32)
 
         future_mask = np.concatenate([partner_mask, partner_mask_pad], axis=1)
-        future_mask_bool = np.where(future_mask == 2, 1, 0).astype(bool)[:, future_timestep:]
+        future_mask_bool = np.where(future_mask == 0, 0, 1).astype(bool)[:, future_timestep:]
         other_info = np.concatenate([all_infos, other_info_pad], axis=1)[:, future_timestep:]
         future_info_id = other_info[:, :, :, -1]
         future_acton_sum = other_info[:, :, :, :-1]

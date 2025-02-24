@@ -28,7 +28,9 @@ def parse_args():
     parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
+                                                                   'no_guide_weighted', 'guide_no_weighted'])
+    parser.add_argument('--aux-future-step', '-afs', type=int, default=30)
     args = parser.parse_args()
     
     return args
@@ -55,7 +57,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     dataloader = DataLoader(
         ExpertDataset(
             expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, other_info_future_step=config.other_info_future_step
+            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
         ),
         batch_size=config.batch_size,
         shuffle=isshuffle,
@@ -141,8 +143,8 @@ def train():
         
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
-            if len(batch) == 8:
-                obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
+            if len(batch) == 9:
+                obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch
             elif len(batch) == 7:
                 obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
             elif len(batch) == 4:
@@ -164,14 +166,14 @@ def train():
                 context, *_, = backbone.get_context(obs, all_masks)
                 
             pred_action = linear_model_action(context)
-            masked_action = pred_action[~partner_masks[:, -1]]
-            maksed_collision_risk = collision_risk[~partner_masks[:, -1]]
+            masked_action = pred_action[~aux_mask[:, -1]]
+            maksed_collision_risk = collision_risk[~aux_mask[:, -1]]
             other_actions = other_info[..., 4:7]
             other_actions = other_actions.clone()
             dyaw_actions = other_actions[:, :, 2] / np.pi
             dxy_actions = other_actions[:, :, :2] / 6
             other_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1)
-            masked_other_actions = other_actions[~partner_masks[:, -1]]
+            masked_other_actions = other_actions[~aux_mask[:, -1]]
             # pred_pos = linear_model_pos(context)
             # pred_angle = linear_model_angle(context)
             # pred_speed = linear_model_speed(context)
@@ -226,8 +228,8 @@ def train():
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
                     break
                 total_samples += batch_size
-                if len(batch) == 8:
-                    obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
+                if len(batch) == 9:
+                    obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch
                 elif len(batch) == 7:
                     obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
                 elif len(batch) == 4:
