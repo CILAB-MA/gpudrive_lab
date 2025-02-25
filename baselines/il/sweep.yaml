@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: tom_only_move
+name: tom_5000
 metric:
   goal: minimize
   name: eval/loss
@@ -27,7 +27,7 @@ parameters:
   data_path:
     values: ['/data/tom_v4']
   train_data_file:
-    values: ['train_trajectory_1000.npz']
+    values: ['train_trajectory_5000.npz']
   test_data_file:
     values: ['test_trajectory_200.npz']
   

@@ -33,14 +33,14 @@ def parse_args():
     
     # MODEL
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--model-name', '-m', type=str, default='late_fusion', choices=['bc', 'late_fusion', 'attention', 'early_attn',
+    parser.add_argument('--model-name', '-m', type=str, default='early_attn', choices=['bc', 'late_fusion', 'attention', 'early_attn',
                                                                                          'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     
     # DATA
     parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v4/')
-    parser.add_argument('--train-data-file', '-td', type=str, default='train_trajectory_1000.npz')
+    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
@@ -244,7 +244,8 @@ def train():
             ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
             partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
             road_masks = road_masks.to(config.device) if len(batch) > 3 else None
-            other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
+            if config.use_tom != None:
+                other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [masks, ego_masks, partner_masks, road_masks]
             # Forward pass
             if config.use_tom != None:
@@ -366,10 +367,9 @@ def train():
                 ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
                 partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
                 road_masks = road_masks.to(config.device) if len(batch) > 3 else None
-                other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
+                if config.use_tom != None:
+                    other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
                 all_masks= [masks, ego_masks, partner_masks, road_masks]
-                if config.use_tom == None:
-                    other_info = None
                 with torch.no_grad():
                     if config.use_tom != None:
                         context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
