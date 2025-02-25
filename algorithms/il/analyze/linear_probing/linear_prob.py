@@ -116,31 +116,17 @@ def train():
     print(backbone)
     # hidden_vector_dict = register_all_layers_forward_hook(backbone)
     linear_model_action = LinearProbAction(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    # linear_model_pos = LinearProbPosition(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    # linear_model_angle = LinearProbAngle(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    # linear_model_speed = LinearProbSpeed(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    
+
     # Optimizer
     action_optimizer = AdamW(linear_model_action.parameters(), lr=config.lr, eps=0.0001)
-    # pos_optimizer = AdamW(linear_model_pos.parameters(), lr=config.lr, eps=0.0001)
-    # angle_optimizer = AdamW(linear_model_angle.parameters(), lr=config.lr, eps=0.0001)
-    # speed_optimizer = AdamW(linear_model_speed.parameters(), lr=config.lr, eps=0.0001)
-    
+
     # DataLoaders
     expert_data_loader = get_dataloader(config.data_path, config.train_data, config)
     eval_expert_data_loader = get_dataloader(config.data_path, config.test_data, config, isshuffle=False)
 
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         linear_model_action.train()
-        # linear_model_pos.train()
-        # linear_model_angle.train()
-        # linear_model_speed.train()
-        
         action_losses = 0
-        # pos_losses = 0
-        # angle_losses = 0
-        # speed_losses = 0
-        
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             if len(batch) == 9:
@@ -166,21 +152,15 @@ def train():
                 context, *_, = backbone.get_context(obs, all_masks)
                 
             pred_action = linear_model_action(context)
-            masked_action = pred_action[~aux_mask[:, -1]]
-            maksed_collision_risk = collision_risk[~aux_mask[:, -1]]
+            masked_action = pred_action[~aux_mask]
+            maksed_collision_risk = collision_risk[~aux_mask]
             other_actions = other_info[..., 4:7]
             other_actions = other_actions.clone()
             dyaw_actions = other_actions[:, :, 2] / np.pi
             dxy_actions = other_actions[:, :, :2] / 6
             other_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1)
-            masked_other_actions = other_actions[~aux_mask[:, -1]]
-            # pred_pos = linear_model_pos(context)
-            # pred_angle = linear_model_angle(context)
-            # pred_speed = linear_model_speed(context)
+            masked_other_actions = other_actions[~aux_mask]
             action_loss = linear_model_action.loss(masked_action, masked_other_actions)
-            # pos_loss = linear_model_pos.loss(pred_pos, other_info[..., 1:3])
-            # angle_loss = linear_model_angle.loss(pred_angle, other_info[..., 3])
-            # speed_loss = linear_model_speed.loss(pred_speed, other_info[..., 0])
             
             total_loss = action_loss # + pos_loss + angle_loss + speed_loss
             
@@ -255,13 +235,13 @@ def train():
                     # pred_pos = linear_model_pos(context)
                     # pred_angle = linear_model_angle(context)
                     # pred_speed = linear_model_speed(context)
-                    masked_action = pred_action[~partner_masks[:, -1]]
-                    maksed_collision_risk = collision_risk[~partner_masks[:, -1]]
+                    masked_action = pred_action[~aux_mask]
+                    maksed_collision_risk = collision_risk[~aux_mask]
                     other_actions = other_info[..., 4:7]  
                     dyaw_actions = other_actions[:, :, 2] / np.pi
                     dxy_actions = other_actions[:, :, :2] / 6
                     other_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1)
-                    masked_other_actions = other_actions[~partner_masks[:, -1]]
+                    masked_other_actions = other_actions[~aux_mask]
                     action_loss = linear_model_action.loss(masked_action, masked_other_actions)
                     # pos_loss = linear_model_pos.loss(pred_pos, other_info[..., 1:3])
                     # angle_loss = linear_model_angle.loss(pred_angle, other_info[..., 3])
