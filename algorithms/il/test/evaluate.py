@@ -88,7 +88,7 @@ if __name__ == "__main__":
             obs = env.get_obs()
             dones = env.get_dones()
             for world_render_idx in range(NUM_WORLDS):
-                env.save_expert_footprint(world_render_idx=world_render_idx, time_step=time_step)
+                env.save_footprint(world_render_idx=world_render_idx, time_step=time_step)
             if (dones == True).all():
                 break
     

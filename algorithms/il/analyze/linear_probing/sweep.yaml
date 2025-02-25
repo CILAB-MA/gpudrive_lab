@@ -1,15 +1,16 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: new2_attn(linear_probing)
+name: lp_learned20step_infer30
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/model/new2_attn"
+    value: "/data/model/tom_only_move"
   model_name:
-    values: ["early_attn_gmm_new2_attn_20250217_1632"]
+    values: ["aux_attn_gmm_all_data_20250223_1822", "aux_attn_gmm_all_data_20250223_1519",
+    "aux_attn_gmm_only_move_infer_20250223_1519", "aux_attn_gmm_only_move_infer_20250223_1750"]
 
   # DATA
   data_path:
@@ -23,7 +24,7 @@ parameters:
   pred_len:
     value: 1
   aux_future_step:
-    values: [1, 10, 20]
+    values: [30]
 
   # EXPERIMENT
   batch_size:

@@ -785,19 +785,21 @@ class PyGameVisualizer:
         pygame.display.quit()
         pygame.quit()
 
-    def saveExpertFootprint(self, world_render_idx=0, time_step=0):
+    def saveFootprint(self, world_render_idx=0, time_step=0, pos=None):
         """save the expert footprint for the agent at the given time step. (to use in drawing the expert trajectory)"""
-        # Get agent info
-        agent_info = (
-            self.sim.absolute_self_observation_tensor()
-            .to_torch()[world_render_idx, :, :]
-            .cpu()
-            .detach()
-            .numpy()
-        )
-
-        # Get the agent goal positions and current positions
-        agent_pos = agent_info[:, :2]  # x, y
+        if pos is not None:
+            agent_info = pos.cpu().detach().numpy()
+        else:
+            # Get expert position info
+            agent_info = (
+                self.sim.absolute_self_observation_tensor()
+                .to_torch()[world_render_idx, :, :]
+                .cpu()
+                .detach()
+                .numpy()
+            )
+            # Get the agent goal positions and current positions
+            agent_pos = agent_info[:, :2]  # x, y
         agent_response_types = (  # 0: Valid (can be controlled), 2: Invalid (static vehicles)
             self.sim.response_type_tensor()
             .to_torch()[world_render_idx, :, :]
