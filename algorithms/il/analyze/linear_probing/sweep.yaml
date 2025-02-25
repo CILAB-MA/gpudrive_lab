@@ -1,15 +1,15 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: linear_prob_unseen_future
+name: new2_attn(linear_probing)
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/model/tom_only_move"
+    value: "/data/model/new2_attn"
   model_name:
-    values: ["aux_attn_gmm_only_move_infer_20250223_1519"]
+    values: ["early_attn_gmm_new2_attn_20250217_1632"]
 
   # DATA
   data_path:
@@ -22,8 +22,8 @@ parameters:
     value: 5
   pred_len:
     value: 1
-  other_info_future_step:
-    value: 1
+  aux_future_step:
+    values: [1, 10, 20]
 
   # EXPERIMENT
   batch_size:

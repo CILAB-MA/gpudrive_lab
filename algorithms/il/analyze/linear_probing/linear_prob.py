@@ -114,7 +114,7 @@ def train():
     backbone = torch.load(f"{config.model_path}/{config.model_name}.pth")
     backbone.eval()
     print(backbone)
-    hidden_vector_dict = register_all_layers_forward_hook(backbone)
+    # hidden_vector_dict = register_all_layers_forward_hook(backbone)
     linear_model_action = LinearProbAction(backbone.head.input_layer[0].in_features, 127).to("cuda")
     # linear_model_pos = LinearProbPosition(backbone.head.input_layer[0].in_features, 127).to("cuda")
     # linear_model_angle = LinearProbAngle(backbone.head.input_layer[0].in_features, 127).to("cuda")
@@ -300,7 +300,7 @@ def train():
     
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
-    torch.save(linear_model_action, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action.pth"))
+    torch.save(linear_model_action, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
     # torch.save(linear_model_pos, os.path.join(config.model_path, f"linear_prob/{config.model_name}/pos.pth"))
     # torch.save(linear_model_angle, os.path.join(config.model_path, f"linear_prob/{config.model_name}/angle.pth"))
     # torch.save(linear_model_speed, os.path.join(config.model_path, f"linear_prob/{config.model_name}/speed.pth"))
