@@ -15,6 +15,10 @@ class ExpertDataset(torch.utils.data.Dataset):
         
         # masks
         self.valid_masks = 1 - masks
+        max_actions = np.max(actions, axis=-1)
+        min_actions = np.min(actions, axis=-1)
+        action_mask = (max_actions == 6) | (min_actions == -6) | (actions[..., -1] >= 3.14)  | (actions[..., -1] <= -3.14)
+        self.valid_masks[action_mask] = 0
         valid_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32).astype('bool')
         self.valid_masks = np.concatenate([valid_masks_pad, self.valid_masks], axis=1).astype('bool')
         self.use_mask = True if self.valid_masks is not None else False
@@ -148,7 +152,7 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     
-    data = np.load("/data/tom_v4/train_subset/trajectory_200.npz")
+    data = np.load("/data/tom_v4/train_trajectory_1000.npz")
     
     expert_data_loader = DataLoader(
         ExpertDataset(
