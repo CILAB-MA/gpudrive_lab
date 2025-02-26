@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: tom_5000
+name: tom_data_debug
 metric:
   goal: minimize
   name: eval/loss
@@ -27,7 +27,7 @@ parameters:
   data_path:
     values: ['/data/tom_v4']
   train_data_file:
-    values: ['train_trajectory_5000.npz']
+    values: ['train_trajectory_1000.npz']
   test_data_file:
     values: ['test_trajectory_200.npz']
   
@@ -59,6 +59,6 @@ parameters:
   
   # AUXCONFIG
   use_tom:
-    values: ['guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+    values: ['guide_weighted', 'no_guide_no_weighted', 'guide_no_weighted'] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
   aux_future_step:
     values: [20] # null, 1, 5, 10, 20, 30

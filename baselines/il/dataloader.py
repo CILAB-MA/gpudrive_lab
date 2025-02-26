@@ -32,6 +32,10 @@ class ExpertDataset(torch.utils.data.Dataset):
         if other_info is not None:
             aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, 
                                                      future_timestep=aux_future_step)
+            max_aux_actions = np.max(aux_info[..., -4:], axis=-1)
+            min_aux_actions = np.min(aux_info[..., -4:], axis=-1)
+            aux_action_mask = (max_aux_actions == 6) | (min_aux_actions == -6) | (aux_info[..., -1] >= 3.14)  | (aux_info[..., -1] <= -3.14)
+            aux_mask[aux_action_mask] = True
             self.aux_mask = aux_mask.astype('bool')
             self.other_info = aux_info
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
@@ -152,7 +156,7 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     
-    data = np.load("/data/tom_v4/train_trajectory_1000.npz")
+    data = np.load("/data/tom_v4/train_subset/trajectory_200.npz")
     
     expert_data_loader = DataLoader(
         ExpertDataset(
