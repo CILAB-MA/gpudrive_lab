@@ -250,7 +250,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         partner_mask = env.get_partner_mask()
         partner_id = env.get_partner_id().unsqueeze(-1)
         other_infos = torch.cat([other_info, partner_id], dim=-1)
-
+        infos = env.get_infos()
         # Check mask
         partner_mask_bool = (partner_mask == 2)
         action_valid_mask = torch.where(partner_mask == 0, 1, 0).bool()
@@ -260,18 +260,29 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         sum_alive_road = torch.logical_or((total_road_obs[~road_mask].sum(dim=-1) == 0), (total_road_obs[~road_mask].sum(dim=-1) == 1)).sum().item()
         sum_dead_partner = torch.logical_and((total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 0), (total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 1)).sum().item()
         sum_dead_road = torch.logical_and((total_road_obs[road_mask].sum(dim=-1) != 0), (total_road_obs[road_mask].sum(dim=-1) != 1)).sum().item()
-        print("Checking alive but, sum is 0 or 1 ->", sum_alive_partner, sum_alive_road)
-        print("Checking dead but, sum is not 0 and 1 ->", sum_dead_partner, sum_dead_road)
+        # print("Checking alive but, sum is 0 or 1 ->", sum_alive_partner, sum_alive_road)
+        # print("Checking dead but, sum is not 0 and 1 ->", sum_dead_partner, sum_dead_road)
 
         if (dead_agent_mask == True).all():
+            controlled_agent_info = infos[cont_agent_mask]
+            off_road = controlled_agent_info[:, 0]
+            veh_collision = controlled_agent_info[:, 1]
+            goal_achieved = controlled_agent_info[:, 3]
+            off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
+            veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
+            goal_rate = goal_achieved.sum().float() / cont_agent_mask.sum().float()
+            collision_rate = off_road_rate + veh_coll_rate
+            collision = (veh_collision + off_road > 0)
+            print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
+            print(f'Save number w/o collision {len(expert_trajectory_lst[~collision])} / {len(expert_trajectory_lst)}')
             break
     
-    expert_trajectory_lst = expert_trajectory_lst.to('cpu')
-    expert_actions_lst = expert_actions_lst.to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst.to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst.to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst.to('cpu')
-    expert_other_info_lst = expert_other_info_lst.to('cpu')
+    expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
+    expert_actions_lst = expert_actions_lst[~collision].to('cpu')
+    expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
+    expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
+    expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
+    expert_other_info_lst = expert_other_info_lst[~collision].to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
     np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
@@ -318,8 +329,8 @@ if __name__ == "__main__":
         dynamics_model='delta_local',
         steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
         accel_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
-        dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
+        dx=torch.round(torch.tensor([-5.0, 5.0]), decimals=3),
+        dy=torch.round(torch.tensor([-5.0, 5.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
     )
 

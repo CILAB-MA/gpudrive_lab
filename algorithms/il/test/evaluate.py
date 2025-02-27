@@ -106,14 +106,17 @@ if __name__ == "__main__":
         road_masks = env.get_stacked_road_mask().to(args.device)
         ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
         partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-        partner_mask_bool = (partner_masks <= 2)
+        partner_mask_bool = (partner_masks == 2)
         road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
+        # road_masks = torch.full((NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, 200), True, dtype=torch.bool).to(args.device)
         all_masks = [ego_masks[~dead_agent_mask], partner_mask_bool[~dead_agent_mask], road_masks[~dead_agent_mask]]
             
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
-
+            num_alive = len(alive_obs)
+            alive_obs = alive_obs.reshape(num_alive, 5, -1)
+            alive_obs[:, :, 6:1276] = 0
             context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
