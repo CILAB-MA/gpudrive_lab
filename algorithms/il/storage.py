@@ -329,8 +329,8 @@ if __name__ == "__main__":
         dynamics_model='delta_local',
         steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
         accel_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dx=torch.round(torch.tensor([-5.0, 5.0]), decimals=3),
-        dy=torch.round(torch.tensor([-5.0, 5.0]), decimals=3),
+        dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
+        dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
     )
 
