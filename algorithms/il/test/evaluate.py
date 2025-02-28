@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
-
+    parser.add_argument('--zero-partner-test', '-z', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -55,9 +55,11 @@ if __name__ == "__main__":
         dynamics_model="delta_local",
         steer_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
         accel_actions=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dx=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
-        dy=torch.round(torch.tensor([-np.inf, np.inf]), decimals=3),
+        dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
+        dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
+        collision_behavior='ignore'
+
     )
     render_config = RenderConfig(
         draw_obj_idx=True,
@@ -97,6 +99,10 @@ if __name__ == "__main__":
     dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(NUM_WORLDS)]
     expert_actions, _, _ = env.get_expert_actions()
+    poss = obs[alive_agent_mask][:, 3876 * 4 + 3:3876 * 4 + 5]
+    init_goal_dist = torch.linalg.norm(poss, dim=-1)
+    dist_metrics = torch.zeros_like(init_goal_dist)
+    infos = env.get_infos()
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
         
@@ -106,7 +112,12 @@ if __name__ == "__main__":
         road_masks = env.get_stacked_road_mask().to(args.device)
         ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
         partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-        partner_mask_bool = (partner_masks == 2)
+        partner_mask_bool = (partner_mask <= 2) if args.zero_partner_test else (partner_masks == 2)
+        poss = obs[alive_agent_mask][:, 3876 * 4 + 3:3876 * 4 + 5]
+        dist = torch.linalg.norm(poss, dim=-1)
+        controlled_agent_info = infos[alive_agent_mask]
+        alive_agents = infos[alive_agent_mask][:, :4].sum(-1) == 0
+        dist_metrics[alive_agents] = dist[alive_agents]
         road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
         # road_masks = torch.full((NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, 200), True, dtype=torch.bool).to(args.device)
         all_masks = [ego_masks[~dead_agent_mask], partner_mask_bool[~dead_agent_mask], road_masks[~dead_agent_mask]]
@@ -116,7 +127,8 @@ if __name__ == "__main__":
             alive_obs = obs[~dead_agent_mask]
             num_alive = len(alive_obs)
             alive_obs = alive_obs.reshape(num_alive, 5, -1)
-            alive_obs[:, :, 6:1276] = 0
+            if args.zero_partner_test:
+                alive_obs[:, :, 6:1276] = 0
             context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
@@ -155,8 +167,7 @@ if __name__ == "__main__":
 
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
-        
-        print(f'TIME {time_step} LOSS: {loss.mean(0)}')
+        # print(f'TIME {time_step} LOSS: {loss.mean(0)}')
 
         obs = env.get_obs()
         dones = env.get_dones()
@@ -169,7 +180,11 @@ if __name__ == "__main__":
     off_road = controlled_agent_info[:, 0]
     veh_collision = controlled_agent_info[:, 1]
     goal_achieved = controlled_agent_info[:, 3]
-
+    collision = (veh_collision + off_road > 0)
+    goal_progress_ratio = dist_metrics / init_goal_dist
+    goal_progress_ratio[goal_achieved.bool()] = 0
+    goal_progress_ratio = (1 - goal_progress_ratio).mean()
+    print('Agents Achieved Ratio to Goal', goal_progress_ratio)
     off_road_rate = off_road.sum().float() / alive_agent_mask.sum().float()
     veh_coll_rate = veh_collision.sum().float() / alive_agent_mask.sum().float()
     goal_rate = goal_achieved.sum().float() / alive_agent_mask.sum().float()
@@ -182,8 +197,8 @@ if __name__ == "__main__":
         file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:
-                f.write("model_name,dataset,off_road_rate,veh_coll_rate,goal_rate,collision_rate\n")
-            f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate}\n")
+                f.write("Model,Dataset,OffRoad,VehicleCollsion,Goal,Collision,GoalProgress\n")
+            f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio}\n")
 
     if args.make_video:
         video_path = os.path.join(args.video_path, args.dataset, args.model_name)
