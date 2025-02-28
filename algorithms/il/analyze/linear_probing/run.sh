@@ -1,13 +1,7 @@
 #!/bin/bash
 
-# Conda base 환경 초기화
-source ~/anaconda3/etc/profile.d/conda.sh
-
-# 가상환경 활성화
-conda activate gpudrive
-
 # Bash Script for Running WandB Agent with GPU ID, Sweep ID, and WandB API Key
-# Usage: ./run_wandb_docker.sh 1 2 3 4
+# Usage: ./run.sh EN1 EN2 EN3 ...
 
 # Default Values
 WANDB_API_KEY=$(grep "wandb_key" /app/gpudrive_lab/private.yaml | cut -d '"' -f 2)
@@ -15,21 +9,15 @@ ENTITY=$(grep "entity" /app/gpudrive_lab/private.yaml | cut -d '"' -f 2)
 PROJECT=$(grep "main_project" /app/gpudrive_lab/private.yaml | cut -d '"' -f 2)
 SWEEP_ID=""
 
-trap "echo 'Ctrl + C 입력 감지: 모든 프로세스를 종료합니다...'; kill 0" SIGINT
-
 # SWEEP_ID 인자 설정
-SWEEP_ID=$(
-    wandb sweep /app/gpudrive_lab/baselines/il/sweep.yaml 2>&1 \
-    | grep "wandb: Creating sweep with ID:" \
-    | awk '{print $NF}'
-)
+SWEEP_ID=$(wandb sweep /app/gpudrive_lab/algorithms/il/analyze/linear_probing/sweep.yaml | awk '/Created sweep with ID:/ {print $NF}')
 if [ -z "$SWEEP_ID" ]; then
     echo "Failed to create a new WandB sweep!"
     exit 1
 fi
 
 # WandB agent 실행 (백그라운드에서 실행)
-# wandb agent $ENTITY/$PROJECT/$SWEEP_ID &  
+wandb agent $ENTITY/$PROJECT/$SWEEP_ID &  
 
 # run_bc_from_scratch.py 실행
 for ENV in "$@"; do
@@ -46,9 +34,7 @@ for ENV in "$@"; do
     echo "Assigning GPU $GPU to process with -en $ENV"
     
     # Python 실행 (각각 다른 GPU에 할당)
-    CUDA_VISIBLE_DEVICES=$GPU wandb agent $ENTITY/$PROJECT/$SWEEP_ID &
-
-    # CUDA_VISIBLE_DEVICES=$GPU python /app/gpudrive_lab/baselines/il/run_bc_from_scratch.py --use-mask --use-wandb --sweep-id $SWEEP_ID -en "$ENV" &
+    CUDA_VISIBLE_DEVICES=$GPU python /app/gpudrive_lab/baselines/il/run_bc_from_scratch.py --use-mask --use-wandb -en "$ENV" --sweep-id $SWEEP_ID &
     
     sleep 60
 done
