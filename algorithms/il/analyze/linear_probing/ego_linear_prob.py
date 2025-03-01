@@ -209,7 +209,7 @@ def train():
             if config.use_wandb:
                 wandb.log(
                     {
-                        "eval/action_loss": action_losses / (i + 1) ,
+                        "eval/future_action_loss": action_losses / (i + 1) ,
                         "eval/curr_action_loss": curr_action_losses / (i + 1)
                     }, step=epoch
                 )
