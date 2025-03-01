@@ -2,6 +2,7 @@
 import logging
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 import os, sys, torch
@@ -127,6 +128,7 @@ def train():
         linear_model_future.train()
         # linear_model_current.train()
         action_losses = 0
+        curr_action_losses = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
             obs, actions, future_actions, masks, ego_masks, partner_masks, road_masks = batch
@@ -137,15 +139,17 @@ def train():
             partner_masks = partner_masks.to("cuda") if len(batch) > 3 else None
             road_masks = road_masks.to("cuda") if len(batch) > 3 else None
             all_masks= [ego_masks, partner_masks, road_masks]
-            context, *_, = backbone.get_context(obs, all_masks)
-                
+            with torch.no_grad():
+                context, *_, = backbone.get_context(obs, all_masks)
+                pred_curr_action = backbone.get_action(context, deterministic=True)
+                curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
             pred_action = linear_model_future(context)
             pred_action = pred_action.squeeze(1)
             masked_action = pred_action[ego_masks[:, -1]]
             future_actions = future_actions.clone()
             dyaw_actions = future_actions[:, :, 2] / np.pi
             dxy_actions = future_actions[:, :, :2] / 6
-            future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1)
+            future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1).squeeze(1)
             masked_other_actions = future_actions[ego_masks[:, -1]]
             action_loss = linear_model_future.loss(masked_action, masked_other_actions)
             
@@ -157,11 +161,13 @@ def train():
             
             action_optimizer.step()
             action_losses += action_loss.mean().item()
-        
+            curr_action_losses += curr_action_loss.mean().item()
+
         if config.use_wandb:
             wandb.log(
                 {   
-                    "train/action_loss": action_losses / (i + 1),
+                    "train/future_action_loss": action_losses / (i + 1),
+                    "train/curr_action_loss": curr_action_losses / (i + 1)
                 }, step=epoch
             )
         
@@ -169,7 +175,7 @@ def train():
         if epoch % 2 == 0:
             linear_model_future.eval()
             action_losses = 0
-            
+            curr_action_losses = 0
             total_samples = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
@@ -186,29 +192,31 @@ def train():
                 
                 with torch.no_grad():
                     context, *_, = backbone.get_context(obs, all_masks)
+                    pred_curr_action = backbone.get_action(context, deterministic=True)
+                    curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
                     pred_action = linear_model_future(context)
                     pred_action = pred_action.squeeze(1)
                     masked_action = pred_action[ego_masks[:, -1]]
                     future_actions = future_actions.clone()
                     dyaw_actions = future_actions[:, :, 2] / np.pi
                     dxy_actions = future_actions[:, :, :2] / 6
-                    future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1)
+                    future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1).squeeze(1)
                     masked_other_actions = future_actions[ego_masks[:, -1]]
                     action_loss = linear_model_future.loss(masked_action, masked_other_actions)
-
+                    curr_action_losses += curr_action_loss.mean().item()
                     action_losses += action_loss.mean().item()
-                    action_corr = action_loss.detach().mean(-1).cpu().numpy()
-                    action_corr = np.clip(action_corr, 0, 0.005)
+
             if config.use_wandb:
                 wandb.log(
                     {
                         "eval/action_loss": action_losses / (i + 1) ,
+                        "eval/curr_action_loss": curr_action_losses / (i + 1)
                     }, step=epoch
                 )
     
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
-    torch.save(linear_model_action, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
+    torch.save(linear_model_future, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
 
 
 if __name__ == "__main__":
