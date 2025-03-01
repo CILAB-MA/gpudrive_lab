@@ -176,7 +176,8 @@ class EgoFutureDataset(OtherFutureDataset):
         # actions
         future_actions_pad = np.zeros((actions.shape[0], ego_future_step, *actions.shape[2:]), dtype=np.float32)
         self.future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
-
+        self.actions = actions
+        
         # masks
         valid_masks = 1 - masks
         future_mask_pad = np.full((masks.shape[0], ego_future_step, *masks.shape[2:]), 2, dtype=np.float32)
