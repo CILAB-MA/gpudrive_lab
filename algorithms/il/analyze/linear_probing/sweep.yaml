@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: lp_learned20step_infer30
+name: ego_linear_probing
 metric:
   goal: minimize
   name: eval/loss
@@ -27,12 +27,12 @@ parameters:
     values: [null]
   ego_future_step:
     values: [10, 15, 20, 25]
-    
+
   # EXPERIMENT
   batch_size:
     values: [256]
   epochs:
-    values: [100]
+    values: [50]
   lr:
     values: [0.001]
   sample_per_epoch:
