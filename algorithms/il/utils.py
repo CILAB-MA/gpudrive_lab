@@ -262,3 +262,4 @@ def compute_correlation_scatter(dist, coll, loss):
     ax.grid(True)
 
     return df_corr, fig
+
