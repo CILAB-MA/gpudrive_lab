@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
-    parser.add_argument('--zero-partner-test', '-z', action='store_true')
+    parser.add_argument('--partner-portion-test', '-pp', type=int, default=0)
     args = parser.parse_args()
     return args
 
@@ -36,8 +36,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-if __name__ == "__main__":
-    args = parse_args()
+def run(args):
     
     # Configurations
     NUM_WORLDS = args.num_world
@@ -112,7 +111,9 @@ if __name__ == "__main__":
         road_masks = env.get_stacked_road_mask().to(args.device)
         ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
         partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-        partner_mask_bool = (partner_masks <= 2) if args.zero_partner_test else (partner_masks == 2)
+        # partner_mask_alive = partner_masks != 2
+        # num_partner_alive = mask_not_2.sum().item()
+        partner_mask_bool = partner_masks == 2
         poss = obs[alive_agent_mask][:, 3876 * 4 + 3:3876 * 4 + 5]
         dist = torch.linalg.norm(poss, dim=-1)
         controlled_agent_info = infos[alive_agent_mask]
@@ -127,8 +128,8 @@ if __name__ == "__main__":
             alive_obs = obs[~dead_agent_mask]
             num_alive = len(alive_obs)
             alive_obs = alive_obs.reshape(num_alive, 5, -1)
-            if args.zero_partner_test:
-                alive_obs[:, :, 6:1276] = 0
+            # if args.zero_partner_test:
+            #     alive_obs[:, :, 6:1276] = 0
             context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
@@ -193,8 +194,8 @@ if __name__ == "__main__":
     print(f'Success World idx : ', torch.where(goal_achieved == 1)[0].tolist())
 
     if args.make_csv:
-        if args.zero_partner_test:
-            csv_path = f"{args.model_path}/result_zero.csv"
+        if args.partner_portion_test:
+            csv_path = f"{args.model_path}/result_{args.partner_portion_test}.csv"
         else:
             csv_path = f"{args.model_path}/result.csv"
         file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
@@ -216,4 +217,8 @@ if __name__ == "__main__":
                 imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=10)
             else:
                 imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10)
+    return off_road_rate, veh_coll_rate, goal_rate, collision_rate
     
+if __name__ == "__main__":
+    args = parse_args()
+    run(args)
