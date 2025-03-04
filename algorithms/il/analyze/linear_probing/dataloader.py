@@ -176,7 +176,8 @@ class EgoFutureDataset(OtherFutureDataset):
         # actions
         future_actions_pad = np.zeros((actions.shape[0], ego_future_step, *actions.shape[2:]), dtype=np.float32)
         self.future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
-
+        self.actions = actions
+        
         # masks
         valid_masks = 1 - masks
         future_mask_pad = np.full((masks.shape[0], ego_future_step, *masks.shape[2:]), 2, dtype=np.float32)
@@ -201,7 +202,7 @@ class EgoFutureDataset(OtherFutureDataset):
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'future_actions', 'valid_masks', 'partner_mask', 'road_mask']
+        self.full_var = ['obs', 'actions', 'future_actions', 'valid_masks', 'partner_mask', 'road_mask']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -225,6 +226,8 @@ class EgoFutureDataset(OtherFutureDataset):
                     if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
                     elif var_name in ['future_actions']:
+                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
+                    elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
