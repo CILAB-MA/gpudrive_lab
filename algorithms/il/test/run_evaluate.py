@@ -45,7 +45,7 @@ if __name__ == "__main__":
                 print("model: ", model, "dataset: ", dataset, "idx:", start_idx)
                 arguments = f"-mc --dataset {dataset} -mp {model_path} -vp {video_path} -mn {model} --num-world {one_run_world_count} --start-idx {start_idx}"
                 if args.zero_partner_test:
-                    arguments += '-z'
+                    arguments += ' -z'
                 if i == 0:
                     arguments += ' -mv'
                 command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/test/evaluate.py {arguments}"

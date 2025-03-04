@@ -112,7 +112,7 @@ if __name__ == "__main__":
         road_masks = env.get_stacked_road_mask().to(args.device)
         ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
         partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-        partner_mask_bool = (partner_mask <= 2) if args.zero_partner_test else (partner_masks == 2)
+        partner_mask_bool = (partner_masks <= 2) if args.zero_partner_test else (partner_masks == 2)
         poss = obs[alive_agent_mask][:, 3876 * 4 + 3:3876 * 4 + 5]
         dist = torch.linalg.norm(poss, dim=-1)
         controlled_agent_info = infos[alive_agent_mask]
@@ -193,7 +193,10 @@ if __name__ == "__main__":
     print(f'Success World idx : ', torch.where(goal_achieved == 1)[0].tolist())
 
     if args.make_csv:
-        csv_path = f"{args.model_path}/result.csv"
+        if args.zero_partner_test:
+            csv_path = f"{args.model_path}/result_zero.csv"
+        else:
+            csv_path = f"{args.model_path}/result.csv"
         file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:
