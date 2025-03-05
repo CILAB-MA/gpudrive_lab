@@ -131,7 +131,7 @@ def run(args):
                 selected_indices = partner_indices[torch.randperm(len(partner_indices))[:num_to_remove]]
                 alive_partner_mask[world_idx, -1, selected_indices] = 2
         alive_partner_mask_bool = alive_partner_mask == 2
-
+        all_masks[1] = alive_partner_mask_bool
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
