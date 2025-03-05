@@ -18,7 +18,7 @@ def arg_parse():
     parser.add_argument("--total-world-count", type=int, default=20)
     parser.add_argument("--num-world", type=int, default=10)
     parser.add_argument('--start-idx', '-st', type=int, default=0)
-    parser.add_argument('--partner-portion-test', '-pp', type=int, default=0)
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=1)
     return parser.parse_args()

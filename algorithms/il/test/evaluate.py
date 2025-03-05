@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
-    parser.add_argument('--partner-portion-test', '-pp', type=int, default=0)
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     args = parser.parse_args()
     return args
 
