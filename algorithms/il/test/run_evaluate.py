@@ -3,8 +3,10 @@ import logging
 import subprocess
 import argparse
 import os
+import json
 from tqdm import tqdm
 import glob
+import pandas as pd
 logging.getLogger(__name__)
 
 def arg_parse():
@@ -16,7 +18,7 @@ def arg_parse():
     parser.add_argument("--total-world-count", type=int, default=20)
     parser.add_argument("--num-world", type=int, default=10)
     parser.add_argument('--start-idx', '-st', type=int, default=0)
-    parser.add_argument('--partner-portion-test', '-pp', type=int, default=1)
+    parser.add_argument('--partner-portion-test', '-pp', type=int, default=0)
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=1)
     return parser.parse_args()
@@ -28,6 +30,8 @@ if __name__ == "__main__":
     one_run_world_count = args.num_world
     models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
+    df = pd.DataFrame(columns=["Model", "Dataset", "OffRoad", "VehicleCollsion", "Goal", "Collision", "GoalProgress"])
+    new_results = []
     for model in tqdm(models):
         for dataset in ['train', 'valid']:
             if '.pth' not in model:
@@ -38,6 +42,8 @@ if __name__ == "__main__":
                 video_path = args.video_path
             video_path = os.path.join(video_path, args.sweep_name)
             model_path = os.path.join(args.model_path, args.sweep_name)
+            off_road_rates, veh_coll_rates, goal_rates, collision_rates, goal_progress_ratios = [], [], [], [], []
+
             for i in tqdm(range(args.start_idx, total_world_count // one_run_world_count)):
                 start_idx = i * one_run_world_count
                 if dataset == 'valid' and start_idx >= 200:
@@ -49,6 +55,14 @@ if __name__ == "__main__":
                 command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/test/evaluate.py {arguments}"
                 
                 result = subprocess.run(command, shell=True)
-                
                 if result.returncode != 0:
                     print(f"Error: Command failed with return code {result.returncode}")
+
+    csv_path = f"{model_path}/result_{args.partner_portion_test}.csv"
+    if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
+        print(f"CSV file {csv_path} does not exist or is empty. Exiting...")
+        exit()
+    df = pd.read_csv(csv_path)
+    df_avg = df.groupby(["Model", "Dataset"], as_index=False).mean()
+    df_avg.to_csv(csv_path, index=False)
+    print(f"Updated CSV saved at {csv_path} with averaged results.")

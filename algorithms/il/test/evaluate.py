@@ -2,7 +2,7 @@
 
 import logging, imageio
 import torch
-import os, sys
+import os, sys, json
 import numpy as np
 sys.path.append(os.getcwd())
 import argparse
@@ -25,8 +25,8 @@ def parse_args():
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
     parser.add_argument('--model-path', '-mp', type=str, default='/data/model/new_aux_horizon')
     parser.add_argument('--model-name', '-mn', type=str, default='aux_attn_gmm_guide_weight_20250217_1245.pth')
-    parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-video', '-mv', action='store_true')
+    parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=int, default=0)
     args = parser.parse_args()
@@ -92,7 +92,7 @@ def run(args):
                 env.save_footprint(world_render_idx=world_render_idx, time_step=time_step)
             if (dones == True).all():
                 break
-    
+
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -111,8 +111,6 @@ def run(args):
         road_masks = env.get_stacked_road_mask().to(args.device)
         ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
         partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-        # partner_mask_alive = partner_masks != 2
-        # num_partner_alive = mask_not_2.sum().item()
         partner_mask_bool = partner_masks == 2
         poss = obs[alive_agent_mask][:, 3876 * 4 + 3:3876 * 4 + 5]
         dist = torch.linalg.norm(poss, dim=-1)
@@ -122,14 +120,26 @@ def run(args):
         road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
         # road_masks = torch.full((NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, 200), True, dtype=torch.bool).to(args.device)
         all_masks = [ego_masks[~dead_agent_mask], partner_mask_bool[~dead_agent_mask], road_masks[~dead_agent_mask]]
-            
+        alive_partner_mask = partner_masks[~dead_agent_mask]
+        alive_partner_mask_now = alive_partner_mask[:, -1] != 2
+        num_alive_per_world = alive_partner_mask_now.sum(dim=-1)
+        num_to_remove_per_world = (num_alive_per_world * (1 - args.partner_portion_test)).long()
+        for world_idx in range(len(num_to_remove_per_world)):
+            num_to_remove = num_to_remove_per_world[world_idx].item()
+            if num_to_remove > 0:
+                partner_indices = alive_partner_mask_now[world_idx].nonzero(as_tuple=False).squeeze(-1)  # (num_alive,)
+                selected_indices = partner_indices[torch.randperm(len(partner_indices))[:num_to_remove]]
+                alive_partner_mask[world_idx, -1, selected_indices] = 2
+        alive_partner_mask_bool = alive_partner_mask == 2
+
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
             num_alive = len(alive_obs)
             alive_obs = alive_obs.reshape(num_alive, 5, -1)
-            # if args.zero_partner_test:
-            #     alive_obs[:, :, 6:1276] = 0
+            alive_partner_obs = alive_obs[:, :, 6:1276].reshape(num_alive, 5, 127, 10)
+            alive_partner_obs[alive_partner_mask_bool] = 0
+            alive_obs[:, :, 6:1276] = alive_partner_obs.reshape(num_alive, 5, -1)
             context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
@@ -192,12 +202,8 @@ def run(args):
     collision_rate = off_road_rate + veh_coll_rate
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
     print(f'Success World idx : ', torch.where(goal_achieved == 1)[0].tolist())
-
     if args.make_csv:
-        if args.partner_portion_test:
-            csv_path = f"{args.model_path}/result_{args.partner_portion_test}.csv"
-        else:
-            csv_path = f"{args.model_path}/result.csv"
+        csv_path = f"{args.model_path}/result_{args.partner_portion_test}.csv"
         file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:
@@ -218,7 +224,7 @@ def run(args):
             else:
                 imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10)
     return off_road_rate, veh_coll_rate, goal_rate, collision_rate
-    
+
 if __name__ == "__main__":
     args = parse_args()
     run(args)
