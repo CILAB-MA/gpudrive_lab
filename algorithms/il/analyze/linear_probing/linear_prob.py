@@ -111,7 +111,7 @@ def train():
     set_seed(config.seed)
     
     # Backbone and heads
-    backbone = torch.load(f"{config.model_path}/{config.model_name}.pth")
+    backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
     backbone.eval()
     print(backbone)
     # hidden_vector_dict = register_all_layers_forward_hook(backbone)

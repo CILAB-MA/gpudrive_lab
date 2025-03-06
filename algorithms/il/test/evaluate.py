@@ -77,7 +77,7 @@ def run(args):
     }
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
     print(f'model: {args.model_path}/{args.model_name}', )
-    bc_policy = torch.load(f"{args.model_path}/{args.model_name}").to(args.device)
+    bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to(args.device)
     bc_policy.eval()
 
     # To make video with expert trajectories footprint

@@ -119,7 +119,7 @@ if __name__ == "__main__":
         num_stack=args.num_stack
     )
 
-    bc_policy = torch.load(f"{bc_config.model_path}/{args.model_name}.pth").to(args.device)
+    bc_policy = torch.load(f"{bc_config.model_path}/{args.model_name}.pth", weights_only=False).to(args.device)
     bc_policy.eval()
 
     alive_agent_mask = env.cont_agent_mask.clone()

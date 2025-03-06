@@ -69,7 +69,7 @@ if __name__ == "__main__":
     }
     env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
 
-    bc_policy = torch.load(f"{args.model_path}/{args.model_name}.pth").to(args.device)
+    bc_policy = torch.load(f"{args.model_path}/{args.model_name}.pth", weights_only=False).to(args.device)
     bc_policy.eval()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
