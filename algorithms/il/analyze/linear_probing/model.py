@@ -20,20 +20,21 @@ class LinearProb(nn.Module, ABC):
 class LinearProbAction(LinearProb):
     def __init__(self, context_dim, other_dim):
         super(LinearProbAction, self).__init__(context_dim, other_dim)
-        self.dx_head = nn.Linear(context_dim, other_dim)
-        self.dy_head = nn.Linear(context_dim, other_dim)
-        self.dyaw_head = nn.Linear(context_dim, other_dim)
+        self.head = nn.Linear(context_dim, other_dim)
         
     def forward(self, context):
-        dx = self.dx_head(context)
-        dy = self.dy_head(context)
-        dyaw = self.dyaw_head(context)
-        action = torch.stack([dx, dy, dyaw], dim=-1)
-        return action
+        logits = self.head(context)
+        return logits
     
-    def loss(self, pred_action, expert_action):
-        criterion = nn.SmoothL1Loss(reduction='none')
-        loss = criterion(pred_action, expert_action)
+    def predict(self, context):
+        logits = self.forward(context)
+        probs = torch.softmax(logits, dim=-1)
+        pred_class = torch.argmax(probs, dim=-1)
+        return pred_class
+    
+    def loss(self, pred_logits, expert_labels):
+        criterion = nn.CrossEntropyLoss()  # Classification Loss
+        loss = criterion(pred_logits, expert_labels)
         return loss
 
 class LinearProbPosition(LinearProb):

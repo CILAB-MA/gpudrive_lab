@@ -113,9 +113,8 @@ def train():
     backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
     backbone.eval()
     print(backbone)
-    # hidden_vector_dict = register_all_layers_forward_hook(backbone)
-    # linear_model_current = LinearProbAction(backbone.head.input_layer[0].in_features, 1).to("cuda")
-    linear_model_future = LinearProbAction(backbone.head.input_layer[0].in_features, 1).to("cuda")
+    ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
+    linear_model_future = LinearProbAction(128, 12).to("cuda")
 
     # Optimizer
     action_optimizer = AdamW(linear_model_future.parameters(), lr=config.lr, eps=0.0001)
@@ -126,7 +125,7 @@ def train():
 
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         linear_model_future.train()
-        # linear_model_current.train()
+
         action_losses = 0
         curr_action_losses = 0
         for i, batch in enumerate(expert_data_loader):
@@ -145,20 +144,17 @@ def train():
                 curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
             
             # get future pred action
-            pred_action = linear_model_future(context)
-            pred_action = pred_action.squeeze(1)
+            pred_action = linear_model_future(ro_attn_layers['0'][:,0,:])
             masked_action = pred_action[future_valid_mask[:, -1]]
             
             # get future expert action
             future_actions = future_actions.clone()
-            dyaw_actions = future_actions[:, :, 2] / np.pi
-            dxy_actions = future_actions[:, :, :2] / 6
-            future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1).squeeze(1)
+            future_actions = future_actions.squeeze(1)
             masked_other_actions = future_actions[future_valid_mask[:, -1]]
             
             # compute loss
             action_loss = linear_model_future.loss(masked_action, masked_other_actions)
-            total_loss = action_loss 
+            total_loss = action_loss
             
             action_optimizer.zero_grad()
             total_loss.mean().backward()
@@ -200,15 +196,12 @@ def train():
                     curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
                     
                     # get future pred action
-                    pred_action = linear_model_future(context)
-                    pred_action = pred_action.squeeze(1)
+                    pred_action = linear_model_future(ro_attn_layers['0'][:,0,:])
                     masked_action = pred_action[future_valid_mask[:, -1]]
                     
                     # get future expert action
                     future_actions = future_actions.clone()
-                    dyaw_actions = future_actions[:, :, 2] / np.pi
-                    dxy_actions = future_actions[:, :, :2] / 6
-                    future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1).squeeze(1)
+                    future_actions = future_actions.squeeze(1)
                     masked_other_actions = future_actions[future_valid_mask[:, -1]]
                     
                     # compute loss

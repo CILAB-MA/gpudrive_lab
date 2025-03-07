@@ -174,10 +174,11 @@ class EgoFutureDataset(OtherFutureDataset):
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
         self.obs = np.concatenate([obs_pad, self.obs], axis=1)
         
-        # actions
-        future_actions_pad = np.zeros((actions.shape[0], ego_future_step, *actions.shape[2:]), dtype=np.float32)
-        self.future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
+        # actions, future_actions
         self.actions = actions
+        future_actions_pad = np.zeros((actions.shape[0], ego_future_step, *actions.shape[2:]), dtype=np.float32)
+        future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
+        self.future_actions = self._get_multi_class_actions(future_actions)
         
         # current ego mask
         valid_masks = 1 - masks
@@ -216,7 +217,24 @@ class EgoFutureDataset(OtherFutureDataset):
         valid_idx1, valid_idx2 = np.where(self.cur_valid_mask[:, valid_time + self.rollout_len + self.pred_len - 2] == 1)
         valid_idx2 = valid_time[valid_idx2]
         return list(zip(valid_idx1, valid_idx2))
+    
+    @staticmethod
+    def _get_multi_class_actions(actions):
+        """
+        Convert continuous actions to multi-class discrete actions based on dyaw.
+        """
+        dyaw = actions[..., 2]
         
+        # Adaptive bins in radians (-pi to pi)
+        bins = np.array([
+            -np.pi, -2.0*np.pi/3, -np.pi/3,
+            -np.pi/6, -np.pi/12, -np.pi/36, 0, np.pi/36, np.pi/12, np.pi/6,
+            np.pi/3, 2.0*np.pi/3, np.pi
+        ])
+        
+        discrete_actions = np.digitize(dyaw, bins) - 1
+        return discrete_actions
+    
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
         idx1 = int(idx1)
@@ -228,9 +246,7 @@ class EgoFutureDataset(OtherFutureDataset):
                 if self.__dict__[var_name] is not None:
                     if var_name in ['obs', 'cur_valid_mask', 'future_valid_mask','road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
-                    elif var_name in ['future_actions']:
-                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
-                    elif var_name in ['actions']:
+                    elif var_name in ['actions', 'future_actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
@@ -241,3 +257,28 @@ class EgoFutureDataset(OtherFutureDataset):
                     data = self.__dict__[var_name][idx]
                     batch = batch + (data, )
         return batch
+
+if __name__ == "__main__":
+    import os
+    from torch.utils.data import DataLoader
+    
+    data = np.load("/data/tom_v5/train_subset/trajectory_200.npz")
+
+    expert_data_loader = DataLoader(
+        EgoFutureDataset(
+            data['obs'], data['actions'], 
+            data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
+            rollout_len=5, pred_len=1, ego_future_step=1
+        ),
+        batch_size=256,
+        shuffle=True,
+        num_workers=os.cpu_count(),
+        prefetch_factor=4,
+        pin_memory=True
+    )
+
+    for i, batch in enumerate(expert_data_loader):
+        batch_size = batch[0].size(0)
+        obs, expert_action, future_actions, cur_valid_mask, future_valid_mask, partner_mask, road_mask = batch
+
+        print(f"Batch {i} with size {batch_size}")
