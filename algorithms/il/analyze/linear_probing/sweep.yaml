@@ -1,35 +1,38 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: linear_prob
+name: ego_linear_probing
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/model"
+    value: "/data/model/no_crash_baseline_seed"
   model_name:
-    values: ["late_fusion_gmm_train_100_20250205_0806"]
+    values: ["early_attn_gmm_seed3_20250228_1115", "early_attn_gmm_seed11_20250228_1117",
+    "early_attn_gmm_seed17_20250228_1117", "early_attn_gmm_seed42_20250228_1114"]
 
   # DATA
   data_path:
-    value: "/data/tom_v2"
+    value: "/data/tom_v5"
   train_data:
-    value: "train_trajectory_100.npz"
+    value: "train_trajectory_1000.npz"
   test_data:
     value: "test_trajectory_200.npz"
   rollout_len:
     value: 5
   pred_len:
     value: 1
-  other_info_future_step:
-    value: 1
+  aux_future_step:
+    values: [null]
+  ego_future_step:
+    values: [10, 15, 20, 25]
 
   # EXPERIMENT
   batch_size:
     values: [256]
   epochs:
-    values: [100]
+    values: [50]
   lr:
     values: [0.001]
   sample_per_epoch:

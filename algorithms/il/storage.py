@@ -207,6 +207,8 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     road_mask = env.get_road_mask()
     other_info = env.get_other_infos(0)
     partner_mask = env.get_partner_mask()
+    partner_id = env.get_partner_id().unsqueeze(-1)
+    other_infos = torch.cat([other_info, partner_id], dim=-1)
     device = env.device
     
     cont_agent_mask = env.cont_agent_mask.to(device)  # (num_worlds, num_agents)
@@ -219,8 +221,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
     expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 7), device=device) # after 1-step (pos (2), heading (1), vel value(1)), actions (3), mask (1)
-    after_t = 1
+    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 4), device=device) # after 1-step (pos (2), heading (1), vel value(1)), actions (3), mask (1)
     
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
@@ -229,23 +230,10 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     for time_step in tqdm(range(env.episode_len)):
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
-                other_agent_obs = obs[world_idx, agent_idx, 6:1276].reshape(127, 10)  # Reshape to (128, 127, 10)
-                current_speed = other_agent_obs[:, 0]  # (o, o-1)
-                current_relative_coords = other_agent_obs[:, 1:3]  # (o, o-1, 2)
-                current_heading = other_agent_obs[:, 3]  # (o, o-1)
-
-                # Save current data at time_step + after_t
-                if time_step >= after_t:
-                    expert_other_info_lst[idx][time_step - after_t, :, :4] = torch.cat([
-                        current_speed.unsqueeze(-1),
-                        current_relative_coords,
-                        current_heading.unsqueeze(-1)
-                    ], dim=-1)
-
                 expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
                 expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
-                expert_other_info_lst[idx][time_step, :, 4:] = other_info[world_idx, agent_idx]
+                expert_other_info_lst[idx][time_step] = other_infos[world_idx, agent_idx]
                 expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
 
@@ -260,25 +248,41 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         if time_step + 1 != env.episode_len:
             other_info = env.get_other_infos(time_step + 1)
         partner_mask = env.get_partner_mask()
+        partner_id = env.get_partner_id().unsqueeze(-1)
+        other_infos = torch.cat([other_info, partner_id], dim=-1)
+        infos = env.get_infos()
         # Check mask
         partner_mask_bool = (partner_mask == 2)
+        action_valid_mask = torch.where(partner_mask == 0, 1, 0).bool()
         total_other_agent_obs = obs[..., 6:1276].reshape(-1, 128, 127, 10)
         total_road_obs = obs[..., 1276:].reshape(-1, 128, 200, 13)
         sum_alive_partner = torch.logical_or((total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 0), (total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 1)).sum().item()
         sum_alive_road = torch.logical_or((total_road_obs[~road_mask].sum(dim=-1) == 0), (total_road_obs[~road_mask].sum(dim=-1) == 1)).sum().item()
         sum_dead_partner = torch.logical_and((total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 0), (total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 1)).sum().item()
         sum_dead_road = torch.logical_and((total_road_obs[road_mask].sum(dim=-1) != 0), (total_road_obs[road_mask].sum(dim=-1) != 1)).sum().item()
-        print("Checking alive but, sum is 0 or 1 ->", sum_alive_partner, sum_alive_road)
-        print("Checking dead but, sum is not 0 and 1 ->", sum_dead_partner, sum_dead_road)
+        # print("Checking alive but, sum is 0 or 1 ->", sum_alive_partner, sum_alive_road)
+        # print("Checking dead but, sum is not 0 and 1 ->", sum_dead_partner, sum_dead_road)
+
         if (dead_agent_mask == True).all():
+            controlled_agent_info = infos[cont_agent_mask]
+            off_road = controlled_agent_info[:, 0]
+            veh_collision = controlled_agent_info[:, 1]
+            goal_achieved = controlled_agent_info[:, 3]
+            off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
+            veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
+            goal_rate = goal_achieved.sum().float() / cont_agent_mask.sum().float()
+            collision_rate = off_road_rate + veh_coll_rate
+            collision = (veh_collision + off_road > 0)
+            print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
+            print(f'Save number w/o collision {len(expert_trajectory_lst[~collision])} / {len(expert_trajectory_lst)}')
             break
     
-    expert_trajectory_lst = expert_trajectory_lst.to('cpu')
-    expert_actions_lst = expert_actions_lst.to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst.to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst.to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst.to('cpu')
-    expert_other_info_lst = expert_other_info_lst.to('cpu')
+    expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
+    expert_actions_lst = expert_actions_lst[~collision].to('cpu')
+    expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
+    expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
+    expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
+    expert_other_info_lst = expert_other_info_lst[~collision].to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
     np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 

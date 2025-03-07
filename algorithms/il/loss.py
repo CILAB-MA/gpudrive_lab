@@ -11,18 +11,18 @@ def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
     if aux_info:
         aux_task, attn_weights, aux_style = aux_info
     if aux_task == 'action':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_action_head(context, partner_masks)
         expert_actions[..., :2] /= 6 
         expert_actions[..., 2] /= np.pi 
     elif aux_task == 'pos':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_pos_head(context, partner_masks)
     elif aux_task == 'heading':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_heading_head(context, partner_masks)
     elif aux_task == 'speed':
-        partner_masks = masks[:, -1]
+        partner_masks = masks
         pred_actions = model.aux_speed_head(context, partner_masks)
     else:
         pred_actions = model.get_action(context)
@@ -34,7 +34,10 @@ def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
     expert_actions = expert_actions[~partner_masks]
     loss = F.smooth_l1_loss(pred_actions, expert_actions, reduction='none')
     if 'no_weight' not in aux_style:
-        attn_weights_scaled = attn_weights / (attn_weights.mean(dim=-1, keepdim=True) + 1e-6)
+        attn_weights = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
+        count_pos = (attn_weights > 0).sum(dim=-1, keepdim=True).float()
+        count_pos_safe = count_pos + 1e-6
+        attn_weights_scaled = attn_weights * count_pos_safe
         masked_weights = attn_weights_scaled[~partner_masks]
         weighted_mse = loss * masked_weights.unsqueeze(-1)
     else:
@@ -204,7 +207,7 @@ def gmm_loss(model, context, expert_actions, masks=None, aux_head=None):
     else:
         mask = mask.unsqueeze(-1)
     loss = loss[mask > 0] 
-    return loss.mean()
+    return loss.mean(), loss.clone()
 
 def new_gmm_loss(model, context, expert_actions, masks=None, aux_head=None):
     '''

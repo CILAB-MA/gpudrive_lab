@@ -13,38 +13,14 @@ from datetime import datetime
 from collections import OrderedDict
 import matplotlib
 matplotlib.use('Agg')
-import pandas as pd
-import matplotlib.pyplot as plt
-import statsmodels.api as sm
 # GPUDrive
-from algorithms.il.analyze.linear_probing.dataloader import ExpertDataset
+from algorithms.il.analyze.linear_probing.dataloader import EgoFutureDataset, OtherFutureDataset
 from algorithms.il.analyze.linear_probing.config import ExperimentConfig
 from algorithms.il.analyze.linear_probing.model import *
+from algorithms.il.utils import compute_correlation_scatter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-def compute_correlation_scatter(dist, coll, loss):
-    data = np.vstack([dist, coll, loss])
-    corr_matrix = np.corrcoef(data)
-    df_corr = pd.DataFrame(corr_matrix, index=['Current Distance', 'Distance Difference', 'Loss'], 
-                           columns=['Current Distance', 'Distance Difference', 'Loss'])
-    x = np.column_stack((dist, coll))
-    x = sm.add_constant(x)
-    model = sm.OLS(loss, x).fit()
-    print(model.summary())
-    r_squared = model.rsquared
-    multiple_correlation = np.sqrt(r_squared)
-    print(f"Multiple Correlation Coefficient (R): {multiple_correlation:.4f}")
-    fig, ax = plt.subplots(figsize=(8, 6))
-    scatter = ax.scatter(dist, coll, c=loss, cmap='viridis', edgecolor='none', alpha=0.7)
-    plt.colorbar(scatter, label="Loss Value")
-    ax.set_xlabel("Current Distance")
-    ax.set_ylabel("Distance Difference")
-    ax.set_title("Evaluation of Collision Risk")
-    ax.grid(True)
-
-    return df_corr, fig
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -52,7 +28,9 @@ def parse_args():
     parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
-    parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'oracle', 'aux_head'])
+    parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
+                                                                   'no_guide_weighted', 'guide_no_weighted'])
+    parser.add_argument('--aux-future-step', '-afs', type=int, default=30)
     args = parser.parse_args()
     
     return args
@@ -75,12 +53,12 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
         road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
         other_info = npz['other_info'] if 'other_info' in npz.keys() else None    
-
+    dataset = OtherFutureDataset(
+        expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
+        rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
+    )
     dataloader = DataLoader(
-        ExpertDataset(
-            expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, other_info_future_step=config.other_info_future_step
-        ),
+        dataset,
         batch_size=config.batch_size,
         shuffle=isshuffle,
         num_workers=os.cpu_count(),
@@ -133,40 +111,26 @@ def train():
     set_seed(config.seed)
     
     # Backbone and heads
-    backbone = torch.load(f"{config.model_path}/{config.model_name}.pth")
+    backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
     backbone.eval()
     print(backbone)
-    hidden_vector_dict = register_all_layers_forward_hook(backbone)
+    # hidden_vector_dict = register_all_layers_forward_hook(backbone)
     linear_model_action = LinearProbAction(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    # linear_model_pos = LinearProbPosition(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    # linear_model_angle = LinearProbAngle(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    # linear_model_speed = LinearProbSpeed(backbone.head.input_layer[0].in_features, 127).to("cuda")
-    
+
     # Optimizer
     action_optimizer = AdamW(linear_model_action.parameters(), lr=config.lr, eps=0.0001)
-    # pos_optimizer = AdamW(linear_model_pos.parameters(), lr=config.lr, eps=0.0001)
-    # angle_optimizer = AdamW(linear_model_angle.parameters(), lr=config.lr, eps=0.0001)
-    # speed_optimizer = AdamW(linear_model_speed.parameters(), lr=config.lr, eps=0.0001)
-    
+
     # DataLoaders
     expert_data_loader = get_dataloader(config.data_path, config.train_data, config)
     eval_expert_data_loader = get_dataloader(config.data_path, config.test_data, config, isshuffle=False)
 
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         linear_model_action.train()
-        # linear_model_pos.train()
-        # linear_model_angle.train()
-        # linear_model_speed.train()
-        
         action_losses = 0
-        # pos_losses = 0
-        # angle_losses = 0
-        # speed_losses = 0
-        
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
-            if len(batch) == 8:
-                obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
+            if len(batch) == 9:
+                obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch
             elif len(batch) == 7:
                 obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
             elif len(batch) == 4:
@@ -188,21 +152,15 @@ def train():
                 context, *_, = backbone.get_context(obs, all_masks)
                 
             pred_action = linear_model_action(context)
-            masked_action = pred_action[~partner_masks[:, -1]]
-            maksed_collision_risk = collision_risk[~partner_masks[:, -1]]
+            masked_action = pred_action[~aux_mask]
+            maksed_collision_risk = collision_risk[~aux_mask]
             other_actions = other_info[..., 4:7]
             other_actions = other_actions.clone()
             dyaw_actions = other_actions[:, :, 2] / np.pi
             dxy_actions = other_actions[:, :, :2] / 6
             other_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1)
-            masked_other_actions = other_actions[~partner_masks[:, -1]]
-            # pred_pos = linear_model_pos(context)
-            # pred_angle = linear_model_angle(context)
-            # pred_speed = linear_model_speed(context)
+            masked_other_actions = other_actions[~aux_mask]
             action_loss = linear_model_action.loss(masked_action, masked_other_actions)
-            # pos_loss = linear_model_pos.loss(pred_pos, other_info[..., 1:3])
-            # angle_loss = linear_model_angle.loss(pred_angle, other_info[..., 3])
-            # speed_loss = linear_model_speed.loss(pred_speed, other_info[..., 0])
             
             total_loss = action_loss # + pos_loss + angle_loss + speed_loss
             
@@ -250,8 +208,8 @@ def train():
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
                     break
                 total_samples += batch_size
-                if len(batch) == 8:
-                    obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info = batch
+                if len(batch) == 9:
+                    obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask = batch
                 elif len(batch) == 7:
                     obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks = batch 
                 elif len(batch) == 4:
@@ -277,13 +235,13 @@ def train():
                     # pred_pos = linear_model_pos(context)
                     # pred_angle = linear_model_angle(context)
                     # pred_speed = linear_model_speed(context)
-                    masked_action = pred_action[~partner_masks[:, -1]]
-                    maksed_collision_risk = collision_risk[~partner_masks[:, -1]]
+                    masked_action = pred_action[~aux_mask]
+                    maksed_collision_risk = collision_risk[~aux_mask]
                     other_actions = other_info[..., 4:7]  
                     dyaw_actions = other_actions[:, :, 2] / np.pi
                     dxy_actions = other_actions[:, :, :2] / 6
                     other_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1)
-                    masked_other_actions = other_actions[~partner_masks[:, -1]]
+                    masked_other_actions = other_actions[~aux_mask]
                     action_loss = linear_model_action.loss(masked_action, masked_other_actions)
                     # pos_loss = linear_model_pos.loss(pred_pos, other_info[..., 1:3])
                     # angle_loss = linear_model_angle.loss(pred_angle, other_info[..., 3])
@@ -322,7 +280,7 @@ def train():
     
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
-    torch.save(linear_model_action, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action.pth"))
+    torch.save(linear_model_action, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
     # torch.save(linear_model_pos, os.path.join(config.model_path, f"linear_prob/{config.model_name}/pos.pth"))
     # torch.save(linear_model_angle, os.path.join(config.model_path, f"linear_prob/{config.model_name}/angle.pth"))
     # torch.save(linear_model_speed, os.path.join(config.model_path, f"linear_prob/{config.model_name}/speed.pth"))

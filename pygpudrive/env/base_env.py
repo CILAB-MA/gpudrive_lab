@@ -249,7 +249,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
         }:
             return self.visualizer.getRender()
 
-    def save_expert_footprint(self, world_render_idx=0, time_step=0):
+    def save_footprint(self, world_render_idx=0, time_step=0, pred_pos=None):
         """Saves the expert footprint of the environment.
 
         Args:
@@ -264,9 +264,10 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
         if self.render_config.render_mode in {
             RenderMode.PYGAME_ABSOLUTE,
         }:
-            return self.visualizer.saveExpertFootprint(
+            return self.visualizer.saveFootprint(
                 world_render_idx=world_render_idx,
                 time_step=time_step,
+                pos=pred_pos
             )
         else:
             raise ValueError(

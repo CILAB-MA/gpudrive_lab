@@ -543,17 +543,20 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         road_graph = self.road_graph_net(road_graph)
         
         ego_mask = torch.zeros(len(obs), 1, dtype=torch.bool).to(mask.device)
-        all_mask = torch.cat([ego_mask, mask, road_mask], dim=-1)
+        # Road object-map attention
+        all_objs_map = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
+        all_masks = torch.cat([ego_mask, mask, road_mask], dim=-1)
+        obj_masks = torch.cat([ego_mask, mask], dim=-1)
         for norm_layer in self.fusion_attn.modules():
             if isinstance(norm_layer, CrossSetNorm) or isinstance(norm_layer, MaskedBatchNorm1d):
-                setattr(norm_layer, 'mask', all_mask)
-        all_objects = torch.cat([ego_state.unsqueeze(1), road_objects, road_graph], dim=1)
-        all_attn  = self.fusion_attn(all_objects, pad_mask=all_mask)
-        ego_attn = all_attn['last_hidden_state'][:, 0].unsqueeze(1)
-        objects_attn = all_attn['last_hidden_state'][:, 1:self.ro_max + 1]
+                setattr(norm_layer, 'mask', all_masks)
+        all_attn = self.fusion_attn(all_objs_map, pad_mask=all_masks)
+        objects_attn = all_attn['last_hidden_state'][:, :self.ro_max + 1]
 
-        objects_attn = self.ro_attn(ego_attn, objects_attn, pad_mask=mask)  
-        masked_road_objects = objects_attn["last_hidden_state"][~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
+        all_objects_attn = self.ro_attn(objects_attn, pad_mask=obj_masks)
+        objects_attn = all_objects_attn['last_hidden_state'][:, 1:self.ro_max + 1]
+
+        masked_road_objects = objects_attn[~mask.unsqueeze(-1).expand_as(road_objects)].view(-1, road_objects.size(-1))
         masked_positions = masked_positions[~mask.unsqueeze(-1).expand_as(masked_positions)].view(-1, 2)
         masked_speed = masked_speed[~mask].view(-1, 1)
         masked_distances = masked_positions.norm(dim=-1)
@@ -570,7 +573,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         else:
             normalized_distances = (masked_distances - dist_min) / dist_range
             normalized_speed = (masked_speed - dist_min) / speed_range
-        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy()
+        return masked_road_objects.detach().cpu().numpy(), normalized_distances.detach().cpu().numpy(), normalized_speed.detach().cpu().numpy(), None
 
     def get_context(self, obs, masks=None):
         """Get the embedded observation."""
