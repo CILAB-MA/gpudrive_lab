@@ -425,7 +425,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         
         # Attention
         self.fusion_attn = SelfAttentionBlock(
-            num_layers=1,
+            num_layers=max(net_config.network_num_layers - 2, 1),
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,

@@ -1,19 +1,19 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: tom_data_debug
+name: early_attn10000
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # ARGS
   model_name:
-    values: ["aux_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+    values: ["early_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
 
   # EXPERIMENT
   batch_size:
-    values: [512]
+    values: [2048]
   epochs:
     values: [500]
   lr:
@@ -21,15 +21,15 @@ parameters:
   sample_per_epoch:
     values: [438763]
   seed:
-    values: [42]
+    values: [42, 3, 11, 17]
   early_stop_num:
     values: [3]
   data_path:
-    values: ['/data/tom_v4']
+    values: ['/data/tom_v5/train_trajectory_10000'] # for 10,0000
   train_data_file:
     values: ['train_trajectory_1000.npz']
   test_data_file:
-    values: ['test_trajectory_200.npz']
+    values: ['test_trajectory_1000.npz']
   
   # NETWORKCONFIG
   network_dim:

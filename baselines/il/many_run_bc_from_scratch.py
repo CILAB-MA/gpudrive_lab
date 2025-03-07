@@ -39,9 +39,9 @@ def parse_args():
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v4/')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v5/train_trajectory_10000')
     parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
-    parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
+    parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_1000.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
     parser.add_argument('--aux-future-step', '-afs', type=int, default=10)
@@ -85,13 +85,12 @@ def make_dataset(data_dir, config):
         data = {}
         data['obs'] = npz['obs']
         data['actions'] = npz['actions']
-        data['dead_mask'] = npz['dead_mask'] if ('dead_mask' in npz.keys() and config.use_mask) else []
-        data['partner_mask'] = npz['partner_mask'] if ('partner_mask' in npz.keys() and config.use_mask) else []
-        data['road_mask'] = npz['road_mask'] if ('road_mask' in npz.keys() and config.use_mask) else []
-        data['other_info'] = npz['other_info'] if ('other_info' in npz.keys() and config.use_tom) else []
-        ExpertDataset(
-            train_expert_obs, train_expert_actions, 
-            train_expert_masks, train_partner_mask, train_road_mask, train_other_info, 
+        data['masks'] = npz['dead_mask'] if ('dead_mask' in npz.keys() and config.use_mask) else None
+        data['partner_mask'] = npz['partner_mask'] if ('partner_mask' in npz.keys() and config.use_mask) else None
+        data['road_mask'] = npz['road_mask'] if ('road_mask' in npz.keys() and config.use_mask) else None
+        data['other_info'] = npz['other_info'] if ('other_info' in npz.keys() and config.use_tom) else None
+        drive_dataset= ExpertDataset(
+            **data, 
             rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
         )
     return drive_dataset
@@ -101,6 +100,7 @@ def run_one_loader(train_loader, bc_policy, optimizer, config):
     dx_losses = 0
     dy_losses = 0
     dyaw_losses = 0
+    max_losses = 0
     max_norms = 0
     max_names = []
     partner_ratios = 0
@@ -180,7 +180,7 @@ def run_one_loader(train_loader, bc_policy, optimizer, config):
                 dyaw_losses += dyaw_loss
                 
             losses += pred_loss.mean().item()
-    return losses, dx_losses, dy_losses, dyaw_losses, max_norms, component_probs, i
+    return losses, dx_losses, dy_losses, dyaw_losses, max_norms, component_probs, max_losses, i
 
 def train():
     env_config = EnvConfig()
@@ -229,13 +229,10 @@ def train():
         wandb.run.tags = tuple(wandb_tags)
     
     # Get state action pairs
-    train_expert_obs, train_expert_actions = [], []
     eval_expert_obs, eval_expert_actions, = [], []
     
     # Additional data depends on model
-    train_expert_masks, eval_expert_masks = [], []
-    train_other_info, eval_other_info = [], []
-    train_road_mask, eval_road_mask = [], []
+    eval_other_info, eval_expert_masks, eval_road_mask = [], [], []
     
     with np.load(os.path.join(config.data_path, config.eval_data_file)) as npz:
         eval_expert_obs = [npz['obs']]
@@ -276,7 +273,7 @@ def train():
         ),
         batch_size=config.batch_size,
         shuffle=False,
-        num_workers=num_cpus,
+        num_workers=int(num_cpus / 2),
         prefetch_factor=4,
         pin_memory=True
     )
@@ -295,18 +292,28 @@ def train():
         tot_dy_losses = 0
         tot_dyaw_losses = 0
         tot_max_norms = 0
-        for data_name in file_names:
+        max_losses = []
+        for data_name in file_names[:3]:
             if 'test' in data_name:
                 continue
             train_dataset = make_dataset(os.path.join(config.data_path, data_name), config)
-            results = run_one_loader(train_loader, bc_policy, optimizer)
-            loss, dx_loss, dy_loss, dyaw_loss, max_norm, component_probs, j = results
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=config.batch_size,
+                shuffle=False,
+                num_workers=int(num_cpus / 2),
+                prefetch_factor=4,
+                pin_memory=True
+            )
+            results = run_one_loader(train_loader, bc_policy, optimizer, config)
+            loss, dx_loss, dy_loss, dyaw_loss, max_norm, component_probs, max_loss, j = results
             tot_i += j
             tot_losses += loss
             tot_dx_losses += dx_loss
             tot_dy_losses += dy_loss
             tot_dyaw_losses += dyaw_loss
             tot_max_norms += max_norm
+            max_losses += max_loss
         if config.use_wandb:
             log_dict = {   
                     "train/loss": tot_losses / (tot_i + 1),
@@ -353,8 +360,8 @@ def train():
             road_ratios = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
-                if total_samples + batch_size > int(config.sample_per_epoch / 5): 
-                    break
+                # if total_samples + batch_size > config.sample_per_epoch: 
+                #     break
                 total_samples += batch_size
                 
                 if len(batch) == 9:
