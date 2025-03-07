@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
+    parser.add_argument('--shortest-path-test', '-spt', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -102,6 +103,10 @@ def run(args):
     init_goal_dist = torch.linalg.norm(poss, dim=-1)
     dist_metrics = torch.zeros_like(init_goal_dist)
     infos = env.get_infos()
+    collision_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to(args.device)
+    goal_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to(args.device)
+    off_road_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to(args.device)
+
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
         
@@ -117,9 +122,25 @@ def run(args):
         controlled_agent_info = infos[alive_agent_mask]
         alive_agents = infos[alive_agent_mask][:, :4].sum(-1) == 0
         dist_metrics[alive_agents] = dist[alive_agents]
+
+        # Record when agent status changed(goal or collided)
+        veh_collision = controlled_agent_info[:, 1] 
+        goal_achieved = controlled_agent_info[:, 3]
+        off_road = controlled_agent_info[:, 0]
+        collision_mask = (veh_collision > 0) & (collision_timesteps == -1)
+        goal_mask = (goal_achieved > 0) & (goal_timesteps == -1)
+        off_road_mask = (off_road > 0) & (off_road_timesteps == -1)
+
+        collision_timesteps[collision_mask] = time_step
+        goal_timesteps[goal_mask] = time_step
+        off_road_timesteps[off_road_mask] = time_step
+
         road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-        # road_masks = torch.full((NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, 200), True, dtype=torch.bool).to(args.device)
+        # Mask all roads for shortest path test
+        if args.shortest_path_test:
+            road_masks = torch.full((NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, 200), True, dtype=torch.bool).to(args.device)
         all_masks = [ego_masks[~dead_agent_mask], partner_mask_bool[~dead_agent_mask], road_masks[~dead_agent_mask]]
+        # Mask for alive partner with ratio
         alive_partner_mask = partner_masks[~dead_agent_mask]
         alive_partner_mask_now = alive_partner_mask[:, -1] != 2
         num_alive_per_world = alive_partner_mask_now.sum(dim=-1)
@@ -139,6 +160,8 @@ def run(args):
             alive_obs = alive_obs.reshape(num_alive, 5, -1)
             alive_partner_obs = alive_obs[:, :, 6:1276].reshape(num_alive, 5, 127, 10)
             alive_partner_obs[alive_partner_mask_bool] = 0
+            if args.shortest_path_test: # padding road
+                alive_obs[:, :, 1276:] = 0
             alive_obs[:, :, 6:1276] = alive_partner_obs.reshape(num_alive, 5, -1)
             context, ego_attn_score, max_indices_rg = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
@@ -187,6 +210,14 @@ def run(args):
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
             break
+    # Calculate average timesteps for status
+    valid_collision_times = collision_timesteps[collision_timesteps >= 0].float()
+    valid_goal_times = goal_timesteps[goal_timesteps >= 0].float()
+    valid_off_road_times = off_road_timesteps[off_road_timesteps >= 0].float()
+    collision_time_avg = valid_collision_times.mean().item() if len(valid_collision_times) > 0 else -1
+    goal_time_avg = valid_goal_times.mean().item() if len(valid_goal_times) > 0 else -1
+    off_road_time_avg = valid_off_road_times.mean().item() if len(valid_off_road_times) > 0 else -1
+
     controlled_agent_info = infos[alive_agent_mask]
     off_road = controlled_agent_info[:, 0]
     veh_collision = controlled_agent_info[:, 1]
@@ -204,11 +235,13 @@ def run(args):
     print(f'Success World idx : ', torch.where(goal_achieved == 1)[0].tolist())
     if args.make_csv:
         csv_path = f"{args.model_path}/result_{args.partner_portion_test}.csv"
+        if args.shortest_path_test:
+            csv_path = f"{args.model_path}/result_shortest.csv"
         file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:
-                f.write("Model,Dataset,OffRoad,VehicleCollsion,Goal,Collision,GoalProgress\n")
-            f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio}\n")
+                f.write("Model,Dataset,OffRoad,VehicleCollsion,Goal,Collision,GoalProgress,VehColTime,GoalTime,OffRoadTime\n")
+            f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},{collision_time_avg},{goal_time_avg},{off_road_time_avg}\n")
 
     if args.make_video:
         video_path = os.path.join(args.video_path, args.dataset, args.model_name)

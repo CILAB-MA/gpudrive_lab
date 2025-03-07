@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Bash Script for Running WandB Agent with GPU ID, Sweep ID, and WandB API Key
-# Usage: ./run_wandb_docker.sh 1 2 3 4
+# Usage: ./partner_ratio.sh 1 2 3 4
 
 NUM_WORLD=${1:-200}  # 기본값 200
 TOTAL_WORLD_COUNT=${2:-5000}  # 기본값 5000
