@@ -40,6 +40,9 @@ if __name__ == "__main__":
                 video_path = args.video_path + f"_{args.partner_portion_test}"
             else:
                 video_path = args.video_path
+            # # tmp
+            # if 'early_attn_gmm_all_data_20250305_2211' not in model:
+            #     continue
             video_path = os.path.join(video_path, args.sweep_name)
             model_path = os.path.join(args.model_path, args.sweep_name)
             off_road_rates, veh_coll_rates, goal_rates, collision_rates, goal_progress_ratios = [], [], [], [], []

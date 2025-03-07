@@ -1,0 +1,469 @@
+"""Obtain a policy using behavioral cloning."""
+import logging
+import numpy as np
+import torch
+from torch.optim import AdamW
+from torch.utils.data import DataLoader
+import os, sys, torch
+torch.backends.cudnn.benchmark = True
+sys.path.append(os.getcwd())
+import wandb, yaml, argparse
+from tqdm import tqdm
+from datetime import datetime
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+# GPUDrive
+from baselines.il.config import *
+from baselines.il.dataloader import ExpertDataset
+from algorithms.il import MODELS, LOSS
+from algorithms.il.utils import *
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser('Select the dynamics model that you use')
+    # ENVIRONMENT
+    parser.add_argument('--action-type', '-at', type=str, default='continuous', choices=['discrete', 'multi_discrete', 'continuous'],)
+    parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
+    parser.add_argument('--num-stack', '-s', type=int, default=5)
+    
+    # MODEL
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
+    parser.add_argument('--model-name', '-m', type=str, default='early_attn', choices=['bc', 'late_fusion', 'attention', 'early_attn',
+                                                                                         'wayformer',
+                                                                                         'aux_fusion', 'aux_attn'])
+    parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
+    
+    # DATA
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v4/')
+    parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
+    parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
+    parser.add_argument('--rollout-len', '-rl', type=int, default=5)
+    parser.add_argument('--pred-len', '-pl', type=int, default=1)
+    parser.add_argument('--aux-future-step', '-afs', type=int, default=10)
+    
+    # EXPERIMENT
+    parser.add_argument('--exp-name', '-en', type=str, default='all_data')
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--use-wandb', action='store_true')
+    parser.add_argument('--sweep-id', type=str, default=None)
+    parser.add_argument('--use-mask', action='store_true')
+    parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
+                                                                   'no_guide_weighted', 'guide_no_weighted'])
+    args = parser.parse_args()
+    
+    return args
+
+def set_seed(seed=42, deterministic=False):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False 
+
+def get_grad_norm(params, step=None):
+    max_grad_norm = 0
+    grad_name = None
+    for name, param in params:
+        if param.grad is not None:
+            grad_norm = param.grad.view(-1).norm(2).item()  # L2 norm
+            if grad_norm > max_grad_norm:
+                max_grad_norm = grad_norm
+                grad_name = str(name)
+
+    return max_grad_norm, grad_name
+
+def make_dataset(data_dir, config):
+    with np.load(data_dir) as npz:
+        data = {}
+        data['obs'] = npz['obs']
+        data['actions'] = npz['actions']
+        data['dead_mask'] = npz['dead_mask'] if ('dead_mask' in npz.keys() and config.use_mask) else []
+        data['partner_mask'] = npz['partner_mask'] if ('partner_mask' in npz.keys() and config.use_mask) else []
+        data['road_mask'] = npz['road_mask'] if ('road_mask' in npz.keys() and config.use_mask) else []
+        data['other_info'] = npz['other_info'] if ('other_info' in npz.keys() and config.use_tom) else []
+        ExpertDataset(
+            train_expert_obs, train_expert_actions, 
+            train_expert_masks, train_partner_mask, train_road_mask, train_other_info, 
+            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
+        )
+    return drive_dataset
+
+def run_one_loader(train_loader, bc_policy, optimizer, config):
+    losses = 0
+    dx_losses = 0
+    dy_losses = 0
+    dyaw_losses = 0
+    max_norms = 0
+    max_names = []
+    partner_ratios = 0
+    road_ratios = 0
+    max_losses = []
+    for i, batch in enumerate(train_loader):
+            batch_size = batch[0].size(0)
+            
+            if len(batch) == 9:
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, data_idx = batch
+            elif len(batch) == 7:
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, data_idx = batch 
+            elif len(batch) == 4:
+                obs, expert_action, masks, data_idx = batch
+            else:
+                obs, expert_action, data_idx = batch
+            
+            obs, expert_action = obs.to(config.device), expert_action.to(config.device)
+            masks = masks.to(config.device) if len(batch) > 2 else None
+            ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
+            partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
+            road_masks = road_masks.to(config.device) if len(batch) > 3 else None
+            if config.use_tom != None:
+                other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
+            all_masks= [masks, ego_masks, partner_masks, road_masks]
+            # Forward pass
+            if config.use_tom != None:
+                context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
+                pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)                
+                aux_task = ['action', 'pos', 'heading', 'speed']
+                aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
+                aux_losses = torch.zeros(4).to(config.device)
+                for aux_ind, (aux, feat_dim) in enumerate(zip(aux_task, aux_task_ind)):
+                    aux_info  = [aux, other_weights[:, aux_ind], config.use_tom]
+                    if 'no_guide' in config.use_tom:
+                        other_input = other_embeds
+                    else:
+                        other_input = other_embeds[..., aux_ind * 32: (aux_ind + 1) * 32]
+                    tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
+                                    aux_info=aux_info)
+                    aux_losses[aux_ind] = tom_loss
+                    loss = pred_loss + 0.1 * tom_loss
+            else:
+                context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
+                pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                loss = pred_loss
+            
+            # To write data idx that has the highest loss
+            if config.use_wandb:
+                max_loss, max_loss_idx = torch.max(pred_loss_wandb, dim=-1)
+                max_loss_idx = data_idx[max_loss_idx]
+                max_losses.append((max_loss.item(), (max_loss_idx.detach().cpu().numpy())))
+            
+            loss = loss.mean()
+            partner_ratios += all_ratio[0]
+            road_ratios += all_ratio[1]
+            # Backward pass
+            optimizer.zero_grad()
+            loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 20)
+            max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
+            max_norms += max_norm
+            max_names.append(max_name)
+
+            optimizer.step()
+
+            with torch.no_grad():
+                pred_actions = bc_policy.get_action(context, deterministic=True)
+                component_probs = bc_policy.head.get_component_probs().cpu().numpy()
+                action_loss = torch.abs(pred_actions - expert_action)
+                dx_loss = action_loss[..., 0].mean().item()
+                dy_loss = action_loss[..., 1].mean().item()
+                dyaw_loss = action_loss[..., 2].mean().item()
+                dx_losses += dx_loss
+                dy_losses += dy_loss
+                dyaw_losses += dyaw_loss
+                
+            losses += pred_loss.mean().item()
+    return losses, dx_losses, dy_losses, dyaw_losses, max_norms, component_probs, i
+
+def train():
+    env_config = EnvConfig()
+    net_config = NetworkConfig()
+    head_config = HeadConfig()
+    current_time = datetime.now().strftime("%Y%m%d_%H%M")
+    if args.use_wandb:
+        wandb.init()
+        # Tag Update
+        wandb_tags = list(wandb.run.tags)
+        wandb_tags.append(current_time)
+        for key, value in wandb.config.items():
+            wandb_tags.append(f"{key}_{value}")
+        wandb.run.tags = tuple(wandb_tags)
+        # Config Update
+        for key, value in vars(args).items():
+            if key not in wandb.config:
+                wandb.config[key] = value
+        config = wandb.config
+        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
+        wandb.run.save()
+        # NetConfig, HeadConfig Update (if sweep parameter is used)
+        for key, value in config.items():
+            if key in net_config.__dict__.keys():
+                setattr(net_config, key, value)
+            if key in head_config.__dict__.keys():
+                setattr(head_config, key, value)
+    else:
+        config = ExperimentConfig()
+        config.__dict__.update(vars(args))
+    set_seed(config.seed)    
+    # Initialize model and optimizer
+    bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
+                                          config.use_tom).to(config.device)
+    optimizer = AdamW(bc_policy.parameters(), lr=config.lr, eps=0.0001)
+    print(bc_policy)
+    
+    # Model Params wandb update
+    trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
+    non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
+    print(f'Total params: {trainable_params + non_trainable_params}')
+    if config.use_wandb:
+        wandb_tags = list(wandb.run.tags)
+        wandb_tags.append(f"trainable_params_{trainable_params}")
+        wandb_tags.append(f"non_trainable_params_{non_trainable_params}")
+        wandb.run.tags = tuple(wandb_tags)
+    
+    # Get state action pairs
+    train_expert_obs, train_expert_actions = [], []
+    eval_expert_obs, eval_expert_actions, = [], []
+    
+    # Additional data depends on model
+    train_expert_masks, eval_expert_masks = [], []
+    train_other_info, eval_other_info = [], []
+    train_road_mask, eval_road_mask = [], []
+    
+    with np.load(os.path.join(config.data_path, config.eval_data_file)) as npz:
+        eval_expert_obs = [npz['obs']]
+        eval_expert_actions = [npz['actions']]
+        eval_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and config.use_mask) else []
+        eval_partner_mask = [npz['partner_mask']] if ('partner_mask' in npz.keys() and config.use_mask) else []
+        eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
+        eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
+        
+    tsne_obs = eval_expert_obs[0][:10, 2:7].copy()
+    tsne_data_mask = eval_partner_mask[0][:10, 6].copy()
+    tsne_partner_mask = np.where(tsne_data_mask == 2, 1, 0).astype('bool')
+    tsne_road_mask = eval_road_mask[0][:10, 6].copy()
+    # Training loop
+    if config.use_wandb:
+        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs[0], tsne_data_mask[0])
+        wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
+        plt.close(raw_fig)
+    tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
+    tsne_partner_mask = torch.from_numpy(tsne_partner_mask).to(config.device)
+    tsne_road_mask = torch.from_numpy(tsne_road_mask).to(config.device)
+
+    # Combine data (no changes)
+    num_cpus = os.cpu_count()
+
+    eval_expert_obs = np.concatenate(eval_expert_obs)
+    eval_expert_actions = np.concatenate(eval_expert_actions)
+    eval_expert_masks = np.concatenate(eval_expert_masks) if len(eval_expert_masks) > 0 else None
+    eval_partner_mask = np.concatenate(eval_partner_mask) if len(eval_partner_mask) > 0 else None
+    eval_road_mask = np.concatenate(eval_road_mask) if len(eval_road_mask) > 0 else None
+    eval_other_info = np.concatenate(eval_other_info) if len(eval_other_info) > 0 else None
+    
+    eval_expert_data_loader = DataLoader(
+        ExpertDataset(
+            eval_expert_obs, eval_expert_actions,
+            eval_expert_masks, eval_partner_mask, eval_road_mask, other_info=eval_other_info,
+            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
+        ),
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=num_cpus,
+        prefetch_factor=4,
+        pin_memory=True
+    )
+
+    del eval_expert_obs
+    del eval_expert_actions
+    del eval_expert_masks
+    best_loss = 9999999
+    early_stopping = 0
+    file_names = os.listdir(config.data_path)
+    for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
+        bc_policy.train()
+        tot_i = 0 
+        tot_losses = 0
+        tot_dx_losses = 0
+        tot_dy_losses = 0
+        tot_dyaw_losses = 0
+        tot_max_norms = 0
+        for data_name in file_names:
+            if 'test' in data_name:
+                continue
+            train_dataset = make_dataset(os.path.join(config.data_path, data_name), config)
+            results = run_one_loader(train_loader, bc_policy, optimizer)
+            loss, dx_loss, dy_loss, dyaw_loss, max_norm, component_probs, j = results
+            tot_i += j
+            tot_losses += loss
+            tot_dx_losses += dx_loss
+            tot_dy_losses += dy_loss
+            tot_dyaw_losses += dyaw_loss
+            tot_max_norms += max_norm
+        if config.use_wandb:
+            log_dict = {   
+                    "train/loss": tot_losses / (tot_i + 1),
+                    "train/dx_loss": tot_dx_losses / (tot_i + 1),
+                    "train/dy_loss": tot_dy_losses / (tot_i + 1),
+                    "train/dyaw_loss": tot_dyaw_losses / (tot_i + 1),
+                    "gmm/max_grad_norm": tot_max_norms / (tot_i + 1),
+                    "gmm/max_component_probs": max(component_probs),
+                    "gmm/median_component_probs": np.median(component_probs),
+                    "gmm/min_component_probs": min(component_probs),
+                }
+            wandb.log(log_dict, step=epoch)
+            
+            # make csv file for max loss
+            model_path = f"{config.model_path}/{exp_config['name']}"
+            if not os.path.exists(model_path):
+                os.makedirs(model_path)
+            csv_path = f"{model_path}/max_loss({config.exp_name}).csv"
+            
+            # write csv file for max loss
+            max_loss_value, best_max_loss_idx = max(max_losses, key=lambda x: x[0])
+            file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
+            with open(csv_path, 'a') as f:
+                if file_is_empty:
+                    f.write("epoch, max_loss, data_idx\n")
+                f.write(f"{epoch}, {max_loss_value}, {best_max_loss_idx[0]}, {best_max_loss_idx[1]}\n")
+        
+        # Evaluation loop
+        if epoch % 5 == 0:
+            model_path = f"{config.model_path}/{exp_config['name']}" if config.use_wandb else config.model_path
+            if not os.path.exists(model_path):
+                os.makedirs(model_path)
+            bc_policy.eval()
+            total_samples = 0
+            losses = 0
+            dx_losses = 0
+            dy_losses = 0
+            dyaw_losses = 0
+            aux_a_losses = 0
+            aux_p_losses = 0
+            aux_s_losses = 0
+            aux_h_losses = 0
+            partner_ratios = 0
+            road_ratios = 0
+            for i, batch in enumerate(eval_expert_data_loader):
+                batch_size = batch[0].size(0)
+                if total_samples + batch_size > int(config.sample_per_epoch / 5): 
+                    break
+                total_samples += batch_size
+                
+                if len(batch) == 9:
+                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, _ = batch  
+                elif len(batch) == 7:
+                    obs, expert_action, masks, ego_masks, partner_masks, road_masks, _ = batch  
+                elif len(batch) == 4:
+                    obs, expert_action, masks, _ = batch
+                else:
+                    obs, expert_action, _ = batch
+                obs, expert_action = obs.to(config.device), expert_action.to(config.device)
+                masks = masks.to(config.device) if len(batch) > 2 else None
+                ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
+                partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
+                road_masks = road_masks.to(config.device) if len(batch) > 3 else None
+                if config.use_tom != None:
+                    other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
+                all_masks= [masks, ego_masks, partner_masks, road_masks]
+                with torch.no_grad():
+                    if config.use_tom != None:
+                        context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
+                        pred_loss, _ = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                        loss = pred_loss
+                        aux_task = ['action', 'pos', 'heading', 'speed']
+                        aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
+                        aux_losses = torch.zeros(4).to(config.device)
+                        for aux_ind, (aux, feat_dim) in enumerate(zip(aux_task, aux_task_ind)):
+                            aux_info  = [aux, other_weights[:, aux_ind], config.use_tom]
+                            if 'no_guide' in config.use_tom:
+                                other_input = other_embeds
+                            else:
+                                other_input = other_embeds[..., aux_ind * 32: (aux_ind + 1) * 32]
+                            tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
+                                            aux_info=aux_info)
+                            aux_losses[aux_ind] = tom_loss
+                    else:
+                        context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
+                        pred_loss, _ = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+                        loss = pred_loss
+
+                    partner_ratios += all_ratio[0]
+                    road_ratios += all_ratio[1]
+
+                    pred_actions = bc_policy.get_action(context, deterministic=True)
+                    action_loss = torch.abs(pred_actions - expert_action)
+                    dx_loss = action_loss[..., 0].mean().item()
+                    dy_loss = action_loss[..., 1].mean().item()
+                    dyaw_loss = action_loss[..., 2].mean().item()
+                    dx_losses += dx_loss
+                    dy_losses += dy_loss
+                    dyaw_losses += dyaw_loss
+                    losses += loss.mean().item()
+                    if config.use_tom:
+                        aux_a_losses += aux_losses[0].mean().item()
+                        aux_p_losses += aux_losses[1].mean().item()
+                        aux_h_losses += aux_losses[2].mean().item()
+                        aux_s_losses += aux_losses[3].mean().item()
+            test_loss = losses / (i + 1) 
+            if config.use_wandb:
+                with torch.no_grad():
+                    others_tsne, other_distance, other_speed, other_weights = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
+                fig1, emb_tsne_all = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                wandb.log({"embedding/tsne_subplots": wandb.Image(fig1)}, step=epoch)
+                plt.close(fig1)
+                if config.use_tom:
+                    fig2 = visualize_tsne_with_weights(emb_tsne_all, other_weights, tsne_data_mask, tsne_partner_mask)
+                    wandb.log({"embedding/attn_subplots": wandb.Image(fig2)}, step=epoch)
+                    plt.close(fig2)
+                log_dict = {
+                        "eval/loss": test_loss,
+                        "eval/dx_loss": dx_losses / (i + 1),
+                        "eval/dy_loss": dy_losses / (i + 1),
+                        "eval/dyaw_loss": dyaw_losses / (i + 1),
+                        "eval/max_partner_ratio": partner_ratios / (i + 1),
+                        "eval/max_road_ratio": road_ratios / (i + 1),
+                    }
+                if 'aux' in config.model_name:
+                    aux_dict = {
+                        "aux/action_loss": aux_a_losses / (i + 1),
+                        "aux/speed_loss": aux_s_losses / (i + 1),
+                        "aux/heading_loss": aux_h_losses / (i + 1),
+                        "aux/position_loss": aux_p_losses / (i + 1),
+                    }
+                    log_dict.update(aux_dict)
+                wandb.log(log_dict, step=epoch)
+            if test_loss < best_loss:
+                torch.save(bc_policy, f"{model_path}/{config.model_name}_{config.loss_name}_{config.exp_name}_{current_time}.pth")
+                best_loss = test_loss
+                early_stopping = 0
+                print(f'EPOCH {epoch} gets BEST!')
+            else:
+                early_stopping += 1
+                if early_stopping > config.early_stop_num + 1:
+                    wandb.finish()
+                    break
+
+if __name__ == "__main__":
+    args = parse_args()
+    if args.use_wandb:
+        with open("baselines/il/sweep.yaml") as f:
+            exp_config = yaml.load(f, Loader=yaml.FullLoader)
+        with open("private.yaml") as f:
+            private_info = yaml.load(f, Loader=yaml.FullLoader)
+        wandb.login(key=private_info["wandb_key"])
+        
+        if args.sweep_id is not None:
+            wandb.agent(args.sweep_id, function=train, project=private_info['main_project'], entity=private_info['entity'])
+        else:
+            sweep_id = wandb.sweep(exp_config, project=private_info['main_project'], entity=private_info['entity'])
+            wandb.agent(sweep_id, function=train)
+    else:
+        train()
