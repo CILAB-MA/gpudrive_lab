@@ -21,6 +21,7 @@ def arg_parse():
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=1)
+    parser.add_argument('--shortest-path-test', '-spt', action='store_true')
     return parser.parse_args()
 
 
@@ -30,7 +31,7 @@ if __name__ == "__main__":
     one_run_world_count = args.num_world
     models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
-    df = pd.DataFrame(columns=["Model", "Dataset", "OffRoad", "VehicleCollsion", "Goal", "Collision", "GoalProgress"])
+    df = pd.DataFrame(columns=["Model", "Dataset", "OffRoad", "VehicleCollsion", "Goal", "Collision", "GoalProgress","VehColTime","GoalTime", "OffRoadTime"])
     new_results = []
     for model in tqdm(models):
         for dataset in ['train', 'valid']:
@@ -55,6 +56,8 @@ if __name__ == "__main__":
                 arguments = f"-mc --dataset {dataset} -mp {model_path} -vp {video_path} -mn {model} --num-world {one_run_world_count} --start-idx {start_idx} -pp {args.partner_portion_test}"
                 # if i == 0:
                 #     arguments += ' -mv'
+                if args.shortest_path_test:
+                    arguments += ' -spt'
                 command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/test/evaluate.py {arguments}"
                 
                 result = subprocess.run(command, shell=True)
@@ -62,6 +65,8 @@ if __name__ == "__main__":
                     print(f"Error: Command failed with return code {result.returncode}")
 
     csv_path = f"{model_path}/result_{args.partner_portion_test}.csv"
+    if args.shortest_path_test:
+        csv_path = f"{model_path}/result_shortest.csv"
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
         print(f"CSV file {csv_path} does not exist or is empty. Exiting...")
         exit()
