@@ -32,7 +32,7 @@ parameters:
     values: ['test_trajectory_1000.npz']
   
   # NETWORKCONFIG
-  network_dim:+
+  network_dim:
     values: [128]
   network_num_layers:
     values: [4]

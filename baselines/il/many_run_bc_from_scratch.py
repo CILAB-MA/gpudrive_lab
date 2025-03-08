@@ -233,7 +233,7 @@ def train():
     
     # Additional data depends on model
     eval_other_info, eval_expert_masks, eval_road_mask = [], [], []
-    
+    print(os.path.join(config.data_path, config.eval_data_file))
     with np.load(os.path.join(config.data_path, config.eval_data_file)) as npz:
         eval_expert_obs = [npz['obs']]
         eval_expert_actions = [npz['actions']]
@@ -294,7 +294,7 @@ def train():
         tot_dyaw_losses = 0
         tot_max_norms = 0
         max_losses = []
-        for data_name in file_names[:3]:
+        for data_name in file_names:
             if 'test' in data_name:
                 continue
             train_dataset = make_dataset(os.path.join(config.data_path, data_name), config)
@@ -302,7 +302,7 @@ def train():
                 train_dataset,
                 batch_size=config.batch_size,
                 shuffle=False,
-                num_workers=int(num_cpus / 2),
+                num_workers=num_cpus - 1,
                 prefetch_factor=4,
                 pin_memory=True
             )
@@ -317,7 +317,6 @@ def train():
             max_losses += max_loss
             del train_dataset
         if config.use_wandb:
-            print('Train wandb')
             log_dict = {   
                     "train/loss": tot_losses / (tot_i + 1),
                     "train/dx_loss": tot_dx_losses / (tot_i + 1),
@@ -335,7 +334,6 @@ def train():
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
             csv_path = f"{model_path}/max_loss({config.exp_name}).csv"
-            print('Train csv')
             # write csv file for max loss
             max_loss_value, best_max_loss_idx = max(max_losses, key=lambda x: x[0])
             file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
@@ -343,7 +341,6 @@ def train():
                 if file_is_empty:
                     f.write("epoch, max_loss, data_idx\n")
                 f.write(f"{epoch}, {max_loss_value}, {best_max_loss_idx[0]}, {best_max_loss_idx[1]}\n")
-        print('Train!')
         # Evaluation loop
         if epoch % 5 == 0:
             model_path = f"{config.model_path}/{exp_config['name']}" if config.use_wandb else config.model_path
