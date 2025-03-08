@@ -10,7 +10,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
         self.obs = np.concatenate([obs_pad, self.obs], axis=1)
 
-        # actions
+        # actions, 
         self.actions = actions
         
         # masks
@@ -21,15 +21,13 @@ class OtherFutureDataset(torch.utils.data.Dataset):
 
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
-        self.aux_valid_mask = None
         partner_info = obs[..., 6:1276].reshape(B, T, 127, 10)[..., :4]
-        self.aux_mask = None
-        if other_info is not None:
-            aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, 
-                                                     future_timestep=aux_future_step)
-            self.aux_mask = aux_mask.astype('bool')
+        aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, future_timestep=aux_future_step)
+        self.aux_mask = aux_mask.astype('bool')
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
         self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
+        self.other_actions = self._get_multi_class_actions(aux_info[..., 4:7])
+        
         # road_mask
         self.road_mask = road_mask
         road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
@@ -41,7 +39,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.valid_indices = self._compute_valid_indices()
         self.other_info = aux_info
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
-                         'other_info', 'aux_mask']
+                         'other_info', 'aux_mask', 'other_actions']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -132,6 +130,23 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         partner_collision_risk = partner_collision_risk.reshape(-1, 1)
         return np.concatenate([current_dist, partner_collision_risk], axis=-1)
         
+    @staticmethod
+    def _get_multi_class_actions(actions):
+        """
+        Convert continuous actions to multi-class discrete actions based on dyaw.
+        """
+        dyaw = actions[..., 2]
+        
+        # Adaptive bins in radians (-pi to pi)
+        bins = np.array([
+            -np.pi, -2.0*np.pi/3, -np.pi/3,
+            -np.pi/6, -np.pi/12, -np.pi/36, 0, np.pi/36, np.pi/12, np.pi/6,
+            np.pi/3, 2.0*np.pi/3, np.pi
+        ])
+        
+        discrete_actions = np.digitize(dyaw, bins) - 1
+        return discrete_actions    
+    
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
         idx1 = int(idx1)
@@ -147,7 +162,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
-                    elif var_name in ['other_info', 'aux_mask']:
+                    elif var_name in ['other_info', 'aux_mask', 'other_actions']:
                         data = self.__dict__[var_name][idx1, idx2]
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
