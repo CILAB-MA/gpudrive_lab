@@ -284,6 +284,7 @@ def train():
     best_loss = 9999999
     early_stopping = 0
     file_names = os.listdir(config.data_path)
+    print(file_names)
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         bc_policy.train()
         tot_i = 0 
@@ -314,7 +315,9 @@ def train():
             tot_dyaw_losses += dyaw_loss
             tot_max_norms += max_norm
             max_losses += max_loss
+            del train_dataset
         if config.use_wandb:
+            print('Train wandb')
             log_dict = {   
                     "train/loss": tot_losses / (tot_i + 1),
                     "train/dx_loss": tot_dx_losses / (tot_i + 1),
@@ -332,7 +335,7 @@ def train():
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
             csv_path = f"{model_path}/max_loss({config.exp_name}).csv"
-            
+            print('Train csv')
             # write csv file for max loss
             max_loss_value, best_max_loss_idx = max(max_losses, key=lambda x: x[0])
             file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
@@ -340,7 +343,7 @@ def train():
                 if file_is_empty:
                     f.write("epoch, max_loss, data_idx\n")
                 f.write(f"{epoch}, {max_loss_value}, {best_max_loss_idx[0]}, {best_max_loss_idx[1]}\n")
-        
+        print('Train!')
         # Evaluation loop
         if epoch % 5 == 0:
             model_path = f"{config.model_path}/{exp_config['name']}" if config.use_wandb else config.model_path
@@ -348,6 +351,7 @@ def train():
                 os.makedirs(model_path)
             bc_policy.eval()
             total_samples = 0
+
             losses = 0
             dx_losses = 0
             dy_losses = 0

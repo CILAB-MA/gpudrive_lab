@@ -13,7 +13,7 @@ parameters:
 
   # EXPERIMENT
   batch_size:
-    values: [2048]
+    values: [1024]
   epochs:
     values: [500]
   lr:
@@ -21,7 +21,7 @@ parameters:
   sample_per_epoch:
     values: [438763]
   seed:
-    values: [42, 3, 11, 17]
+    values: [42]
   early_stop_num:
     values: [3]
   data_path:
@@ -32,7 +32,7 @@ parameters:
     values: ['test_trajectory_1000.npz']
   
   # NETWORKCONFIG
-  network_dim:
+  network_dim:+
     values: [128]
   network_num_layers:
     values: [4]
@@ -59,6 +59,6 @@ parameters:
   
   # AUXCONFIG
   use_tom:
-    values: ['guide_weighted', 'no_guide_no_weighted', 'guide_no_weighted'] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+    values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
   aux_future_step:
-    values: [20] # null, 1, 5, 10, 20, 30
+    values: [null] # null, 1, 5, 10, 20, 30
