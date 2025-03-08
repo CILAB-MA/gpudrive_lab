@@ -40,44 +40,47 @@ class LinearProbAction(LinearProb):
 class LinearProbPosition(LinearProb):
     def __init__(self, context_dim, other_dim):
         super(LinearProbPosition, self).__init__(context_dim, other_dim)
-        self.x_head = nn.Linear(context_dim, other_dim)
-        self.y_head = nn.Linear(context_dim, other_dim)
+        self.head = nn.Linear(context_dim, other_dim)
         
     def forward(self, context):
-        x = self.x_head(context)
-        y = self.y_head(context)
-        pos = torch.stack([x, y], dim=-1)
-        return pos
+        logits = self.head(context)
+        return logits
     
-    def loss(self, pred_pos, expert_pos):
-        criterion = nn.MSELoss()
-        loss = criterion(pred_pos, expert_pos)
+    def predict(self, context):
+        logits = self.forward(context)
+        probs = torch.softmax(logits, dim=-1)
+        pred_class = torch.argmax(probs, dim=-1)
+        return pred_class
+    
+    def loss(self, pred_logits, expert_labels):
+        criterion = nn.CrossEntropyLoss()  # Classification Loss
+        loss = criterion(pred_logits, expert_labels)
         return loss
 
-class LinearProbAngle(LinearProb):
-    def __init__(self, context_dim, other_dim):
-        super(LinearProbAngle, self).__init__(context_dim, other_dim)
-        self.yaw_head = nn.Linear(context_dim, other_dim)
+# class LinearProbAngle(LinearProb):
+#     def __init__(self, context_dim, other_dim):
+#         super(LinearProbAngle, self).__init__(context_dim, other_dim)
+#         self.yaw_head = nn.Linear(context_dim, other_dim)
         
-    def forward(self, context):
-        yaw = self.yaw_head(context)
-        return yaw
+#     def forward(self, context):
+#         yaw = self.yaw_head(context)
+#         return yaw
     
-    def loss(self, pred_angle, expert_angle):
-        criterion = nn.MSELoss()
-        loss = criterion(pred_angle, expert_angle)
-        return loss
+#     def loss(self, pred_angle, expert_angle):
+#         criterion = nn.MSELoss()
+#         loss = criterion(pred_angle, expert_angle)
+#         return loss
     
-class LinearProbSpeed(LinearProb):
-    def __init__(self, context_dim, other_dim):
-        super(LinearProbSpeed, self).__init__(context_dim, other_dim)
-        self.speed_head = nn.Linear(context_dim, other_dim)
+# class LinearProbSpeed(LinearProb):
+#     def __init__(self, context_dim, other_dim):
+#         super(LinearProbSpeed, self).__init__(context_dim, other_dim)
+#         self.speed_head = nn.Linear(context_dim, other_dim)
         
-    def forward(self, context):
-        speed = self.speed_head(context)
-        return speed
+#     def forward(self, context):
+#         speed = self.speed_head(context)
+#         return speed
     
-    def loss(self, pred_speed, expert_speed):
-        criterion = nn.MSELoss()
-        loss = criterion(pred_speed, expert_speed)
-        return loss
+#     def loss(self, pred_speed, expert_speed):
+#         criterion = nn.MSELoss()
+#         loss = criterion(pred_speed, expert_speed)
+#         return loss

@@ -26,6 +26,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.aux_mask = aux_mask.astype('bool')
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
         self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
+        self.other_pos = self._get_multi_class_pos(aux_info[..., 1:3])
         self.other_actions = self._get_multi_class_actions(aux_info[..., 4:7])
         
         # road_mask
@@ -39,7 +40,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.valid_indices = self._compute_valid_indices()
         self.other_info = aux_info
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
-                         'other_info', 'aux_mask', 'other_actions']
+                         'other_info', 'aux_mask', 'other_pos', 'other_actions']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -129,7 +130,28 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         current_dist = current_dist.reshape(-1, 1)
         partner_collision_risk = partner_collision_risk.reshape(-1, 1)
         return np.concatenate([current_dist, partner_collision_risk], axis=-1)
+
+    @staticmethod
+    def _get_multi_class_pos(pos):
+        """
+        Convert continuous pos to multi-class discrete pos based on x, y.
+        """
+        x, y = pos[..., 0], pos[..., 1]
         
+        # Define bins for discretization (-1 to 1 with 8 bins)
+        bins = np.linspace(-0.1, 0.1, 9)
+        
+        # Digitize x and y into 8 categories (0 to 7)
+        x_bins = np.digitize(x, bins) - 1
+        y_bins = np.digitize(y, bins) - 1
+        
+        # Ensure values are within valid range (0 to 7)
+        x_bins = np.clip(x_bins, 0, 7)
+        y_bins = np.clip(y_bins, 0, 7)
+        
+        discrete_pos = x_bins * 8 + y_bins
+        return discrete_pos
+
     @staticmethod
     def _get_multi_class_actions(actions):
         """
@@ -145,7 +167,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         ])
         
         discrete_actions = np.digitize(dyaw, bins) - 1
-        return discrete_actions    
+        return discrete_actions
     
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
@@ -162,7 +184,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
-                    elif var_name in ['other_info', 'aux_mask', 'other_actions']:
+                    elif var_name in ['other_info', 'aux_mask', 'other_pos', 'other_actions']:
                         data = self.__dict__[var_name][idx1, idx2]
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
@@ -183,11 +205,12 @@ class OtherFutureDataset(torch.utils.data.Dataset):
 class EgoFutureDataset(OtherFutureDataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
                  rollout_len=5, pred_len=1, ego_future_step=1):
-        # obs
-        self.obs = obs
-        B, T, *_ = obs.shape
+        # obs, future_pos
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
-        self.obs = np.concatenate([obs_pad, self.obs], axis=1)
+        self.obs = np.concatenate([obs_pad, obs], axis=1)
+        future_pos_pad = np.zeros((obs.shape[0], ego_future_step, 2), dtype=np.float32)
+        future_pos = np.concatenate([obs[..., 3:5], future_pos_pad], axis=1)[:, ego_future_step:]
+        self.future_pos = self._get_multi_class_pos(future_pos)
         
         # actions, future_actions
         self.actions = actions
@@ -203,8 +226,7 @@ class EgoFutureDataset(OtherFutureDataset):
         
         # future ego mask
         future_masks = np.concatenate([valid_masks, future_mask_pad], axis=1).astype('bool')[:, ego_future_step:]
-        future_masks = np.concatenate([valid_masks_pad, future_masks], axis=1).astype('bool')
-        self.future_valid_mask = self.cur_valid_mask & future_masks
+        self.future_valid_mask = self.cur_valid_mask[:,rollout_len - 1:] & future_masks
 
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
@@ -221,7 +243,7 @@ class EgoFutureDataset(OtherFutureDataset):
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'actions', 'future_actions', 'cur_valid_mask', 'future_valid_mask', 'partner_mask', 'road_mask']
+        self.full_var = ['obs', 'actions', 'future_pos', 'future_actions', 'cur_valid_mask', 'future_valid_mask', 'partner_mask', 'road_mask']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -232,6 +254,26 @@ class EgoFutureDataset(OtherFutureDataset):
         valid_idx1, valid_idx2 = np.where(self.cur_valid_mask[:, valid_time + self.rollout_len + self.pred_len - 2] == 1)
         valid_idx2 = valid_time[valid_idx2]
         return list(zip(valid_idx1, valid_idx2))
+    
+    @staticmethod
+    def _get_multi_class_pos(pos):
+        """
+        Convert continuous pos to multi-class discrete pos based on x, y.
+        """
+        x, y = pos[..., 0], pos[..., 1]
+        
+        # Define bins for discretization (-1 to 1 with 8 bins)
+        bins = np.linspace(-0.5, 0.5, 9)
+        
+        # Digitize x and y into 8 categories (0 to 7)
+        x_bins = np.digitize(x, bins) - 1
+        y_bins = np.digitize(y, bins) - 1
+        
+        x_bins = np.clip(x_bins, 0, 7)
+        y_bins = np.clip(y_bins, 0, 7)
+        
+        discrete_pos = x_bins * 8 + y_bins
+        return discrete_pos
     
     @staticmethod
     def _get_multi_class_actions(actions):
@@ -259,9 +301,9 @@ class EgoFutureDataset(OtherFutureDataset):
         if self.num_timestep > 1:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
-                    if var_name in ['obs', 'cur_valid_mask', 'future_valid_mask','road_mask', 'partner_mask']:
+                    if var_name in ['obs', 'cur_valid_mask','road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
-                    elif var_name in ['actions', 'future_actions']:
+                    elif var_name in ['actions', 'future_pos', 'future_actions', 'future_valid_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
@@ -277,13 +319,13 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     
-    data = np.load("/data/tom_v5/train_subset/trajectory_200.npz")
+    data = np.load("/data/tom_v5/train_subset/trajectory_0.npz")
 
     expert_data_loader = DataLoader(
         EgoFutureDataset(
             data['obs'], data['actions'], 
             data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
-            rollout_len=5, pred_len=1, ego_future_step=1
+            rollout_len=5, pred_len=1, ego_future_step=3
         ),
         batch_size=256,
         shuffle=True,
@@ -291,6 +333,19 @@ if __name__ == "__main__":
         prefetch_factor=4,
         pin_memory=True
     )
+    
+    # expert_data_loader = DataLoader(
+    #     OtherFutureDataset(
+    #         data['obs'], data['actions'], 
+    #         data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
+    #         rollout_len=5, pred_len=1, aux_future_step=3
+    #     ),
+    #     batch_size=256,
+    #     shuffle=True,
+    #     num_workers=os.cpu_count(),
+    #     prefetch_factor=4,
+    #     pin_memory=True
+    # )
 
     for i, batch in enumerate(expert_data_loader):
         batch_size = batch[0].size(0)

@@ -115,26 +115,30 @@ def train():
     backbone.eval()
     print(backbone)
     ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
-    linear_model_action = LinearProbAction(128, 12).to("cuda")
+    pos_linear_model = LinearProbPosition(128, 64).to("cuda")
+    action_linear_model = LinearProbAction(128, 12).to("cuda")
 
     # Optimizer
-    action_optimizer = AdamW(linear_model_action.parameters(), lr=config.lr, eps=0.0001)
+    pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
+    action_optimizer = AdamW(action_linear_model.parameters(), lr=config.lr, eps=0.0001)
 
     # DataLoaders
     expert_data_loader = get_dataloader(config.data_path, config.train_data, config)
     eval_expert_data_loader = get_dataloader(config.data_path, config.test_data, config, isshuffle=False)
 
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
-        linear_model_action.train()
+        pos_linear_model.train()
+        action_linear_model.train()
         
+        pos_losses = 0
         action_losses = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
 
-            obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_actions = batch
+            obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_pos, other_actions = batch
             
             obs, expert_action = obs.to("cuda"), expert_action.to("cuda")
-            other_actions = other_actions.to("cuda")
+            other_pos, other_actions = other_pos.to("cuda"), other_actions.to("cuda")
             masks = masks.to("cuda") if len(batch) > 2 else None
             ego_masks = ego_masks.to("cuda") if len(batch) > 3 else None
             partner_masks = partner_masks.to("cuda") if len(batch) > 3 else None
@@ -147,47 +151,57 @@ def train():
             except TypeError:
                 context, *_, = backbone.get_context(obs, all_masks)
 
-            # get partner pred action
-            pred_action = linear_model_action(ro_attn_layers['0'][:,1:,:])
+            # get partner pred pos and action
+            pred_pos = pos_linear_model(ro_attn_layers['0'][:,1:,:])
+            masked_pos = pred_pos[~aux_mask]
+            pred_action = action_linear_model(ro_attn_layers['0'][:,1:,:])
             masked_action = pred_action[~aux_mask]
             maksed_collision_risk = collision_risk[~aux_mask]
 
-            # get partner expert action            
+            # get partner expert pos and action
+            other_pos = other_pos.clone()
             other_actions = other_actions.clone()
+            masked_other_pos = other_pos[~aux_mask]
             masked_other_actions = other_actions[~aux_mask]
-            action_loss = linear_model_action.loss(masked_action, masked_other_actions)
             
-            total_loss = action_loss # + pos_loss + angle_loss + speed_loss
+            pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
+            action_loss = action_linear_model.loss(masked_action, masked_other_actions)
             
+            total_loss = pos_loss + action_loss
+            
+            pos_optimizer.zero_grad()
             action_optimizer.zero_grad()
-            total_loss.mean().backward()
+            total_loss.backward()
+            pos_optimizer.step()
             action_optimizer.step()
-            action_losses += action_loss.mean().item()
+            pos_losses += pos_loss.item()
+            action_losses += action_loss.item()
 
-        
         if config.use_wandb:
             wandb.log(
-                {   
+                {
+                    "train/pos_loss": pos_losses / (i + 1),
                     "train/action_loss": action_losses / (i + 1),
                 }, step=epoch
             )
         
         # Evaluation loop
         if epoch % 2 == 0:
-            linear_model_action.eval()
+            pos_linear_model.eval()
+            action_linear_model.eval()
             
+            pos_losses = 0
             action_losses = 0
-            
             total_samples = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
                     break
                 total_samples += batch_size
-                obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_actions = batch
+                obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_pos, other_actions = batch
                 collision_risk = collision_risk.to("cuda")
                 obs, expert_action = obs.to("cuda"), expert_action.to("cuda")
-                other_actions = other_actions.to("cuda")
+                other_pos, other_actions = other_pos.to("cuda"), other_actions.to("cuda")
                 masks = masks.to("cuda") if len(batch) > 2 else None
                 ego_masks = ego_masks.to("cuda") if len(batch) > 3 else None
                 partner_masks = partner_masks.to("cuda") if len(batch) > 3 else None
@@ -201,17 +215,23 @@ def train():
                     except TypeError:
                         context, *_, = backbone.get_context(obs, all_masks)
 
-                    # get partner pred action
-                    pred_action = linear_model_action(ro_attn_layers['0'][:,1:,:])
+                    # get partner pred pos and action
+                    pred_pos = pos_linear_model(ro_attn_layers['0'][:,1:,:])
+                    pred_action = action_linear_model(ro_attn_layers['0'][:,1:,:])
+                    masked_pos = pred_pos[~aux_mask]
                     masked_action = pred_action[~aux_mask]
                     maksed_collision_risk = collision_risk[~aux_mask]
 
-                    # get partner expert action
+                    # get partner expert pos and action
+                    other_pos = other_pos.clone()
                     other_actions = other_actions.clone()
+                    masked_other_pos = other_pos[~aux_mask]
                     masked_other_actions = other_actions[~aux_mask]
-                    action_loss = linear_model_action.loss(masked_action, masked_other_actions)
-
-                    action_losses += action_loss.mean().item()
+                    pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
+                    action_loss = action_linear_model.loss(masked_action, masked_other_actions)
+                    
+                    pos_losses += pos_loss.item()
+                    action_losses += action_loss.item()
                     action_corr = action_loss.detach().mean(-1).cpu().numpy()
                     action_corr = np.clip(action_corr, 0, 0.005)
                     maksed_collision_risk = maksed_collision_risk.detach().cpu().numpy()
@@ -231,6 +251,7 @@ def train():
             if config.use_wandb:
                 wandb.log(
                     {
+                        "eval/pos_loss": pos_losses / (i + 1),
                         "eval/action_loss": action_losses / (i + 1) ,
                         "eval/loss_dist":wandb.Image(fig),
                     }, step=epoch
@@ -238,7 +259,8 @@ def train():
     
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
-    torch.save(linear_model_action, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
+    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/pos({current_time}).pth"))
+    torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
 
 if __name__ == "__main__":
     args = parse_args()
