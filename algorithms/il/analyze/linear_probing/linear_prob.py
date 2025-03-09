@@ -14,13 +14,13 @@ from collections import OrderedDict
 import matplotlib
 matplotlib.use('Agg')
 # GPUDrive
-from algorithms.il.analyze.linear_probing.dataloader import EgoFutureDataset, OtherFutureDataset
+from algorithms.il.analyze.linear_probing.dataloader import OtherFutureDataset
 from algorithms.il.analyze.linear_probing.config import ExperimentConfig
 from algorithms.il.analyze.linear_probing.model import *
-from algorithms.il.utils import compute_correlation_scatter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -135,7 +135,7 @@ def train():
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
 
-            obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_pos, other_actions = batch
+            obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_pos, other_actions = batch
             
             obs, expert_action = obs.to("cuda"), expert_action.to("cuda")
             other_pos, other_actions = other_pos.to("cuda"), other_actions.to("cuda")
@@ -145,7 +145,7 @@ def train():
             road_masks = road_masks.to("cuda") if len(batch) > 3 else None
             other_info = other_info.to("cuda").transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [ego_masks, partner_masks, road_masks]
-            collision_risk = collision_risk.to("cuda")
+
             try:
                 context, *_, = backbone.get_context(obs, all_masks, other_info=other_info)
             except TypeError:
@@ -156,7 +156,6 @@ def train():
             masked_pos = pred_pos[~aux_mask]
             pred_action = action_linear_model(ro_attn_layers['0'][:,1:,:])
             masked_action = pred_action[~aux_mask]
-            maksed_collision_risk = collision_risk[~aux_mask]
 
             # get partner expert pos and action
             other_pos = other_pos.clone()
@@ -164,9 +163,9 @@ def train():
             masked_other_pos = other_pos[~aux_mask]
             masked_other_actions = other_actions[~aux_mask]
             
+            # get loss
             pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
             action_loss = action_linear_model.loss(masked_action, masked_other_actions)
-            
             total_loss = pos_loss + action_loss
             
             pos_optimizer.zero_grad()
@@ -198,8 +197,7 @@ def train():
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
                     break
                 total_samples += batch_size
-                obs, collision_risk, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_pos, other_actions = batch
-                collision_risk = collision_risk.to("cuda")
+                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_pos, other_actions = batch
                 obs, expert_action = obs.to("cuda"), expert_action.to("cuda")
                 other_pos, other_actions = other_pos.to("cuda"), other_actions.to("cuda")
                 masks = masks.to("cuda") if len(batch) > 2 else None
@@ -220,7 +218,6 @@ def train():
                     pred_action = action_linear_model(ro_attn_layers['0'][:,1:,:])
                     masked_pos = pred_pos[~aux_mask]
                     masked_action = pred_action[~aux_mask]
-                    maksed_collision_risk = collision_risk[~aux_mask]
 
                     # get partner expert pos and action
                     other_pos = other_pos.clone()
@@ -232,28 +229,12 @@ def train():
                     
                     pos_losses += pos_loss.item()
                     action_losses += action_loss.item()
-                    action_corr = action_loss.detach().mean(-1).cpu().numpy()
-                    action_corr = np.clip(action_corr, 0, 0.005)
-                    maksed_collision_risk = maksed_collision_risk.detach().cpu().numpy()
-                    mask1 = action_corr <= 0.005
-                    mask2 = maksed_collision_risk[:, 1] != 0 
-                    mask3 = maksed_collision_risk[:, 0] <= 0.5
-                    final_mask = mask1 & mask2 & mask3
-                    filtered_action_corr = action_corr[final_mask]
-                    filtered_collision_risk_0 = maksed_collision_risk[:, 0][final_mask]
-                    filtered_collision_risk_1 = maksed_collision_risk[:, 1][final_mask]
 
-            corr, fig = compute_correlation_scatter(
-                        filtered_collision_risk_0, 
-                        filtered_collision_risk_1, 
-                        filtered_action_corr)
-            print(corr)
             if config.use_wandb:
                 wandb.log(
                     {
                         "eval/pos_loss": pos_losses / (i + 1),
                         "eval/action_loss": action_losses / (i + 1) ,
-                        "eval/loss_dist":wandb.Image(fig),
                     }, step=epoch
                 )
     

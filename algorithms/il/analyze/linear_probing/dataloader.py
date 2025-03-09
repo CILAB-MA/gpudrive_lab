@@ -109,26 +109,6 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         valid_idx1, valid_idx2 = np.where(self.valid_masks[:, valid_time + self.rollout_len + self.pred_len - 2] == 1)
         valid_idx2 = valid_time[valid_idx2]
         return list(zip(valid_idx1, valid_idx2))
-    
-    def _get_collision_risk(self, obs):
-        '''
-        obs: (1, 5, 3876)
-
-        '''
-        partner_obs = obs[:, 6:1276].reshape(-1, 5, 127, 10)
-        partner_past = partner_obs[:, 0] # (1, 127, 10)
-        partner_current = partner_obs[:, -1] # (1, 127, 10)
-        current_dist = np.linalg.norm(partner_current[..., 1:3], axis=-1)
-        partner_past_x = partner_past[:, :, 1]
-        partner_past_y = partner_past[:, :, 2]
-        partner_current_x = partner_current[:, :, 1]
-        partner_current_y = partner_current[:, :, 2]
-        collision_risk_value = np.abs(partner_past_x - partner_current_x) + np.abs(partner_past_y - partner_current_y)
-        risk_condition = collision_risk_value > 0
-        partner_collision_risk = np.where(risk_condition, collision_risk_value, 0)
-        current_dist = current_dist.reshape(-1, 1)
-        partner_collision_risk = partner_collision_risk.reshape(-1, 1)
-        return np.concatenate([current_dist, partner_collision_risk], axis=-1)
 
     @staticmethod
     def _get_multi_class_pos(pos):
@@ -191,9 +171,6 @@ class OtherFutureDataset(torch.utils.data.Dataset):
                     if var_name == 'valid_masks':
                         ego_mask_data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len]
                         batch = batch + (ego_mask_data, )
-                    elif var_name == 'obs':
-                        collision_risk_labels = self._get_collision_risk(data)
-                        batch = batch + (collision_risk_labels, )
         else:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
