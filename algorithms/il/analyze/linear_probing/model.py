@@ -33,9 +33,16 @@ class LinearProbAction(LinearProb):
         return pred_class
     
     def loss(self, pred_logits, expert_labels):
-        criterion = nn.CrossEntropyLoss()  # Classification Loss
+        # compute loss
+        criterion = nn.CrossEntropyLoss()
         loss = criterion(pred_logits, expert_labels)
-        return loss
+        
+        # compute accuracy
+        pred_class = torch.argmax(pred_logits, dim=-1)
+        correct = (pred_class == expert_labels).sum().item()
+        total = expert_labels.numel()
+        accuracy = correct / total
+        return loss, accuracy
 
 class LinearProbPosition(LinearProb):
     def __init__(self, context_dim, other_dim):
@@ -53,9 +60,16 @@ class LinearProbPosition(LinearProb):
         return pred_class
     
     def loss(self, pred_logits, expert_labels):
-        criterion = nn.CrossEntropyLoss()  # Classification Loss
+        # compute loss
+        criterion = nn.CrossEntropyLoss()
         loss = criterion(pred_logits, expert_labels)
-        return loss
+        
+        # compute accuracy
+        pred_class = torch.argmax(pred_logits, dim=-1)
+        correct = (pred_class == expert_labels).sum().item()
+        total = expert_labels.numel()
+        accuracy = correct / total
+        return loss, accuracy
 
 # class LinearProbAngle(LinearProb):
 #     def __init__(self, context_dim, other_dim):

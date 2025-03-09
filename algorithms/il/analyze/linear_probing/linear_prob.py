@@ -130,6 +130,8 @@ def train():
         pos_linear_model.train()
         action_linear_model.train()
         
+        pos_accuracys = 0
+        action_accuracys = 0
         pos_losses = 0
         action_losses = 0
         for i, batch in enumerate(expert_data_loader):
@@ -164,8 +166,8 @@ def train():
             masked_other_actions = other_actions[~aux_mask]
             
             # get loss
-            pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
-            action_loss = action_linear_model.loss(masked_action, masked_other_actions)
+            pos_loss, pos_acc = pos_linear_model.loss(masked_pos, masked_other_pos)
+            action_loss, action_acc = action_linear_model.loss(masked_action, masked_other_actions)
             total_loss = pos_loss + action_loss
             
             pos_optimizer.zero_grad()
@@ -173,12 +175,16 @@ def train():
             total_loss.backward()
             pos_optimizer.step()
             action_optimizer.step()
+            pos_accuracys += pos_acc
+            action_accuracys += action_acc
             pos_losses += pos_loss.item()
             action_losses += action_loss.item()
 
         if config.use_wandb:
             wandb.log(
                 {
+                    "train/pos_accuracy": pos_accuracys / (i + 1),
+                    "train/action_accuracy": action_accuracys / (i + 1),
                     "train/pos_loss": pos_losses / (i + 1),
                     "train/action_loss": action_losses / (i + 1),
                 }, step=epoch
@@ -189,6 +195,8 @@ def train():
             pos_linear_model.eval()
             action_linear_model.eval()
             
+            pos_accuracys = 0
+            action_accuracys = 0
             pos_losses = 0
             action_losses = 0
             total_samples = 0
@@ -224,15 +232,19 @@ def train():
                     other_actions = other_actions.clone()
                     masked_other_pos = other_pos[~aux_mask]
                     masked_other_actions = other_actions[~aux_mask]
-                    pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
-                    action_loss = action_linear_model.loss(masked_action, masked_other_actions)
+                    pos_loss, pos_acc = pos_linear_model.loss(masked_pos, masked_other_pos)
+                    action_loss, action_acc = action_linear_model.loss(masked_action, masked_other_actions)
                     
+                    pos_accuracys += pos_acc
+                    action_accuracys += action_acc
                     pos_losses += pos_loss.item()
                     action_losses += action_loss.item()
 
             if config.use_wandb:
                 wandb.log(
                     {
+                        "eval/pos_accuracy": pos_accuracys / (i + 1),
+                        "eval/action_accuracy": action_accuracys / (i + 1),
                         "eval/pos_loss": pos_losses / (i + 1),
                         "eval/action_loss": action_losses / (i + 1) ,
                     }, step=epoch
