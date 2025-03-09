@@ -17,7 +17,6 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.valid_masks = 1 - masks
         valid_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32).astype('bool')
         self.valid_masks = np.concatenate([valid_masks_pad, self.valid_masks], axis=1).astype('bool')
-        self.use_mask = True if self.valid_masks is not None else False
 
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
@@ -218,19 +217,18 @@ class EgoFutureDataset(OtherFutureDataset):
         future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
         self.future_actions = self._get_multi_class_actions(future_actions)
         
-        # current ego mask
+        # current ego mask        
         valid_masks = 1 - masks
-        future_mask_pad = np.full((masks.shape[0], ego_future_step, *masks.shape[2:]), 2, dtype=np.float32)
         valid_masks_pad = np.zeros((valid_masks.shape[0], rollout_len - 1, *valid_masks.shape[2:]), dtype=np.float32).astype('bool')
         self.cur_valid_mask = np.concatenate([valid_masks_pad, valid_masks], axis=1).astype('bool')
         
         # future ego mask
-        future_masks = np.concatenate([valid_masks, future_mask_pad], axis=1).astype('bool')[:, ego_future_step:]
-        self.future_valid_mask = self.cur_valid_mask[:,rollout_len - 1:] & future_masks
+        future_valid_mask_pad = np.zeros((valid_masks.shape[0], ego_future_step, *valid_masks.shape[2:]), dtype=np.float32)
+        future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype('bool')[:, ego_future_step:]
+        self.future_valid_mask = self.cur_valid_mask[:,rollout_len - 1:] & future_valid_masks
 
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
-        self.aux_valid_mask = None
         partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
         self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
         
