@@ -1,35 +1,41 @@
 import torch
 import numpy as np
+from torch.utils.data import DataLoader, IterableDataset
+import random
 
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
                  rollout_len=5, pred_len=1, aux_future_step=None):
         # obs
         self.obs = obs
-        B, T, *_ = obs.shape
-        obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
-        self.obs = np.concatenate([obs_pad, self.obs], axis=1)
+        B, T, F = obs.shape
+        new_shape = (B, T + rollout_len - 1, F)
+        new_obs = np.zeros(new_shape, dtype=self.obs.dtype)
+        new_obs[:, rollout_len - 1:] = obs # This is more cheaper than concatenate
+        self.obs = new_obs
 
         # actions
         self.actions = actions
         
         # masks
-        self.valid_masks = 1 - masks
+        valid_masks = 1 - masks
         max_actions = np.max(actions, axis=-1)
         min_actions = np.min(actions, axis=-1)
         action_mask = (max_actions == 6) | (min_actions == -6) | (actions[..., -1] >= 3.14)  | (actions[..., -1] <= -3.14)
-        self.valid_masks[action_mask] = 0
-        valid_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32).astype('bool')
-        self.valid_masks = np.concatenate([valid_masks_pad, self.valid_masks], axis=1).astype('bool')
+        valid_masks[action_mask] = 0
+        new_shape = (B, T + rollout_len - 1)
+        new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
+        new_valid_mask[:, rollout_len - 1:] = valid_masks
+        self.valid_masks = new_valid_mask.astype('bool')
         self.use_mask = True if self.valid_masks is not None else False
 
         # partner_mask
-        partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
         self.aux_valid_mask = None
         partner_info = obs[..., 6:1276].reshape(B, T, 127, 10)[..., :4]
         self.aux_mask = None
         self.other_info = None
         if other_info is not None:
+            # todo: concat remove need
             aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, 
                                                      future_timestep=aux_future_step)
             max_aux_actions = np.max(aux_info[..., -4:], axis=-1)
@@ -38,12 +44,17 @@ class ExpertDataset(torch.utils.data.Dataset):
             aux_mask[aux_action_mask] = True
             self.aux_mask = aux_mask.astype('bool')
             self.other_info = aux_info
-        partner_mask = np.concatenate([partner_mask_pad, partner_mask], axis=1)
-        self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
+        new_shape = (B, T + rollout_len - 1, 127)
+        new_partner_mask = np.full(new_shape, 2, dtype=np.float32)
+        new_partner_mask[:, rollout_len - 1:] = partner_mask
+        self.partner_mask = np.where(new_partner_mask == 2, 1, 0).astype('bool')
         # road_mask
         self.road_mask = road_mask
-        road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
-        self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
+        new_shape = (B, T + rollout_len - 1, 200)
+        new_road_mask = np.ones(new_shape)
+        new_road_mask[:, rollout_len - 1:] = road_mask
+
+        self.road_mask = new_road_mask.astype('bool')
           
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
@@ -152,6 +163,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                     batch = batch + (data, )
         return batch
     
+
 if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
