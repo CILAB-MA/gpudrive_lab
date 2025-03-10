@@ -296,6 +296,7 @@ def train():
         tot_max_norms = 0
         max_losses = []
         train_loader = None
+
         for data_name in file_names:
             print(f'File: {data_name}')
             if 'test' in data_name:
@@ -356,6 +357,7 @@ def train():
                 os.makedirs(model_path)
             bc_policy.eval()
             total_samples = 0
+
             losses = 0
             dx_losses = 0
             dy_losses = 0

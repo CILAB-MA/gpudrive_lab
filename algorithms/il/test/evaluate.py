@@ -244,7 +244,9 @@ def run(args):
             f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},{collision_time_avg},{goal_time_avg},{off_road_time_avg}\n")
 
     if args.make_video:
-        video_path = os.path.join(args.video_path, args.dataset, args.model_name)
+        video_path = os.path.join(args.video_path, args.dataset, args.model_name, str(args.partner_portion_test))
+        if args.shortest_path_test:
+            video_path = os.path.join(args.video_path, args.dataset, args.model_name, 'road_masked')
         if not os.path.exists(video_path):
             os.makedirs(video_path)
         for world_render_idx in range(NUM_WORLDS):
