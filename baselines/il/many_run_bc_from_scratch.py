@@ -13,6 +13,7 @@ from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import time
 
 # GPUDrive
 from baselines.il.config import *
@@ -39,7 +40,7 @@ def parse_args():
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v5/train_trajectory_10000')
+    parser.add_argument('--data-path', '-dp', type=str, default='train_trajectory_10000_v2')
     parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_1000.npz')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
@@ -294,18 +295,25 @@ def train():
         tot_dyaw_losses = 0
         tot_max_norms = 0
         max_losses = []
+        train_loader = None
+
         for data_name in file_names:
+            print(f'File: {data_name}')
             if 'test' in data_name:
                 continue
+            dataset_start = time.time()
             train_dataset = make_dataset(os.path.join(config.data_path, data_name), config)
+            print(f"Dataset load time: {time.time() - dataset_start:.4f} sec")
+            data_load_start = time.time()
             train_loader = DataLoader(
                 train_dataset,
                 batch_size=config.batch_size,
-                shuffle=False,
-                num_workers=num_cpus - 1,
-                prefetch_factor=4,
-                pin_memory=True
+                shuffle=True,
+                num_workers=0,
+                pin_memory=True,
             )
+            print(f"Data loading time: {time.time() - data_load_start:.4f} sec")
+            run_start = time.time()
             results = run_one_loader(train_loader, bc_policy, optimizer, config)
             loss, dx_loss, dy_loss, dyaw_loss, max_norm, component_probs, max_loss, j = results
             tot_i += j
@@ -316,6 +324,7 @@ def train():
             tot_max_norms += max_norm
             max_losses += max_loss
             del train_dataset
+            print(f"run_one_loader time: {time.time() - run_start:.4f} sec")
         if config.use_wandb:
             log_dict = {   
                     "train/loss": tot_losses / (tot_i + 1),

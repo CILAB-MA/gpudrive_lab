@@ -25,9 +25,9 @@ parameters:
   early_stop_num:
     values: [3]
   data_path:
-    values: ['/data/tom_v5/train_trajectory_10000'] # for 10,0000
+    values: ['/data/tom_v5'] # for 10,0000
   train_data_file:
-    values: ['train_trajectory_1000.npz']
+    values: ['train_trajectory_10000.npz']
   test_data_file:
     values: ['test_trajectory_1000.npz']
   

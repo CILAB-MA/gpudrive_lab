@@ -113,26 +113,32 @@ def train():
     backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
     backbone.eval()
     print(backbone)
-    # hidden_vector_dict = register_all_layers_forward_hook(backbone)
-    # linear_model_current = LinearProbAction(backbone.head.input_layer[0].in_features, 1).to("cuda")
-    linear_model_future = LinearProbAction(backbone.head.input_layer[0].in_features, 1).to("cuda")
-
+    
+    # Linear Prob Models
+    ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
+    pos_linear_model = LinearProbPosition(128, 64).to("cuda")
+    action_linear_model = LinearProbAction(128, 12).to("cuda")
+    
     # Optimizer
-    action_optimizer = AdamW(linear_model_future.parameters(), lr=config.lr, eps=0.0001)
+    pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
+    action_optimizer = AdamW(action_linear_model.parameters(), lr=config.lr, eps=0.0001)
 
     # DataLoaders
     expert_data_loader = get_dataloader(config.data_path, config.train_data, config)
     eval_expert_data_loader = get_dataloader(config.data_path, config.test_data, config, isshuffle=False)
 
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
-        linear_model_future.train()
-        # linear_model_current.train()
+        pos_linear_model.train()
+        action_linear_model.train()
+
+        pos_losses = 0
         action_losses = 0
         curr_action_losses = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
-            obs, actions, future_actions, cur_valid_mask, future_valid_mask, partner_masks, road_masks = batch
-            obs, future_actions = obs.to("cuda"), future_actions.to("cuda")
+            obs, actions, future_pos, future_actions, cur_valid_mask, future_valid_mask, partner_masks, road_masks = batch
+            obs = obs.to("cuda")
+            future_pos, future_actions = future_pos.to("cuda"), future_actions.to("cuda")
             actions = actions.to("cuda")
             cur_valid_mask = cur_valid_mask.to("cuda") if len(batch) > 3 else None
             future_valid_mask = future_valid_mask.to("cuda") if len(batch) > 3 else None
@@ -144,32 +150,39 @@ def train():
                 pred_curr_action = backbone.get_action(context, deterministic=True)
                 curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
             
-            # get future pred action
-            pred_action = linear_model_future(context)
-            pred_action = pred_action.squeeze(1)
-            masked_action = pred_action[future_valid_mask[:, -1]]
+            # get future pred pos and action
+            pred_pos = pos_linear_model(ro_attn_layers['0'][:,0,:])
+            pred_action = action_linear_model(ro_attn_layers['0'][:,0,:])
+            masked_pos = pred_pos[future_valid_mask]
+            masked_action = pred_action[future_valid_mask]
             
-            # get future expert action
+            # get future expert pos and action
+            future_pos = future_pos.clone()
+            future_pos = future_pos.squeeze(1)
+            masked_other_pos = future_pos[future_valid_mask]
             future_actions = future_actions.clone()
-            dyaw_actions = future_actions[:, :, 2] / np.pi
-            dxy_actions = future_actions[:, :, :2] / 6
-            future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1).squeeze(1)
-            masked_other_actions = future_actions[future_valid_mask[:, -1]]
+            future_actions = future_actions.squeeze(1)
+            masked_other_actions = future_actions[future_valid_mask]
             
             # compute loss
-            action_loss = linear_model_future.loss(masked_action, masked_other_actions)
-            total_loss = action_loss 
+            pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
+            action_loss = action_linear_model.loss(masked_action, masked_other_actions)
+            total_loss = pos_loss + action_loss
             
+            pos_optimizer.zero_grad()
             action_optimizer.zero_grad()
-            total_loss.mean().backward()
+            total_loss.backward()
+            pos_optimizer.step()
             action_optimizer.step()
             
-            action_losses += action_loss.mean().item()
+            pos_losses += pos_loss.item()
+            action_losses += action_loss.item()
             curr_action_losses += curr_action_loss.mean().item()
 
         if config.use_wandb:
             wandb.log(
                 {   
+                    "train/pos_loss": pos_losses / (i + 1),
                     "train/future_action_loss": action_losses / (i + 1),
                     "train/curr_action_loss": curr_action_losses / (i + 1)
                 }, step=epoch
@@ -177,7 +190,10 @@ def train():
         
         # Evaluation loop
         if epoch % 2 == 0:
-            linear_model_future.eval()
+            pos_linear_model.eval()
+            action_linear_model.eval()
+            
+            pos_losses = 0
             action_losses = 0
             curr_action_losses = 0
             total_samples = 0
@@ -185,9 +201,10 @@ def train():
                 batch_size = batch[0].size(0)
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
                     break
-                obs, actions, future_actions, cur_valid_mask, future_valid_mask, partner_masks, road_masks = batch
+                obs, actions, future_pos, future_actions, cur_valid_mask, future_valid_mask, partner_masks, road_masks = batch
                 actions = actions.to("cuda")
-                obs, future_actions = obs.to("cuda"), future_actions.to("cuda")
+                obs = obs.to("cuda")
+                future_pos, future_actions = future_pos.to("cuda"), future_actions.to("cuda")
                 cur_valid_mask = cur_valid_mask.to("cuda") if len(batch) > 2 else None
                 future_valid_mask = future_valid_mask.to("cuda") if len(batch) > 3 else None
                 partner_masks = partner_masks.to("cuda") if len(batch) > 3 else None
@@ -199,26 +216,32 @@ def train():
                     pred_curr_action = backbone.get_action(context, deterministic=True)
                     curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
                     
-                    # get future pred action
-                    pred_action = linear_model_future(context)
-                    pred_action = pred_action.squeeze(1)
-                    masked_action = pred_action[future_valid_mask[:, -1]]
+                    # get future pred pos and action
+                    pred_pos = pos_linear_model(ro_attn_layers['0'][:,0,:])
+                    pred_action = action_linear_model(ro_attn_layers['0'][:,0,:])
+                    masked_pos = pred_pos[future_valid_mask]
+                    masked_action = pred_action[future_valid_mask]
                     
                     # get future expert action
+                    future_pos = future_pos.clone()
+                    future_pos = future_pos.squeeze(1)
+                    masked_other_pos = future_pos[future_valid_mask]
                     future_actions = future_actions.clone()
-                    dyaw_actions = future_actions[:, :, 2] / np.pi
-                    dxy_actions = future_actions[:, :, :2] / 6
-                    future_actions = torch.cat([dxy_actions, dyaw_actions.unsqueeze(-1)], dim=-1).squeeze(1)
-                    masked_other_actions = future_actions[future_valid_mask[:, -1]]
+                    future_actions = future_actions.squeeze(1)
+                    masked_other_actions = future_actions[future_valid_mask]
                     
                     # compute loss
-                    action_loss = linear_model_future.loss(masked_action, masked_other_actions)
+                    pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
+                    action_loss = action_linear_model.loss(masked_action, masked_other_actions)
+                    
                     curr_action_losses += curr_action_loss.mean().item()
-                    action_losses += action_loss.mean().item()
+                    pos_losses += pos_loss.item()
+                    action_losses += action_loss.item()
 
             if config.use_wandb:
                 wandb.log(
                     {
+                        "eval/pos_loss": pos_losses / (i + 1),
                         "eval/future_action_loss": action_losses / (i + 1) ,
                         "eval/curr_action_loss": curr_action_losses / (i + 1)
                     }, step=epoch
@@ -226,7 +249,8 @@ def train():
     
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
-    torch.save(linear_model_future, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
+    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/position({current_time}).pth"))
+    torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
 
 
 if __name__ == "__main__":
