@@ -163,33 +163,6 @@ class ExpertDataset(torch.utils.data.Dataset):
                     batch = batch + (data, )
         return batch
     
-class ManyDataset(IterableDataset):
-    def __init__(self, data_files, config):
-        self.data_files = data_files
-        self.config = config
-
-    def parse_npz(self, file_path):
-        with np.load(file_path) as npz:
-            return {
-                'obs': npz['obs'],
-                'actions': npz['actions'],
-                'masks': npz['dead_mask'] if ('dead_mask' in npz.keys() and self.config.use_mask) else None,
-                'partner_mask': npz['partner_mask'] if ('partner_mask' in npz.keys() and self.config.use_mask) else None,
-                'road_mask': npz['road_mask'] if ('road_mask' in npz.keys() and self.config.use_mask) else None,
-                'other_info': npz['other_info'] if ('other_info' in npz.keys() and self.config.use_tom) else None
-            }
-
-    def __iter__(self):
-        for file_path in self.data_files:
-            data = self.parse_npz(file_path)
-            dataset = ExpertDataset(
-                **data,
-                rollout_len=self.config.rollout_len,
-                pred_len=self.config.pred_len,
-                aux_future_step=self.config.aux_future_step
-            )
-            for sample in dataset:
-                yield sample 
 
 if __name__ == "__main__":
     import os
