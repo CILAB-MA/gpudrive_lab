@@ -115,8 +115,8 @@ def train():
     backbone.eval()
     print(backbone)
     ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
-    pos_linear_model = LinearProbPosition(128, 64).to("cuda")
-    action_linear_model = LinearProbAction(128, 12).to("cuda")
+    pos_linear_model = LinearProbPosition(128, 64, future_step=config.aux_future_step).to("cuda")
+    action_linear_model = LinearProbAction(128, 12, future_step=config.aux_future_step).to("cuda")
 
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
