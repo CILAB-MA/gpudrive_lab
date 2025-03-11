@@ -121,12 +121,15 @@ def train():
 
     pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
     action_linear_model = LinearProbAction(hidden_dim, 12, future_step=config.aux_future_step).to("cuda")
+    
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
     action_optimizer = AdamW(action_linear_model.parameters(), lr=config.lr, eps=0.0001)
+    
     # DataLoaders
     expert_data_loader = get_dataloader(config.data_path, config.train_data, config)
     eval_expert_data_loader = get_dataloader(config.data_path, config.test_data, config, isshuffle=False)
+    
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         pos_linear_model.train()
         action_linear_model.train()
@@ -196,6 +199,7 @@ def train():
                     "train/action_loss": action_losses / (i + 1),
                 }, step=epoch
             )
+            
         # Evaluation loop
         if epoch % 2 == 0:
             pos_linear_model.eval()

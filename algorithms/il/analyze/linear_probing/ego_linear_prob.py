@@ -32,6 +32,7 @@ def parse_args():
     parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
                                                                    'no_guide_weighted', 'guide_no_weighted'])
     parser.add_argument('--ego-future-step', '-afs', type=int, default=30)
+    parser.add_argument('--baseline', '-b', action='store_true')    
     args = parser.parse_args()
     
     return args
@@ -108,16 +109,20 @@ def train():
         config = ExperimentConfig()
         config.__dict__.update(vars(args))
     set_seed(config.seed)
-    
-    # Backbone and heads
-    backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
-    backbone.eval()
-    print(backbone)
-    
-    # Linear Prob Models
-    ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
-    pos_linear_model = LinearProbPosition(128, 64, future_step=config.ego_future_step).to("cuda")
-    action_linear_model = LinearProbAction(128, 12, future_step=config.ego_future_step).to("cuda")
+    if config.baseline:
+        hidden_dim = 30 # partner info + ego info
+        backbone = None
+    else:
+        # Backbone and heads
+        backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
+        backbone.eval()
+        print(backbone)
+        # Linear Prob Models
+        ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
+        hidden_dim = 128
+        
+    pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=config.ego_future_step).to("cuda")
+    action_linear_model = LinearProbAction(hidden_dim, 12, future_step=config.ego_future_step).to("cuda")
     
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
@@ -136,7 +141,9 @@ def train():
         curr_action_losses = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
+           
             obs, actions, future_pos, future_actions, cur_valid_mask, future_valid_mask, partner_masks, road_masks = batch
+            
             obs = obs.to("cuda")
             future_pos, future_actions = future_pos.to("cuda"), future_actions.to("cuda")
             actions = actions.to("cuda")
@@ -149,10 +156,14 @@ def train():
                 context, *_, = backbone.get_context(obs, all_masks)
                 pred_curr_action = backbone.get_action(context, deterministic=True)
                 curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
-            
+            if config.baseline:
+                ego_obs = obs[..., :6]
+                lp_input = ego_obs
+            else:
+                lp_input = ro_attn_layers['0'][:,0,:]
             # get future pred pos and action
-            pred_pos = pos_linear_model(ro_attn_layers['0'][:,0,:])
-            pred_action = action_linear_model(ro_attn_layers['0'][:,0,:])
+            pred_pos = pos_linear_model(lp_input)
+            pred_action = action_linear_model(lp_input)
             masked_pos = pred_pos[future_valid_mask]
             masked_action = pred_action[future_valid_mask]
             
@@ -215,10 +226,14 @@ def train():
                     context, *_, = backbone.get_context(obs, all_masks)
                     pred_curr_action = backbone.get_action(context, deterministic=True)
                     curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
-                    
+                    if config.baseline:
+                        ego_obs = obs[..., :6]
+                        lp_input = ego_obs
+                    else:
+                        lp_input = ro_attn_layers['0'][:,0,:]
                     # get future pred pos and action
-                    pred_pos = pos_linear_model(ro_attn_layers['0'][:,0,:])
-                    pred_action = action_linear_model(ro_attn_layers['0'][:,0,:])
+                    pred_pos = pos_linear_model(lp_input)
+                    pred_action = action_linear_model(lp_input)
                     masked_pos = pred_pos[future_valid_mask]
                     masked_action = pred_action[future_valid_mask]
                     
@@ -249,14 +264,18 @@ def train():
     
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
-    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/position({current_time}).pth"))
-    torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
+    if config.baseline:
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_pos_b({current_time}).pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_action_b({current_time}).pth"))
+    else:
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_pos({current_time}).pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_action({current_time}).pth"))
 
 
 if __name__ == "__main__":
     args = parse_args()
     if args.use_wandb:
-        with open("algorithms/il/analyze/linear_probing/sweep.yaml") as f:
+        with open("algorithms/il/analyze/linear_probing/sweep_ego.yaml") as f:
             exp_config = yaml.load(f, Loader=yaml.FullLoader)
         with open("private.yaml") as f:
             private_info = yaml.load(f, Loader=yaml.FullLoader)

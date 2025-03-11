@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: ego_linear_probing_1000baseline
+name: linear_probing_1000baseline
 metric:
   goal: minimize
   name: eval/loss
@@ -22,7 +22,7 @@ parameters:
     value: 5
   pred_len:
     value: 1
-  aux_future_step:
+  ego_future_step:
     values: [5, 10 ,15, 20]
 
   # EXPERIMENT

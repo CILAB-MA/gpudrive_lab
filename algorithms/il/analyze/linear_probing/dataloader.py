@@ -39,7 +39,6 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.other_info = aux_info
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
                          'other_info', 'aux_mask', 'other_pos', 'other_actions']
-        print('Call Mask3')
     def __len__(self):
         return len(self.valid_indices)
 
