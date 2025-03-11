@@ -18,9 +18,10 @@ class LinearProb(nn.Module, ABC):
         pass
 
 class LinearProbAction(LinearProb):
-    def __init__(self, context_dim, other_dim):
+    def __init__(self, context_dim, other_dim, future_step=None):
         super(LinearProbAction, self).__init__(context_dim, other_dim)
         self.head = nn.Linear(context_dim, other_dim)
+        self.future_step = future_step
         
     def forward(self, context):
         logits = self.head(context)
@@ -45,9 +46,10 @@ class LinearProbAction(LinearProb):
         return loss, accuracy
 
 class LinearProbPosition(LinearProb):
-    def __init__(self, context_dim, other_dim):
+    def __init__(self, context_dim, other_dim, future_step=None):
         super(LinearProbPosition, self).__init__(context_dim, other_dim)
         self.head = nn.Linear(context_dim, other_dim)
+        self.future_step = future_step
         
     def forward(self, context):
         logits = self.head(context)

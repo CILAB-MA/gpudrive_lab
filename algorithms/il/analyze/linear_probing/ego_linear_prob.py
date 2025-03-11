@@ -91,7 +91,7 @@ def train():
     if args.use_wandb:
         wandb.init()
         # Tag Update
-        current_time = datetime.now().strftime("%Y%m%d_%H%M")
+        current_time = datetime.now().strftime("%m%d_%H%M%S")
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(current_time)
         for key, value in wandb.config.items():
@@ -116,8 +116,8 @@ def train():
     
     # Linear Prob Models
     ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
-    pos_linear_model = LinearProbPosition(128, 64).to("cuda")
-    action_linear_model = LinearProbAction(128, 12).to("cuda")
+    pos_linear_model = LinearProbPosition(128, 64, future_step=config.ego_future_step).to("cuda")
+    action_linear_model = LinearProbAction(128, 12, future_step=config.ego_future_step).to("cuda")
     
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
