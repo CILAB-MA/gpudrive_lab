@@ -91,7 +91,7 @@ def train():
     if args.use_wandb:
         wandb.init()
         # Tag Update
-        current_time = datetime.now().strftime("%Y%m%d_%H%M")
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(current_time)
         for key, value in wandb.config.items():
