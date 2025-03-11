@@ -24,7 +24,6 @@ logger.setLevel(logging.INFO)
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
-    parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-mask', action='store_true')
