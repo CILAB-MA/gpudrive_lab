@@ -17,7 +17,6 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.valid_masks = 1 - masks
         valid_masks_pad = np.zeros((self.valid_masks.shape[0], rollout_len - 1, *self.valid_masks.shape[2:]), dtype=np.float32).astype('bool')
         self.valid_masks = np.concatenate([valid_masks_pad, self.valid_masks], axis=1).astype('bool')
-
         # partner_mask
         partner_mask_pad = np.full((partner_mask.shape[0], rollout_len - 1, *partner_mask.shape[2:]), 2, dtype=np.float32)
         partner_info = obs[..., 6:1276].reshape(B, T, 127, 10)[..., :4]
@@ -27,7 +26,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.partner_mask = np.where(partner_mask == 2, 1, 0).astype('bool')
         self.other_pos = self._get_multi_class_pos(aux_info[..., 1:3])
         self.other_actions = self._get_multi_class_actions(aux_info[..., 4:7])
-        
+
         # road_mask
         self.road_mask = road_mask
         road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
@@ -40,7 +39,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.other_info = aux_info
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
                          'other_info', 'aux_mask', 'other_pos', 'other_actions']
-
+        print('Call Mask3')
     def __len__(self):
         return len(self.valid_indices)
 

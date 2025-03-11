@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: ego_linear_probing
+name: linear_probing_1000baseline
 metric:
   goal: minimize
   name: eval/loss
@@ -9,8 +9,7 @@ parameters:
   model_path:
     value: "/data/model/no_crash_baseline_seed"
   model_name:
-    values: ["early_attn_gmm_seed3_20250228_1115", "early_attn_gmm_seed11_20250228_1117",
-    "early_attn_gmm_seed17_20250228_1117", "early_attn_gmm_seed42_20250228_1114"]
+    values: ["early_attn_gmm_seed3_20250228_1115"]
 
   # DATA
   data_path:
@@ -24,9 +23,9 @@ parameters:
   pred_len:
     value: 1
   aux_future_step:
-    values: [null]
-  ego_future_step:
-    values: [10, 15, 20, 25]
+    values: [5, 10 ,15, 20]
+  # ego_future_step:
+  #   values: null
 
   # EXPERIMENT
   batch_size:
