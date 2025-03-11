@@ -6,9 +6,9 @@ import numpy as np
 from typing import Callable
 from datetime import datetime
 import dataclasses
-from algorithms.sb3.ppo.ippo import IPPO
+from algorithms.sb3.dynamic_space.ippo import IPPO
 from algorithms.sb3.callbacks import MultiAgentCallback
-from baselines.ippo.config import ExperimentConfig
+from baselines.dynamic_space.config import ExperimentConfig
 from pygpudrive.env.config import EnvConfig, SceneConfig
 from pygpudrive.env.wrappers.sb3_wrapper import SB3MultiAgentEnv
 
@@ -44,7 +44,8 @@ def train(env_config: EnvConfig, exp_config: ExperimentConfig, scene_config: Sce
         # Control up to all agents in the scene
         max_cont_agents=env_config.max_num_agents_in_scene,
         device=exp_config.device,
-        action_type=action_type
+        action_type=action_type,
+        use_dynamic_action_space=True
     )
 
     # SET MINIBATCH SIZE BASED ON ROLLOUT LENGTH

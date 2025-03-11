@@ -123,9 +123,12 @@ class IPPO(PPO):
 
                 # EDIT_1: Mask out invalid observations (NaN axes and/or dead agents)
                 # Create dummy actions, values and log_probs (NaN)
-                action_size =  (self.n_envs, ) if isinstance(env.action_space, gym.spaces.Discrete) else (self.n_envs, 3)
+                action_size =  (self.n_envs, 3) # (self.n_envs, ) if isinstance(env.action_space, gym.spaces.Discrete) else (self.n_envs, 3)
+                actions_for_step = torch.full(
+                    fill_value=float("nan"), size=action_size # todo: should change based on action space
+                ).to(self.device)
                 actions = torch.full(
-                    fill_value=float("nan"), size=action_size# todo: should change based on action space
+                    fill_value=float("nan"), size=(self.n_envs, ) # todo: should change based on action space
                 ).to(self.device)
                 log_probs = torch.full(
                     fill_value=float("nan"),
@@ -159,24 +162,45 @@ class IPPO(PPO):
                 time_actions = time.perf_counter()
                 actions_tmp, values_tmp, log_prob_tmp = self.policy(
                     obs_tensor_alive
-                )
+                ) #(N, )
+                # Prdict the action space for individual agents and reallocate actions
+                # actions_range = self.predictor(obs_tensor_alive) # (N, 6) -> todo: should change to real predictor
+                min_max_values = torch.tensor([-2, 2, -2, 2, -1, 1], dtype=torch.float32)  # (6,) tmp
+                actions_range = min_max_values.repeat(len(actions_tmp), 1).to(self.device) # (N, 6) tmp
+                min_ranges = actions_range[:, ::2] # (407, 3)
+                max_ranges = actions_range[:, 1::2] # (407, 3)
+                num_bins = len(self.env.config.dx)
+                steps = torch.round(torch.linspace(0, 1, num_bins, device=self.device), decimals=3)
+                linspace_actions = min_ranges.unsqueeze(-1) + (max_ranges - min_ranges).unsqueeze(-1) * steps  # (N, num_actions, num_bins)
+                action_indices = torch.zeros((len(actions_tmp), 3), dtype=torch.long).to(self.device)
+
+                remaining = actions_tmp.clone()
+                for i in range(3):
+                    divisor = num_bins ** (3 - i - 1)  # 20^2, 20^1, 20^0
+                    action_indices[:, i] = remaining // divisor
+                    remaining = remaining % divisor 
+                mapped_values = linspace_actions[torch.arange(len(actions_range)).unsqueeze(-1), torch.arange(3), action_indices]  # (N, num_actions)
+
+
                 nn_fps = actions_tmp.shape[0] / (
                         time.perf_counter() - time_actions
                 )
                 self.logger.record("rollout/nn_fps", nn_fps)
                 # Predict actions, vals and log_probs given obs
                 (
+                    actions_for_step[alive_agent_mask.squeeze(dim=1)],
                     actions[alive_agent_mask.squeeze(dim=1)],
                     values[alive_agent_mask.squeeze(dim=1)],
                     log_probs[alive_agent_mask.squeeze(dim=1)],
                 ) = (
+                    mapped_values.float(),
                     actions_tmp.float(),
                     values_tmp.float(),
                     log_prob_tmp.float(),
                 )
 
             # Rescale and perform action
-            clipped_actions = actions
+            clipped_actions = actions_for_step
 
             if isinstance(self.action_space, spaces.Box):
                 if self.policy.squash_output:

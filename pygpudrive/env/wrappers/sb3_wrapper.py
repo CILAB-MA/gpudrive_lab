@@ -36,6 +36,7 @@ class SB3MultiAgentEnv(VecEnv):
         device,
         action_type,
         render_mode="rgb_array",
+        use_dynamic_action_space=False
     ):  
         kwargs={
             "config": config,
@@ -69,6 +70,9 @@ class SB3MultiAgentEnv(VecEnv):
         self.agent_step = torch.zeros(
             (self.num_worlds, self.max_agent_count)
         ).to(self.device)
+        if use_dynamic_action_space:
+            action_type = 'continuous' 
+        self.use_dynamic_action_space = use_dynamic_action_space   
         self._set_action_tensor(action_type, config.dynamics_model)
         # Storage: Fill buffer with nan values
         self.buf_rews = torch.full(
@@ -163,7 +167,11 @@ class SB3MultiAgentEnv(VecEnv):
         self.actions_tensor[self.controlled_agent_mask] = actions
 
         # Step the environment
-        self._env.step_dynamics(self.actions_tensor)
+        if self.use_dynamic_action_space:
+            use_indices = False
+        else:
+            use_indices = True
+        self._env.step_dynamics(self.actions_tensor, use_indices=use_indices)
 
         reward = self._env.get_rewards().clone()
         done = self._env.get_dones().clone()
