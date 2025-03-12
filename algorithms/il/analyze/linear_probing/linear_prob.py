@@ -156,7 +156,6 @@ def train():
                 ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
                 partner_obs = obs[..., 6:1276].reshape(B, T, 127, 10)
                 lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
-
             else:
                 try:
                     backbone.get_context(obs, all_masks, other_info=other_info)
@@ -199,7 +198,7 @@ def train():
                     "train/action_loss": action_losses / (i + 1),
                 }, step=epoch
             )
-            
+
         # Evaluation loop
         if epoch % 2 == 0:
             pos_linear_model.eval()

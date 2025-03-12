@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linaer_probing/ego_linear_prob.py
 method: grid
-name: linear_probing_1000baseline
+name: ego_linear_probing_1000
 metric:
   goal: minimize
   name: eval/loss

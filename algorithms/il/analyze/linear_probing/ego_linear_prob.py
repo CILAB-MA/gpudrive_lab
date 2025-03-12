@@ -138,6 +138,8 @@ def train():
         pos_losses = 0
         action_losses = 0
         curr_action_losses = 0
+        pos_accuracys = 0
+        action_accuracys = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
            
@@ -156,11 +158,12 @@ def train():
                 pred_curr_action = backbone.get_action(context, deterministic=True)
                 curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
             if config.baseline:
-                ego_obs = obs[..., :6]
+                ego_obs = obs[..., :6].permute(0, 2, 1, 3).reshape(-1, 30)
                 lp_input = ego_obs
             else:
                 lp_input = ro_attn_layers['0'][:,0,:]
             # get future pred pos and action
+            future_valid_mask = future_valid_mask.squeeze(1)
             pred_pos = pos_linear_model(lp_input)
             pred_action = action_linear_model(lp_input)
             masked_pos = pred_pos[future_valid_mask]
@@ -175,8 +178,8 @@ def train():
             masked_other_actions = future_actions[future_valid_mask]
             
             # compute loss
-            pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
-            action_loss = action_linear_model.loss(masked_action, masked_other_actions)
+            pos_loss, pos_acc = pos_linear_model.loss(masked_pos, masked_other_pos)
+            action_loss, action_acc = action_linear_model.loss(masked_action, masked_other_actions)
             total_loss = pos_loss + action_loss
             
             pos_optimizer.zero_grad()
@@ -185,6 +188,8 @@ def train():
             pos_optimizer.step()
             action_optimizer.step()
             
+            pos_accuracys += pos_acc
+            action_accuracys += action_acc
             pos_losses += pos_loss.item()
             action_losses += action_loss.item()
             curr_action_losses += curr_action_loss.mean().item()
@@ -192,6 +197,8 @@ def train():
         if config.use_wandb:
             wandb.log(
                 {   
+                    "train/pos_accuracy": pos_accuracys / (i + 1),
+                    "train/action_accuracy": action_accuracys / (i + 1),
                     "train/pos_loss": pos_losses / (i + 1),
                     "train/future_action_loss": action_losses / (i + 1),
                     "train/curr_action_loss": curr_action_losses / (i + 1)
@@ -207,6 +214,8 @@ def train():
             action_losses = 0
             curr_action_losses = 0
             total_samples = 0
+            pos_accuracys = 0
+            action_accuracys = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
@@ -233,10 +242,12 @@ def train():
                     # get future pred pos and action
                     pred_pos = pos_linear_model(lp_input)
                     pred_action = action_linear_model(lp_input)
+                    future_valid_mask = future_valid_mask.squeeze(1)
                     masked_pos = pred_pos[future_valid_mask]
                     masked_action = pred_action[future_valid_mask]
                     
                     # get future expert action
+                    
                     future_pos = future_pos.clone()
                     future_pos = future_pos.squeeze(1)
                     masked_other_pos = future_pos[future_valid_mask]
@@ -245,9 +256,11 @@ def train():
                     masked_other_actions = future_actions[future_valid_mask]
                     
                     # compute loss
-                    pos_loss = pos_linear_model.loss(masked_pos, masked_other_pos)
-                    action_loss = action_linear_model.loss(masked_action, masked_other_actions)
+                    pos_loss, pos_acc = pos_linear_model.loss(masked_pos, masked_other_pos)
+                    action_loss, action_acc = action_linear_model.loss(masked_action, masked_other_actions)
                     
+                    pos_accuracys += pos_acc
+                    action_accuracys += action_acc
                     curr_action_losses += curr_action_loss.mean().item()
                     pos_losses += pos_loss.item()
                     action_losses += action_loss.item()
@@ -255,6 +268,8 @@ def train():
             if config.use_wandb:
                 wandb.log(
                     {
+                        "eval/pos_accuracy": pos_accuracys / (i + 1),
+                        "eval/action_accuracy": action_accuracys / (i + 1),
                         "eval/pos_loss": pos_losses / (i + 1),
                         "eval/future_action_loss": action_losses / (i + 1) ,
                         "eval/curr_action_loss": curr_action_losses / (i + 1)
