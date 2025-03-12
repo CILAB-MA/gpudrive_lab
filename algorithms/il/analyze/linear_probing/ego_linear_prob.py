@@ -158,7 +158,7 @@ def train():
                 pred_curr_action = backbone.get_action(context, deterministic=True)
                 curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
             if config.baseline:
-                ego_obs = obs[..., :6].permute(0, 2, 1, 3).reshape(-1, 30)
+                ego_obs = obs[..., :6].reshape(-1, 30)
                 lp_input = ego_obs
             else:
                 lp_input = ro_attn_layers['0'][:,0,:]
@@ -235,7 +235,7 @@ def train():
                     pred_curr_action = backbone.get_action(context, deterministic=True)
                     curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
                     if config.baseline:
-                        ego_obs = obs[..., :6].permute(0, 2, 1, 3).reshape(-1, 30)
+                        ego_obs = obs[..., :6].reshape(-1, 30)
                         lp_input = ego_obs
                     else:
                         lp_input = ro_attn_layers['0'][:,0,:]
