@@ -109,14 +109,13 @@ def train():
         config = ExperimentConfig()
         config.__dict__.update(vars(args))
     set_seed(config.seed)
+    # Backbone and heads
+    backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
+    backbone.eval()
+    print(backbone)
     if config.baseline:
         hidden_dim = 30 # partner info + ego info
-        backbone = None
     else:
-        # Backbone and heads
-        backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
-        backbone.eval()
-        print(backbone)
         # Linear Prob Models
         ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
         hidden_dim = 128
@@ -227,7 +226,7 @@ def train():
                     pred_curr_action = backbone.get_action(context, deterministic=True)
                     curr_action_loss = F.smooth_l1_loss(pred_curr_action, actions)
                     if config.baseline:
-                        ego_obs = obs[..., :6]
+                        ego_obs = obs[..., :6].permute(0, 2, 1, 3).reshape(-1, 30)
                         lp_input = ego_obs
                     else:
                         lp_input = ro_attn_layers['0'][:,0,:]

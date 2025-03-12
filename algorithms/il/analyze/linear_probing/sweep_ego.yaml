@@ -1,4 +1,4 @@
-program: algorithms/il/analyze/linaer_probing/linear_prob.py
+program: algorithms/il/analyze/linaer_probing/ego_linear_prob.py
 method: grid
 name: linear_probing_1000baseline
 metric:

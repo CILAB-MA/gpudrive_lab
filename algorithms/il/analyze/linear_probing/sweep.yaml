@@ -1,21 +1,21 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: ego_linear_probing_1000baseline
+name: linear_probing_100baseline
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/model/no_crash_baseline_seed"
+    value: "/data/model/early_attn_100"
   model_name:
-    values: ["early_attn_gmm_seed3_20250228_1115"]
+    values: ["early_attn_gmm_data_100_seed_3_20250228_1100"]
 
   # DATA
   data_path:
     value: "/data/tom_v5"
   train_data:
-    value: "train_trajectory_1000.npz"
+    value: "train_trajectory_100.npz"
   test_data:
     value: "test_trajectory_200.npz"
   rollout_len:
