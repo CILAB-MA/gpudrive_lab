@@ -167,30 +167,13 @@ class ExpertDataset(torch.utils.data.Dataset):
 if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
-    
-    data = np.load("/data/tom_v4/train_subset/trajectory_200.npz")
-    
-    expert_data_loader = DataLoader(
-        ExpertDataset(
-            data['obs'], data['actions'], 
-            data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
-            rollout_len=5, pred_len=1, aux_future_step=1
-        ),
-        batch_size=256,
-        shuffle=True,
-        num_workers=os.cpu_count(),
-        prefetch_factor=4,
-        pin_memory=True
-    )
-
-    for i, batch in enumerate(expert_data_loader):
-        batch_size = batch[0].size(0)
-
-        if len(batch) == 9:
-            obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, data_idx = batch
-        elif len(batch) == 7:
-            obs, expert_action, masks, ego_masks, partner_masks, road_masks, data_idx = batch 
-        elif len(batch) == 4:
-            obs, expert_action, masks, data_idx = batch
-        else:
-            obs, expert_action, data_idx = batch
+    data_name = [100, 500, 1000, 5000]
+    for data_num in data_name:
+        data = np.load(f"/data/tom_v5/train_trajectory_{data_num}.npz")
+        partner_masks = data['partner_mask'].reshape(-1, 127)
+        dead_mask = data['dead_mask'].reshape(-1)
+        filted_partner_masks = partner_masks[~dead_mask]
+        zero_count = np.sum(filted_partner_masks.sum(axis=-1) == (2 * 127))
+        total_count = len(filted_partner_masks)
+        ratio = np.round(zero_count / total_count, 3)
+        print(zero_count, total_count,  ratio)

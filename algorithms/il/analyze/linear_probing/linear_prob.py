@@ -17,7 +17,6 @@ matplotlib.use('Agg')
 from algorithms.il.analyze.linear_probing.dataloader import OtherFutureDataset
 from algorithms.il.analyze.linear_probing.config import ExperimentConfig
 from algorithms.il.analyze.linear_probing.model import *
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -30,6 +29,7 @@ def parse_args():
     parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
                                                                    'no_guide_weighted', 'guide_no_weighted'])
     parser.add_argument('--aux-future-step', '-afs', type=int, default=30)
+    parser.add_argument('--baseline', '-b', action='store_true')
     args = parser.parse_args()
     
     return args
@@ -108,23 +108,28 @@ def train():
         config = ExperimentConfig()
         config.__dict__.update(vars(args))
     set_seed(config.seed)
-    
     # Backbone and heads
-    backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
-    backbone.eval()
-    print(backbone)
-    ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
-    pos_linear_model = LinearProbPosition(128, 64, future_step=config.aux_future_step).to("cuda")
-    action_linear_model = LinearProbAction(128, 12, future_step=config.aux_future_step).to("cuda")
+    if config.baseline:
+        hidden_dim = 50 + 30 # partner info + ego info
+        backbone = None
+    else:
+        backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
+        backbone.eval()
+        print(backbone)
+        ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
+        hidden_dim = 128
 
+    pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
+    action_linear_model = LinearProbAction(hidden_dim, 12, future_step=config.aux_future_step).to("cuda")
+    
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
     action_optimizer = AdamW(action_linear_model.parameters(), lr=config.lr, eps=0.0001)
-
+    
     # DataLoaders
     expert_data_loader = get_dataloader(config.data_path, config.train_data, config)
     eval_expert_data_loader = get_dataloader(config.data_path, config.test_data, config, isshuffle=False)
-
+    
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         pos_linear_model.train()
         action_linear_model.train()
@@ -146,16 +151,21 @@ def train():
             road_masks = road_masks.to("cuda") if len(batch) > 3 else None
             other_info = other_info.to("cuda").transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [ego_masks, partner_masks, road_masks]
-
-            try:
-                context, *_, = backbone.get_context(obs, all_masks, other_info=other_info)
-            except TypeError:
-                context, *_, = backbone.get_context(obs, all_masks)
-
+            if config.baseline:
+                B, T, _ = obs.shape
+                ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
+                partner_obs = obs[..., 6:1276].reshape(B, T, 127, 10)
+                lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
+            else:
+                try:
+                    backbone.get_context(obs, all_masks, other_info=other_info)
+                except TypeError:
+                    backbone.get_context(obs, all_masks)
+                lp_input = ro_attn_layers['0'][:,1:,:]
             # get partner pred pos and action
-            pred_pos = pos_linear_model(ro_attn_layers['0'][:,1:,:])
+            pred_pos = pos_linear_model(lp_input)
             masked_pos = pred_pos[~aux_mask]
-            pred_action = action_linear_model(ro_attn_layers['0'][:,1:,:])
+            pred_action = action_linear_model(lp_input)
             masked_action = pred_action[~aux_mask]
 
             # get partner expert pos and action
@@ -188,7 +198,7 @@ def train():
                     "train/action_loss": action_losses / (i + 1),
                 }, step=epoch
             )
-        
+
         # Evaluation loop
         if epoch % 2 == 0:
             pos_linear_model.eval()
@@ -215,14 +225,22 @@ def train():
                 all_masks= [ego_masks, partner_masks, road_masks]
                 
                 with torch.no_grad():
-                    try:
-                        context, *_, = backbone.get_context(obs, all_masks, other_info=other_info)
-                    except TypeError:
-                        context, *_, = backbone.get_context(obs, all_masks)
+                    if config.baseline:
+                        B, T, _ = obs.shape
+                        ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
+                        partner_obs = obs[..., 6:1276].reshape(B, T, 127, 10)
+                        lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
+
+                    else:
+                        try:
+                            backbone.get_context(obs, all_masks, other_info=other_info)
+                        except TypeError:
+                            backbone.get_context(obs, all_masks)
+                        lp_input = ro_attn_layers['0'][:,1:,:]
 
                     # get partner pred pos and action
-                    pred_pos = pos_linear_model(ro_attn_layers['0'][:,1:,:])
-                    pred_action = action_linear_model(ro_attn_layers['0'][:,1:,:])
+                    pred_pos = pos_linear_model(lp_input)
+                    pred_action = action_linear_model(lp_input)
                     masked_pos = pred_pos[~aux_mask]
                     masked_action = pred_action[~aux_mask]
 
@@ -248,11 +266,14 @@ def train():
                         "eval/action_loss": action_losses / (i + 1) ,
                     }, step=epoch
                 )
-    
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
-    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/pos({current_time}).pth"))
-    torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
+    if config.baseline:
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/pos_b({current_time}).pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action_b({current_time}).pth"))
+    else:
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/pos({current_time}).pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/action({current_time}).pth"))
 
 if __name__ == "__main__":
     args = parse_args()
