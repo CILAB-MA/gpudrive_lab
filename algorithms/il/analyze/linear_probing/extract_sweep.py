@@ -34,7 +34,11 @@ if __name__ == '__main__':
             summary["run_name"] = name
             summary["sweep_id"] = sweep_id
             eval_summary = {k:v for k, v in summary.items() if k.startswith("eval/")}
-            eval_summary["aux_future_step"] = summary["aux_future_step"]
+            if args.linear_probing == 'ego':
+                future_step = "ego_future_step"
+            elif args.linear_probing == 'partner':
+                future_step = "aux_future_step"
+            eval_summary[future_step] = summary[future_step]
             if idx == 0:
                 eval_summary["experiment"] = "baseline"
             else:
