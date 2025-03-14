@@ -18,7 +18,7 @@ matplotlib.use('Agg')
 from algorithms.il.analyze.linear_probing.dataloader import EgoFutureDataset
 from algorithms.il.analyze.linear_probing.config import ExperimentConfig
 from algorithms.il.analyze.linear_probing.model import *
-from algorithms.il.utils import compute_correlation_scatter
+from sklearn.metrics import f1_score
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -140,6 +140,8 @@ def train():
         curr_action_losses = 0
         pos_accuracys = 0
         action_accuracys = 0
+        pos_f1_macros = 0
+        action_f1_macros = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
            
@@ -178,8 +180,8 @@ def train():
             masked_other_actions = future_actions[future_valid_mask]
             
             # compute loss
-            pos_loss, pos_acc = pos_linear_model.loss(masked_pos, masked_other_pos)
-            action_loss, action_acc = action_linear_model.loss(masked_action, masked_other_actions)
+            pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
+            action_loss, action_acc, action_class = action_linear_model.loss(masked_action, masked_other_actions)
             total_loss = pos_loss + action_loss
             
             pos_optimizer.zero_grad()
@@ -188,10 +190,20 @@ def train():
             pos_optimizer.step()
             action_optimizer.step()
             
+            # get F1 scores
+            pos_class = pos_class.detach().cpu().numpy()
+            action_class = action_class.detach().cpu().numpy()
+            masked_other_pos = masked_other_pos.detach().cpu().numpy()
+            masked_other_actions = masked_other_actions.detach().cpu().numpy()
+            pos_f1_macro = f1_score(pos_class, masked_other_pos, average='macro')
+            action_f1_macro = f1_score(action_class, masked_other_actions, average='macro')
+
             pos_accuracys += pos_acc
             action_accuracys += action_acc
             pos_losses += pos_loss.item()
             action_losses += action_loss.item()
+            action_f1_macros += action_f1_macro
+            pos_f1_macros += pos_f1_macro
             curr_action_losses += curr_action_loss.mean().item()
 
         if config.use_wandb:
@@ -201,7 +213,9 @@ def train():
                     "train/action_accuracy": action_accuracys / (i + 1),
                     "train/pos_loss": pos_losses / (i + 1),
                     "train/future_action_loss": action_losses / (i + 1),
-                    "train/curr_action_loss": curr_action_losses / (i + 1)
+                    "train/curr_action_loss": curr_action_losses / (i + 1),
+                    "train/pos_f1_macro": pos_f1_macros / (i + 1),
+                    "train/action_f1_macro": action_f1_macros / (i + 1)
                 }, step=epoch
             )
         
@@ -216,6 +230,8 @@ def train():
             total_samples = 0
             pos_accuracys = 0
             action_accuracys = 0
+            pos_f1_macros = 0
+            action_f1_macros = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
@@ -256,14 +272,25 @@ def train():
                     masked_other_actions = future_actions[future_valid_mask]
                     
                     # compute loss
-                    pos_loss, pos_acc = pos_linear_model.loss(masked_pos, masked_other_pos)
-                    action_loss, action_acc = action_linear_model.loss(masked_action, masked_other_actions)
-                    
+                    pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
+                    action_loss, action_acc, action_class = action_linear_model.loss(masked_action, masked_other_actions)
+
+                    # get F1 scores
+                    pos_class = pos_class.detach().cpu().numpy()
+                    action_class = action_class.detach().cpu().numpy()
+                    masked_other_pos = masked_other_pos.detach().cpu().numpy()
+                    masked_other_actions = masked_other_actions.detach().cpu().numpy()
+                    pos_f1_macro = f1_score(pos_class, masked_other_pos, average='macro')
+                    action_f1_macro = f1_score(action_class, masked_other_actions, average='macro')
+
+
                     pos_accuracys += pos_acc
                     action_accuracys += action_acc
                     curr_action_losses += curr_action_loss.mean().item()
                     pos_losses += pos_loss.item()
                     action_losses += action_loss.item()
+                    action_f1_macros += action_f1_macro
+                    pos_f1_macros += pos_f1_macro
 
             if config.use_wandb:
                 wandb.log(
@@ -272,18 +299,20 @@ def train():
                         "eval/action_accuracy": action_accuracys / (i + 1),
                         "eval/pos_loss": pos_losses / (i + 1),
                         "eval/future_action_loss": action_losses / (i + 1) ,
-                        "eval/curr_action_loss": curr_action_losses / (i + 1)
+                        "eval/curr_action_loss": curr_action_losses / (i + 1),
+                        "eval/pos_f1_macro": pos_f1_macros / (i + 1),
+                        "eval/action_f1_macro": action_f1_macros / (i + 1)
                     }, step=epoch
                 )
     
     # Save head
-    os.makedirs(os.path.join(config.model_path, f"linear_prob/{config.model_name}"), exist_ok=True)
+    os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}"), exist_ok=True)
     if config.baseline:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_pos_b({current_time}).pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_action_b({current_time}).pth"))
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/ego_pos_b_{args.ego_future_step}.pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/ego_action_b_{args.ego_future_step}.pth"))
     else:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_pos({current_time}).pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/{config.model_name}/ego_action({current_time}).pth"))
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/ego_pos_{args.ego_future_step}.pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/ego_action_{args.ego_future_step}.pth"))
 
 
 if __name__ == "__main__":
