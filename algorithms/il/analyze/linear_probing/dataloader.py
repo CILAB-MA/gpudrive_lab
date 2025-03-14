@@ -42,7 +42,8 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         new_shape = (B, T + rollout_len - 1, 200)
         new_road_mask = np.ones(new_shape)
         new_road_mask[:, rollout_len - 1:] = road_mask
-        
+        self.road_mask = new_road_mask.astype('bool')
+
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len
@@ -145,18 +146,28 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         """
         Convert continuous actions to multi-class discrete actions based on dyaw.
         """
+        dx = actions[..., 0]
+        dy = actions[..., 1]
         dyaw = actions[..., 2]
         
-        # Adaptive bins in radians (-pi to pi)
-        bins = np.array([
-            -np.pi, -2.0*np.pi/3, -np.pi/3,
-            -np.pi/6, -np.pi/12, -np.pi/36, 0, np.pi/36, np.pi/12, np.pi/6,
-            np.pi/3, 2.0*np.pi/3, np.pi
-        ])
+        dx_bins = np.linspace(-3, 3, 5)  # 4 bins for dx
+        dy_bins = np.linspace(-3, 3, 5)  # 4 bins for dy
+        dyaw_bins = np.linspace(-np.pi / 4, np.pi / 4, 5)  # 4 bins for dyaw
         
-        discrete_actions = np.digitize(dyaw, bins) - 1
-        return discrete_actions
-    
+        dx_bin = np.digitize(dx, dx_bins) - 1
+        dy_bin = np.digitize(dy, dy_bins) - 1
+        dyaw_bin = np.digitize(dyaw, dyaw_bins) - 1
+
+        # Ensure indices are within range
+        dx_bin = np.clip(dx_bin, 0, 4 - 1)
+        dy_bin = np.clip(dy_bin, 0, 4 - 1)
+        dyaw_bin = np.clip(dyaw_bin, 0, 4 - 1)
+
+        # Compute single discrete index
+        discrete_action = (dx_bin * 4 * 4) + (dy_bin * 4) + dyaw_bin
+
+        return discrete_action
+        
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
         idx1 = int(idx1)
@@ -264,17 +275,27 @@ class EgoFutureDataset(OtherFutureDataset):
         """
         Convert continuous actions to multi-class discrete actions based on dyaw.
         """
+        dx = actions[..., 0]
+        dy = actions[..., 1]
         dyaw = actions[..., 2]
         
-        # Adaptive bins in radians (-pi to pi)
-        bins = np.array([
-            -np.pi, -2.0*np.pi/3, -np.pi/3,
-            -np.pi/6, -np.pi/12, -np.pi/36, 0, np.pi/36, np.pi/12, np.pi/6,
-            np.pi/3, 2.0*np.pi/3, np.pi
-        ])
+        dx_bins = np.linspace(-3, 3, 5)  # 4 bins for dx
+        dy_bins = np.linspace(-3, 3, 5)  # 4 bins for dy
+        dyaw_bins = np.linspace(-np.pi / 4, np.pi / 4, 5)  # 4 bins for dyaw
         
-        discrete_actions = np.digitize(dyaw, bins) - 1
-        return discrete_actions
+        dx_bin = np.digitize(dx, dx_bins) - 1
+        dy_bin = np.digitize(dy, dy_bins) - 1
+        dyaw_bin = np.digitize(dyaw, dyaw_bins) - 1
+
+        # Ensure indices are within range
+        dx_bin = np.clip(dx_bin, 0, 4 - 1)
+        dy_bin = np.clip(dy_bin, 0, 4 - 1)
+        dyaw_bin = np.clip(dyaw_bin, 0, 4 - 1)
+
+        # Compute single discrete index
+        discrete_action = (dx_bin * 4 * 4) + (dy_bin * 4) + dyaw_bin
+
+        return discrete_action
     
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
@@ -300,39 +321,60 @@ class EgoFutureDataset(OtherFutureDataset):
         return batch
 
 if __name__ == "__main__":
+    import numpy as np
     import os
     from torch.utils.data import DataLoader
-    
-    data = np.load("/data/tom_v5/train_subset/trajectory_0.npz")
+    import matplotlib.pyplot as plt
+    from algorithms.il.analyze.linear_probing.dataloader import OtherFutureDataset
+
+    data = np.load("/data/tom_v5/train_trajectory_100.npz")
 
     expert_data_loader = DataLoader(
-        EgoFutureDataset(
+        OtherFutureDataset(
             data['obs'], data['actions'], 
             data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
-            rollout_len=5, pred_len=1, ego_future_step=3
+            rollout_len=5, pred_len=1, aux_future_step=1
         ),
         batch_size=256,
         shuffle=True,
-        num_workers=os.cpu_count(),
-        prefetch_factor=4,
-        pin_memory=True
+        num_workers=4,
     )
-    
-    # expert_data_loader = DataLoader(
-    #     OtherFutureDataset(
-    #         data['obs'], data['actions'], 
-    #         data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
-    #         rollout_len=5, pred_len=1, aux_future_step=3
-    #     ),
-    #     batch_size=256,
-    #     shuffle=True,
-    #     num_workers=os.cpu_count(),
-    #     prefetch_factor=4,
-    #     pin_memory=True
-    # )
+    del data
 
-    for i, batch in enumerate(expert_data_loader):
-        batch_size = batch[0].size(0)
-        obs, expert_action, future_actions, cur_valid_mask, future_valid_mask, partner_mask, road_mask = batch
+    total_pos_counts = np.zeros(64, dtype=int)      # other_pos는 0~63
+    total_action_counts = np.zeros(64, dtype=int)   # other_actions는 0~63
 
-        print(f"Batch {i} with size {batch_size}")
+    for batch in expert_data_loader:
+        _, _, _, _, _, _, _, aux_mask, other_pos, other_actions = batch
+
+        # 텐서를 CPU로 옮기고 numpy로 변환
+        pos_vals = other_pos[~aux_mask].cpu().numpy().astype(int)
+        action_vals = other_actions[~aux_mask].cpu().numpy().astype(int)
+
+        # np.bincount로 개수 세기
+        total_pos_counts += np.bincount(pos_vals, minlength=64)
+        total_action_counts += np.bincount(action_vals, minlength=64)
+
+    # 누적된 값으로 바 그래프 그리기
+
+    # other_pos 분포
+    plt.figure(figsize=(10, 4))
+    plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)
+    plt.xlabel("other_pos (0~63)")
+    plt.ylabel("count")
+    plt.title("other_pos distribution")
+    plt.xticks(range(0, 64, 4))
+    plt.grid(axis="y", linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    plt.savefig('Other pos dist.png', dpi=300)
+
+    # other_actions 분포
+    plt.figure(figsize=(16, 4))
+    plt.bar(range(64), total_action_counts, color='red', alpha=0.7)
+    plt.xlabel("other_actions (0~63)")
+    plt.ylabel("count")
+    plt.title("other_actions distribution")
+    plt.xticks(range(64))
+    plt.grid(axis="y", linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    plt.savefig('Other action dist.png', dpi=300)

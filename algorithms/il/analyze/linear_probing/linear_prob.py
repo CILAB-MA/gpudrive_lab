@@ -122,7 +122,7 @@ def train():
         hidden_dim = 128
 
     pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
-    action_linear_model = LinearProbAction(hidden_dim, 12, future_step=config.aux_future_step).to("cuda")
+    action_linear_model = LinearProbAction(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
     
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
@@ -298,13 +298,13 @@ def train():
                     }, step=epoch
                 )
     # Save head
-    os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}"), exist_ok=True)
+    os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2"), exist_ok=True)
     if config.baseline:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/pos_b_{args.ego_future_step}.pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/action_b_{args.ego_future_step}.pth"))
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_b_{args.ego_future_step}.pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_b_{args.ego_future_step}.pth"))
     else:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/pos_{args.ego_future_step}.pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}/action_{args.ego_future_step}.pth"))
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_{args.ego_future_step}.pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_{args.ego_future_step}.pth"))
 
 if __name__ == "__main__":
     args = parse_args()
