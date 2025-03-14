@@ -300,11 +300,11 @@ def train():
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2"), exist_ok=True)
     if config.baseline:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_b_{args.ego_future_step}.pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_b_{args.ego_future_step}.pth"))
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_b_{args.aux_future_step}.pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_b_{args.aux_future_step}.pth"))
     else:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_{args.ego_future_step}.pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_{args.ego_future_step}.pth"))
+        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_{args.aux_future_step}.pth"))
+        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_{args.aux_future_step}.pth"))
 
 if __name__ == "__main__":
     args = parse_args()
