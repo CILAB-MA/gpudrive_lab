@@ -43,7 +43,7 @@ class LinearProbAction(LinearProb):
         correct = (pred_class == expert_labels).sum().item()
         total = expert_labels.numel()
         accuracy = correct / total
-        return loss, accuracy
+        return loss, accuracy, pred_class
 
 class LinearProbPosition(LinearProb):
     def __init__(self, context_dim, other_dim, future_step=None):
@@ -71,7 +71,7 @@ class LinearProbPosition(LinearProb):
         correct = (pred_class == expert_labels).sum().item()
         total = expert_labels.numel()
         accuracy = correct / total
-        return loss, accuracy
+        return loss, accuracy, pred_class
 
 # class LinearProbAngle(LinearProb):
 #     def __init__(self, context_dim, other_dim):
