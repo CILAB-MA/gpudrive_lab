@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
+from algorithms.sb3.dynamic_space.model import *
 
 class EarlyFusionAttnBCNet(CustomLateFusionNet):
-    def __init__(self, env_config, net_config, head_config, loss, num_stack=5, use_tom=None):
+    def __init__(self, env_config, net_config, head_config, loss, num_stack=1, use_tom=None):
         super(EarlyFusionAttnBCNet, self).__init__(env_config, net_config)
         self.num_stack = num_stack 
         # Scene encoder
@@ -65,11 +66,6 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
                 input_dim=self.shared_net_input_dim,
                 head_config=head_config
             )
-        elif loss == 'nll':
-            self.head = DistHead(
-                input_dim=self.shared_net_input_dim,
-                head_config=head_config
-            )
         elif loss == 'gmm':
             self.head = GMM(
                 network_type=self.__class__.__name__,
@@ -77,15 +73,6 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
                 head_config=head_config,
                 time_dim=1
             )
-        elif loss == 'new_gmm':
-            self.head = NewGMM(
-                network_type=self.__class__.__name__,
-                input_dim= 2 * net_config.network_dim + net_config.network_dim,
-                head_config=head_config,
-                time_dim=1
-            )
-        else:
-            raise ValueError(f"Loss name {loss} is not supported")
 
     def _unpack_obs(self, obs_flat, num_stack):
         """
