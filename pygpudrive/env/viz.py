@@ -6,6 +6,7 @@ import gpudrive
 import matplotlib.cm as cm
 
 from pygpudrive.env.config import MadronaOption, PygameOption, RenderMode
+from pygpudrive.env.constants import MAX_REL_AGENT_POS
 
 # AGENT COLORS
 PINK = (255, 105, 180)
@@ -20,6 +21,7 @@ STATIC_AGENT_ID = 2
 
 SHORT_MIN = np.iinfo(np.int16).min  # -32768
 SHORT_MAX = np.iinfo(np.int16).max  # 32767
+
 
 
 class PyGameVisualizer:
@@ -667,6 +669,9 @@ class PyGameVisualizer:
                         * self.zoom_scales_x[world_render_idx],
                         color,
                     )
+            if self.render_config.draw_other_aux:
+                self.draw_other_auxiliary(agent_info, world_render_idx, agent_response_types)
+            
             if self.render_config.draw_ego_attention:
                 self.attn_surfs = [self.surf.copy() for _ in range(self.ego_attn_score.shape[1])]
                 self.draw_attention(agent_info, world_render_idx, agent_response_types)
@@ -925,3 +930,102 @@ class PyGameVisualizer:
         max_text = small_font.render(f"{float(max_val):.3f}", True, (0, 0, 0))
         self.attn_surfs[head_idx].blit(min_text, (colorbar_position[0] - 40, colorbar_position[1] + height // 2 - min_text.get_height() // 2))
         self.attn_surfs[head_idx].blit(max_text, (colorbar_position[0] + width + 10, colorbar_position[1] + height // 2 - max_text.get_height() // 2))
+
+    def saveAuxPred(self, aux_pred):
+        setattr(self, "aux_pred", aux_pred)
+
+    def draw_other_auxiliary(self, agent_info, world_render_idx, agent_response_types):        
+        for time_steps, aux_pred in self.aux_pred.items():
+            self.draw_other_future(world_render_idx, aux_pred, time_steps, agent_info, agent_response_types)
+    
+    def draw_other_future(self, world_render_idx, aux_pred, future_step, agent_info, agent_response_types):
+        if (agent_response_types == 0).sum() == 0:
+            return
+        
+        def _recover_pos_from_discrete(discrete_pos):
+            bins = np.linspace(-0.1, 0.1, 9)
+            bin_centers = (bins[:-1] + bins[1:]) / 2
+            
+            x_bins = (discrete_pos // 8).astype(int)
+            y_bins = (discrete_pos % 8).astype(int)
+            
+            x = bin_centers[x_bins]
+            y = bin_centers[y_bins]
+            
+            pos = np.stack([x, y], axis=-1)
+            return pos
+        
+        def _recover_action_from_discrete(discrete_action):
+            discrete_action = np.clip(discrete_action, 0, 11).astype('int')
+            bin_centers = np.array([
+                (-np.pi + -2.0*np.pi/3)/2,
+                (-2.0*np.pi/3 + -np.pi/3)/2,
+                (-np.pi/3 + -np.pi/6)/2,
+                (-np.pi/6 + -np.pi/12)/2,
+                (-np.pi/12 + -np.pi/36)/2,
+                (-np.pi/36 + 0)/2,
+                (0 + np.pi/36)/2,
+                (np.pi/36 + np.pi/12)/2,
+                (np.pi/12 + np.pi/6)/2,
+                (np.pi/6 + np.pi/3)/2,
+                (np.pi/3 + 2.0*np.pi/3)/2,
+                (2.0*np.pi/3 + np.pi)/2,
+            ])
+            return bin_centers[discrete_action]
+        
+        # 1. Get the global future positions of the other agents
+        aux_pred_pos = aux_pred['pos'].cpu().detach().numpy()
+        partner_valid_mask = (aux_pred_pos[world_render_idx] >= 0)
+        partner_ids = np.where(aux_pred_pos[world_render_idx] >= 0)[0]
+        other_pos = _recover_pos_from_discrete(aux_pred_pos[world_render_idx])
+        other_pos = other_pos * MAX_REL_AGENT_POS
+        
+        ego_id = ((agent_response_types[:, 0] == 0)).nonzero()[0][0]
+        ego_pos = agent_info[ego_id][:2]
+        ego_rot = agent_info[ego_id][7]
+        ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
+        
+        norm = np.linalg.norm(other_pos, axis=-1, keepdims=True)
+        unit_vec = other_pos / norm
+        other_cos, other_sin = unit_vec[:, 0], unit_vec[:, 1]
+        
+        other_global_cos = other_cos * ego_cos - other_sin * ego_sin
+        other_global_sin = other_cos * ego_sin + other_sin * ego_cos
+        
+        other_global_x = np.linalg.norm(other_pos, axis=-1) * other_global_cos + ego_pos[0]
+        other_global_y = np.linalg.norm(other_pos, axis=-1) * other_global_sin + ego_pos[1]
+        other_global_pos = np.stack([other_global_x, other_global_y], axis=-1)
+        
+        # 2. Get the future rotation of the other agents
+        aux_pred_rot = aux_pred['action'].cpu().detach().numpy()        
+        other_rot = _recover_action_from_discrete(aux_pred_rot[world_render_idx])
+        other_rot = other_rot + ego_rot
+        
+        # 3. Draw the future rotations of the other agents on their global positions
+        for partner_id in partner_ids:
+            if agent_response_types[partner_id] != STATIC_AGENT_ID:
+                pos = other_global_pos[partner_id]
+                pos = self.scale_coords(pos, world_render_idx)
+                rot = other_rot[partner_id]
+                
+                # draw arrow body
+                arrow_length = 10
+                end_x = pos[0] + arrow_length * np.cos(rot)
+                end_y = pos[1] + arrow_length * np.sin(rot)
+                
+                end_pos = (int(end_x), int(end_y))
+                start_pos = (int(pos[0]), int(pos[1]))
+                
+                pygame.draw.line(self.surf, (255, 0, 0), start_pos, end_pos, 2)
+                
+                # draw arrow head
+                arrow_head_len = 3
+                arrow_angle = np.pi / 6
+                
+                left_x = end_x - arrow_head_len * np.cos(rot - arrow_angle)
+                left_y = end_y - arrow_head_len * np.sin(rot - arrow_angle)
+                right_x = end_x - arrow_head_len * np.cos(rot + arrow_angle)
+                right_y = end_y - arrow_head_len * np.sin(rot + arrow_angle)
+
+                pygame.draw.line(self.surf, (255, 0, 0), end_pos, (int(left_x), int(left_y)), 2)
+                pygame.draw.line(self.surf, (255, 0, 0), end_pos, (int(right_x), int(right_y)), 2)

@@ -292,6 +292,27 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             raise ValueError(
                 "Attention objects rendering is only supported in Pygame absolute mode."
             )
+            
+    def save_aux_pred(self, aux_dict):
+        """Saves the auxiliary predictions of the environment.
+
+        Args:
+            aux_dict: Dictionary containing auxiliary predictions.
+
+        Returns:
+            Any: Rendered view of the world, or None if an invalid index is specified.
+        """
+        if not self.render_config.draw_other_aux:
+            return None
+        
+        if self.render_config.render_mode in {
+            RenderMode.PYGAME_ABSOLUTE,
+        }:
+            return self.visualizer.saveAuxPred(aux_dict)
+        else:
+            raise ValueError(
+                "Auxiliary predictions rendering is only supported in Pygame absolute mode."
+            )
 
     def reinit_scenarios(self, dataset: List[str]):
         """Resample the scenes.
