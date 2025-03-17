@@ -199,20 +199,20 @@ def run(args):
 
         if args.make_video:
             def fill_tensor(partner_idx, ego_attn_score, partner_mask):
-                    multi_head_num = ego_attn_score.shape[1]
-                    ego_attn_score = ego_attn_score.transpose(1, 2)
-                    n, _ = partner_idx.shape
-                    filled_tensor = torch.full((n, 128, multi_head_num), -1.0).to(args.device)
+                multi_head_num = ego_attn_score.shape[1]
+                ego_attn_score = ego_attn_score.transpose(1, 2)
+                n, _ = partner_idx.shape
+                filled_tensor = torch.full((n, 128, multi_head_num), -1.0).to(args.device)
 
-                    row_indices = torch.arange(n).unsqueeze(1).expand_as(partner_idx).to(args.device)
-                    valid_rows = row_indices[~partner_mask]
-                    valid_cols = partner_idx[~partner_mask].int()
-                    valid_values = ego_attn_score[~partner_mask]
+                row_indices = torch.arange(n).unsqueeze(1).expand_as(partner_idx).to(args.device)
+                valid_rows = row_indices[~partner_mask]
+                valid_cols = partner_idx[~partner_mask].int()
+                valid_values = ego_attn_score[~partner_mask]
 
-                    filled_tensor[valid_rows, valid_cols] = valid_values.float()
-                    
-                    return filled_tensor
+                filled_tensor[valid_rows, valid_cols] = valid_values.float()
                 
+                return filled_tensor
+
             partner_idx = env.partner_id[~dead_agent_mask].clone()
             if render_config.draw_ego_attention:
                 # Save ego attention score        
