@@ -273,6 +273,23 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             raise ValueError(
                 "Expert footprint rendering is only supported in Pygame absolute mode."
             )
+    def save_aux(self, world_render_idx=0, time_step=0):
+        """Saves the ego aux of the environment.
+
+        Args:
+            expert_actions: Expert actions.
+
+        Returns:
+            Any: Rendered view of the world, or None if an invalid index is specified.
+        """
+        if self.render_config.render_mode in {
+            RenderMode.PYGAME_ABSOLUTE,
+        }:
+            return self.visualizer.saveAux(world_render_idx=world_render_idx, time_step=time_step)
+        else:
+            raise ValueError(
+                "Expert action rendering is only supported in Pygame absolute mode."
+            )
 
     def save_ego_attn_score(self, ego_attn_score):
         """Saves the attention scores of ego agent.

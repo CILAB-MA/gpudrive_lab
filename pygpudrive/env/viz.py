@@ -93,10 +93,15 @@ class PyGameVisualizer:
 
             self.surf = pygame.Surface((self.WINDOW_W, self.WINDOW_H))
             self.compute_window_settings()
-        if self.render_config.render_mode == RenderMode.PYGAME_ABSOLUTE and self.render_config.draw_expert_footprint:
-            self.footprints = np.zeros((gpudrive.episodeLen, self.num_worlds, gpudrive.kMaxAgentCount, 2))
-        else:
-            self.footprints = None
+        if self.render_config.render_mode == RenderMode.PYGAME_ABSOLUTE:
+            if self.render_config.draw_expert_footprint:
+                self.footprints = np.zeros((gpudrive.episodeLen, self.num_worlds, gpudrive.kMaxAgentCount, 2))
+            else:
+                self.footprints = None
+            if self.render_config.draw_other_aux:
+                self.ego_aux = np.zeros((self.num_worlds, gpudrive.episodeLen, 3))
+            else:
+                self.ego_aux = None
 
     @staticmethod
     def get_all_endpoints(map_info):
@@ -581,6 +586,7 @@ class PyGameVisualizer:
             )
 
             # Draw the agent positions
+            partner_color = []
             for agent_idx in range(num_agents):
 
                 if color_objects_by_actor is not None:
@@ -624,6 +630,8 @@ class PyGameVisualizer:
                 # Agent is static
                 if agent_response_types[agent_idx] == STATIC_AGENT_ID:
                     color = (128, 128, 128)
+                else:
+                    partner_color.append(color)
 
                 # Draw the expert footprint
                 if agent_response_types[agent_idx] != STATIC_AGENT_ID and self.footprints is not None:
@@ -670,7 +678,8 @@ class PyGameVisualizer:
                         color,
                     )
             if self.render_config.draw_other_aux:
-                self.draw_other_auxiliary(agent_info, world_render_idx, agent_response_types)
+                partner_color = partner_color[1:]
+                self.draw_other_auxiliary(agent_info, world_render_idx, agent_response_types, partner_color)
             
             if self.render_config.draw_ego_attention:
                 self.attn_surfs = [self.surf.copy() for _ in range(self.ego_attn_score.shape[1])]
@@ -790,6 +799,43 @@ class PyGameVisualizer:
         pygame.display.quit()
         pygame.quit()
 
+    def saveAux(self, world_render_idx=0, time_step=0):
+        """save the aux for the agent at the given time step. (to use in drawing the expert trajectory)"""
+        # Get expert position info
+        agent_info = (
+            self.sim.absolute_self_observation_tensor()
+            .to_torch()[world_render_idx, :, :]
+            .cpu()
+            .detach()
+            .numpy()
+        )
+        
+        # Get the agent goal positions and current positions
+        aux = np.concatenate((agent_info[:, :2], agent_info[:, 7:8]), axis=-1)  # x, y, heading
+        
+        agent_response_types = (  # 0: Valid (can be controlled), 2: Invalid (static vehicles)
+            self.sim.response_type_tensor()
+            .to_torch()[world_render_idx, :, :]
+            .cpu()
+            .detach()
+            .numpy()
+            .squeeze(axis=-1)
+        )
+        
+        ego_idx = (agent_response_types == 0).nonzero()[0][0]
+
+        info_tensor = self.sim.info_tensor().to_torch()[
+            world_render_idx
+        ]
+        if info_tensor[ego_idx, -1] == float(
+            gpudrive.EntityType.Padding
+        ) or info_tensor[ego_idx, -1] == float(
+            gpudrive.EntityType._None
+        ):
+            return
+        
+        self.ego_aux[world_render_idx, time_step, :] = aux[ego_idx]
+    
     def saveFootprint(self, world_render_idx=0, time_step=0, pos=None):
         """save the expert footprint for the agent at the given time step. (to use in drawing the expert trajectory)"""
         if pos is not None:
@@ -934,11 +980,11 @@ class PyGameVisualizer:
     def saveAuxPred(self, aux_pred):
         setattr(self, "aux_pred", aux_pred)
 
-    def draw_other_auxiliary(self, agent_info, world_render_idx, agent_response_types):        
+    def draw_other_auxiliary(self, agent_info, world_render_idx, agent_response_types, partner_color):        
         for time_steps, aux_pred in self.aux_pred.items():
-            self.draw_other_future(world_render_idx, aux_pred, time_steps, agent_info, agent_response_types)
+            self.draw_other_future(world_render_idx, aux_pred, time_steps, agent_info, agent_response_types, partner_color)
     
-    def draw_other_future(self, world_render_idx, aux_pred, future_step, agent_info, agent_response_types):
+    def draw_other_future(self, world_render_idx, aux_pred, future_step, agent_info, agent_response_types, partner_color):
         if (agent_response_types == 0).sum() == 0:
             return
         
@@ -974,16 +1020,21 @@ class PyGameVisualizer:
             return bin_centers[discrete_action]
         
         # 1. Get the global future positions of the other agents
+        ego_id = (agent_response_types[:, 0] == 0).nonzero()[0][0]
+        try:
+            ego_pos = self.ego_aux[world_render_idx, future_step, :2]
+            ego_rot = self.ego_aux[world_render_idx, future_step, 2]
+        except:
+            return # ego is not in the scene
+        
+        ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
+        
         aux_pred_pos = aux_pred['pos'].cpu().detach().numpy()
-        partner_valid_mask = (aux_pred_pos[world_render_idx] >= 0)
-        partner_ids = np.where(aux_pred_pos[world_render_idx] >= 0)[0]
+        partner_valid_mask = np.logical_and(aux_pred_pos[world_render_idx] != -1.0, agent_response_types[:, 0] != STATIC_AGENT_ID)
+        partner_ids = np.where(partner_valid_mask)[0]
+        partner_ids = partner_ids[partner_ids != ego_id]
         other_pos = _recover_pos_from_discrete(aux_pred_pos[world_render_idx])
         other_pos = other_pos * MAX_REL_AGENT_POS
-        
-        ego_id = ((agent_response_types[:, 0] == 0)).nonzero()[0][0]
-        ego_pos = agent_info[ego_id][:2]
-        ego_rot = agent_info[ego_id][7]
-        ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
         
         norm = np.linalg.norm(other_pos, axis=-1, keepdims=True)
         unit_vec = other_pos / norm
@@ -1002,30 +1053,37 @@ class PyGameVisualizer:
         other_rot = other_rot + ego_rot
         
         # 3. Draw the future rotations of the other agents on their global positions
-        for partner_id in partner_ids:
-            if agent_response_types[partner_id] != STATIC_AGENT_ID:
-                pos = other_global_pos[partner_id]
-                pos = self.scale_coords(pos, world_render_idx)
-                rot = other_rot[partner_id]
-                
-                # draw arrow body
-                arrow_length = 10
-                end_x = pos[0] + arrow_length * np.cos(rot)
-                end_y = pos[1] + arrow_length * np.sin(rot)
-                
-                end_pos = (int(end_x), int(end_y))
-                start_pos = (int(pos[0]), int(pos[1]))
-                
-                pygame.draw.line(self.surf, (255, 0, 0), start_pos, end_pos, 2)
-                
-                # draw arrow head
-                arrow_head_len = 3
-                arrow_angle = np.pi / 6
-                
-                left_x = end_x - arrow_head_len * np.cos(rot - arrow_angle)
-                left_y = end_y - arrow_head_len * np.sin(rot - arrow_angle)
-                right_x = end_x - arrow_head_len * np.cos(rot + arrow_angle)
-                right_y = end_y - arrow_head_len * np.sin(rot + arrow_angle)
+        for i, partner_id in enumerate(partner_ids):
+            color = partner_color[i]
+            
+            pos = other_global_pos[partner_id]
+            pos = self.scale_coords(pos, world_render_idx)
+            rot = other_rot[partner_id]
 
-                pygame.draw.line(self.surf, (255, 0, 0), end_pos, (int(left_x), int(left_y)), 2)
-                pygame.draw.line(self.surf, (255, 0, 0), end_pos, (int(right_x), int(right_y)), 2)
+            # draw arrow body
+            arrow_length = 20
+            end_x = pos[0] + arrow_length * np.cos(rot)
+            end_y = pos[1] + arrow_length * np.sin(rot)
+
+            end_pos = (int(end_x), int(end_y))
+            start_pos = (int(pos[0]), int(pos[1]))
+
+            pygame.draw.line(self.surf, color, start_pos, end_pos, 4)
+
+            # draw arrow head
+            arrow_head_len = 6
+            arrow_angle = np.pi / 6
+
+            left_x = end_x - arrow_head_len * np.cos(rot - arrow_angle)
+            left_y = end_y - arrow_head_len * np.sin(rot - arrow_angle)
+            right_x = end_x - arrow_head_len * np.cos(rot + arrow_angle)
+            right_y = end_y - arrow_head_len * np.sin(rot + arrow_angle)
+
+            pygame.draw.line(self.surf, color, end_pos, (int(left_x), int(left_y)), 4)
+            pygame.draw.line(self.surf, color, end_pos, (int(right_x), int(right_y)), 4)
+            
+            # draw future step number
+            font = pygame.font.SysFont(None, 20)
+            step_text = font.render(str(future_step), True, (0, 0, 0))
+            text_rect = step_text.get_rect(center=end_pos)
+            self.surf.blit(step_text, text_rect)

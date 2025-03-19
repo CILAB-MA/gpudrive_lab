@@ -96,16 +96,17 @@ def run(args):
             aux_heads[file_name] = torch.load(os.path.join(aux_path, aux), weights_only=False).to(args.device)
             aux_heads[file_name].eval()
 
-    # To make video with expert trajectories footprint
-    if render_config.draw_expert_footprint:
+    # To save data in viz for video
+    if render_config.draw_expert_footprint or render_config.draw_other_aux:
         obs = env.reset()
         expert_actions, _, _ = env.get_expert_actions()
         for time_step in range(env.episode_len):
+            for world_render_idx in range(NUM_WORLDS):
+                env.save_footprint(world_render_idx=world_render_idx, time_step=time_step)
+                env.save_aux(world_render_idx=world_render_idx, time_step=time_step)
             env.step_dynamics(expert_actions[:, :, time_step, :])
             obs = env.get_obs()
             dones = env.get_dones()
-            for world_render_idx in range(NUM_WORLDS):
-                env.save_footprint(world_render_idx=world_render_idx, time_step=time_step)
             if (dones == True).all():
                 break
 
