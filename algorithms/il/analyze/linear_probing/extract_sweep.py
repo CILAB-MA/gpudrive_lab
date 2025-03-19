@@ -47,6 +47,6 @@ if __name__ == '__main__':
 
     df = pd.DataFrame(all_runs)
 
-    csv_filename = f"/data/linear_probing/{args.linear_probing}_{args.save_name}.csv"
-    os.makedirs(f"/data/linear_probing", exist_ok=True)
+    csv_filename = f"/data/linear_probingv2/{args.linear_probing}_{args.save_name}.csv"
+    os.makedirs(f"/data/linear_probingv2", exist_ok=True)
     df.to_csv(csv_filename, index=False)
