@@ -15,6 +15,9 @@ from algorithms.il.model.bc import *
 from algorithms.il.analyze.linear_probing.linear_prob import register_all_layers_forward_hook
 from pygpudrive.registration import make
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -35,9 +38,20 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+def fill_ego(partner_idx, ego_attn_score, partner_mask):
+    multi_head_num = ego_attn_score.shape[1]
+    ego_attn_score = ego_attn_score.transpose(1, 2)
+    n, _ = partner_idx.shape
+    filled_tensor = torch.full((n, 128, multi_head_num), -1.0).to(args.device)
 
+    row_indices = torch.arange(n).unsqueeze(1).expand_as(partner_idx).to(args.device)
+    valid_rows = row_indices[~partner_mask]
+    valid_cols = partner_idx[~partner_mask].int()
+    valid_values = ego_attn_score[~partner_mask]
+
+    filled_tensor[valid_rows, valid_cols] = valid_values.float()
+    
+    return filled_tensor
 
 def run(args):
     
@@ -101,6 +115,19 @@ def run(args):
         obs = env.reset()
         expert_actions, _, _ = env.get_expert_actions()
         for time_step in range(env.episode_len):
+            dead_agent_mask = ~env.get_controlled_agents_mask().clone()
+            partner_idx = env.partner_id[~dead_agent_mask].clone()
+            partner_masks = env.get_stacked_partner_mask().to(args.device)
+            partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
+            partner_mask_bool = partner_masks == 2
+            partner_mask_bool[:,:,-1,:][~dead_agent_mask]
+            
+            aux_label_x = alive_partner_obs[:, -1, :, 1].unsqueeze(1)
+            aux_label_y = alive_partner_obs[:, -1, :, 2].unsqueeze(1)
+            
+            aux_label_x = fill_ego(partner_idx, aux_label_x, partner_mask_bool)
+            aux_label_y = fill_ego(partner_idx, aux_label_y, partner_mask_bool)
+            
             for world_render_idx in range(NUM_WORLDS):
                 env.save_footprint(world_render_idx=world_render_idx, time_step=time_step)
                 env.save_aux(world_render_idx=world_render_idx, time_step=time_step)
@@ -199,25 +226,10 @@ def run(args):
         all_actions[~dead_agent_mask, :] = actions
 
         if args.make_video:
-            def fill_tensor(partner_idx, ego_attn_score, partner_mask):
-                multi_head_num = ego_attn_score.shape[1]
-                ego_attn_score = ego_attn_score.transpose(1, 2)
-                n, _ = partner_idx.shape
-                filled_tensor = torch.full((n, 128, multi_head_num), -1.0).to(args.device)
-
-                row_indices = torch.arange(n).unsqueeze(1).expand_as(partner_idx).to(args.device)
-                valid_rows = row_indices[~partner_mask]
-                valid_cols = partner_idx[~partner_mask].int()
-                valid_values = ego_attn_score[~partner_mask]
-
-                filled_tensor[valid_rows, valid_cols] = valid_values.float()
-                
-                return filled_tensor
-
             partner_idx = env.partner_id[~dead_agent_mask].clone()
             if render_config.draw_ego_attention:
                 # Save ego attention score        
-                viz_ego_attn = fill_tensor(partner_idx, ego_attn_score, partner_mask_bool[:,:,-1,:][~dead_agent_mask])
+                viz_ego_attn = fill_ego(partner_idx, ego_attn_score, partner_mask_bool[:,:,-1,:][~dead_agent_mask])
                 world_viz_ego_attn = torch.zeros(NUM_WORLDS, NUM_PARTNER, ego_attn_score.shape[1]).to(args.device)
                 world_viz_ego_attn[(~dead_agent_mask).sum(dim=-1) == 1] = viz_ego_attn
                 world_viz_ego_attn = world_viz_ego_attn.transpose(1, 2)
@@ -227,7 +239,7 @@ def run(args):
             if render_config.draw_other_aux:
                 for aux_key, aux_val in aux_dict.items():
                     for future_step, aux in aux_val.items():
-                        viz_aux = fill_tensor(partner_idx, aux.unsqueeze(1), partner_mask_bool[:,:,-1,:][~dead_agent_mask])
+                        viz_aux = fill_ego(partner_idx, aux.unsqueeze(1), partner_mask_bool[:,:,-1,:][~dead_agent_mask])
                         world_viz_aux = torch.zeros(NUM_WORLDS, NUM_PARTNER).to(args.device)
                         world_viz_aux[(~dead_agent_mask).sum(dim=-1) == 1] = viz_aux.squeeze(-1)
                         aux_dict[aux_key][future_step] = world_viz_aux

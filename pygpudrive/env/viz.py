@@ -679,7 +679,7 @@ class PyGameVisualizer:
                     )
             if self.render_config.draw_other_aux:
                 partner_color = partner_color[1:]
-                self.draw_other_auxiliary(agent_info, world_render_idx, agent_response_types, partner_color)
+                self.draw_other_auxiliary(world_render_idx, agent_response_types, partner_color)
             
             if self.render_config.draw_ego_attention:
                 self.attn_surfs = [self.surf.copy() for _ in range(self.ego_attn_score.shape[1])]
@@ -980,11 +980,11 @@ class PyGameVisualizer:
     def saveAuxPred(self, aux_pred):
         setattr(self, "aux_pred", aux_pred)
 
-    def draw_other_auxiliary(self, agent_info, world_render_idx, agent_response_types, partner_color):        
+    def draw_other_auxiliary(self, world_render_idx, agent_response_types, partner_color):        
         for time_steps, aux_pred in self.aux_pred.items():
-            self.draw_other_future(world_render_idx, aux_pred, time_steps, agent_info, agent_response_types, partner_color)
+            self.draw_other_future(world_render_idx, aux_pred, time_steps, agent_response_types, partner_color)
     
-    def draw_other_future(self, world_render_idx, aux_pred, future_step, agent_info, agent_response_types, partner_color):
+    def draw_other_future(self, world_render_idx, aux_pred, future_step, agent_response_types, partner_color):
         if (agent_response_types == 0).sum() == 0:
             return
         
@@ -1025,7 +1025,7 @@ class PyGameVisualizer:
             ego_pos = self.ego_aux[world_render_idx, future_step, :2]
             ego_rot = self.ego_aux[world_render_idx, future_step, 2]
         except:
-            return # ego is not in the scene
+            return # ego is not in the scene at future
         
         ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
         
