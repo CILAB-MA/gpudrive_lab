@@ -115,19 +115,6 @@ def run(args):
         obs = env.reset()
         expert_actions, _, _ = env.get_expert_actions()
         for time_step in range(env.episode_len):
-            dead_agent_mask = ~env.get_controlled_agents_mask().clone()
-            partner_idx = env.partner_id[~dead_agent_mask].clone()
-            partner_masks = env.get_stacked_partner_mask().to(args.device)
-            partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
-            partner_mask_bool = partner_masks == 2
-            partner_mask_bool[:,:,-1,:][~dead_agent_mask]
-            
-            aux_label_x = alive_partner_obs[:, -1, :, 1].unsqueeze(1)
-            aux_label_y = alive_partner_obs[:, -1, :, 2].unsqueeze(1)
-            
-            aux_label_x = fill_ego(partner_idx, aux_label_x, partner_mask_bool)
-            aux_label_y = fill_ego(partner_idx, aux_label_y, partner_mask_bool)
-            
             for world_render_idx in range(NUM_WORLDS):
                 env.save_footprint(world_render_idx=world_render_idx, time_step=time_step)
                 env.save_aux(world_render_idx=world_render_idx, time_step=time_step)
@@ -246,7 +233,7 @@ def run(args):
                 env.save_aux_pred(aux_dict)
 
             for world_render_idx in range(NUM_WORLDS):
-                frame = env.render(world_render_idx=world_render_idx)
+                frame = env.render(world_render_idx=world_render_idx, time_step=time_step)
                 frames[world_render_idx].append(frame)
 
         env.step_dynamics(all_actions)

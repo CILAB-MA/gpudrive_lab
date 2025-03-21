@@ -221,7 +221,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             )
         return params
 
-    def render(self, world_render_idx=0, color_objects_by_actor=None):
+    def render(self, world_render_idx=0, time_step=0, color_objects_by_actor=None):
         """Renders the environment.
 
         Args:
@@ -240,6 +240,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
         }:
             return self.visualizer.getRender(
                 world_render_idx=world_render_idx,
+                time_step=time_step,
                 cont_agent_mask=self.cont_agent_mask,
                 color_objects_by_actor=color_objects_by_actor,
             )
