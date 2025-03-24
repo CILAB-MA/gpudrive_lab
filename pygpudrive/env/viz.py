@@ -4,8 +4,10 @@ import numpy as np
 import math
 import gpudrive
 import matplotlib.cm as cm
+from shapely.geometry import Point, Polygon
 
 from pygpudrive.env.config import MadronaOption, PygameOption, RenderMode
+from pygpudrive.env.constants import MAX_REL_AGENT_POS
 
 # AGENT COLORS
 PINK = (255, 105, 180)
@@ -20,6 +22,7 @@ STATIC_AGENT_ID = 2
 
 SHORT_MIN = np.iinfo(np.int16).min  # -32768
 SHORT_MAX = np.iinfo(np.int16).max  # 32767
+
 
 
 class PyGameVisualizer:
@@ -91,10 +94,15 @@ class PyGameVisualizer:
 
             self.surf = pygame.Surface((self.WINDOW_W, self.WINDOW_H))
             self.compute_window_settings()
-        if self.render_config.render_mode == RenderMode.PYGAME_ABSOLUTE and self.render_config.draw_expert_footprint:
-            self.footprints = np.zeros((gpudrive.episodeLen, self.num_worlds, gpudrive.kMaxAgentCount, 2))
-        else:
-            self.footprints = None
+        if self.render_config.render_mode == RenderMode.PYGAME_ABSOLUTE:
+            if self.render_config.draw_expert_footprint:
+                self.footprints = np.zeros((gpudrive.episodeLen, self.num_worlds, gpudrive.kMaxAgentCount, 2))
+            else:
+                self.footprints = None
+            if self.render_config.draw_other_aux:
+                self.ego_aux = np.zeros((self.num_worlds, gpudrive.episodeLen, 3))
+            else:
+                self.ego_aux = None
 
     @staticmethod
     def get_all_endpoints(map_info):
@@ -368,7 +376,7 @@ class PyGameVisualizer:
             self.map_surfs.append(map_surf)
 
     def getRender(
-        self, world_render_idx=0, color_objects_by_actor=None, **kwargs
+        self, world_render_idx=0, time_step=0, color_objects_by_actor=None, **kwargs
     ):
         if self.render_config.render_mode in {
             RenderMode.PYGAME_ABSOLUTE,
@@ -377,7 +385,7 @@ class PyGameVisualizer:
         }:
             cont_agent_mask = kwargs.get("cont_agent_mask", None)
             return self.draw(
-                cont_agent_mask, world_render_idx, color_objects_by_actor
+                cont_agent_mask, world_render_idx, time_step, color_objects_by_actor
             )
         elif self.render_config.render_mode == RenderMode.MADRONA_RGB:
             if self.render_config.view_option == MadronaOption.TOP_DOWN:
@@ -417,7 +425,7 @@ class PyGameVisualizer:
             )
 
     def draw(
-        self, cont_agent_mask, world_render_idx=0, color_objects_by_actor=None
+        self, cont_agent_mask, world_render_idx=0, time_step=0, color_objects_by_actor=None
     ):
         """Render the environment."""
 
@@ -579,6 +587,7 @@ class PyGameVisualizer:
             )
 
             # Draw the agent positions
+            partner_color = []
             for agent_idx in range(num_agents):
 
                 if color_objects_by_actor is not None:
@@ -622,6 +631,8 @@ class PyGameVisualizer:
                 # Agent is static
                 if agent_response_types[agent_idx] == STATIC_AGENT_ID:
                     color = (128, 128, 128)
+                else:
+                    partner_color.append(color)
 
                 # Draw the expert footprint
                 if agent_response_types[agent_idx] != STATIC_AGENT_ID and self.footprints is not None:
@@ -667,6 +678,10 @@ class PyGameVisualizer:
                         * self.zoom_scales_x[world_render_idx],
                         color,
                     )
+            if self.render_config.draw_other_aux:
+                partner_color = partner_color[1:]
+                self.draw_other_auxiliary(world_render_idx, time_step, agent_response_types, agent_pos, partner_color)
+            
             if self.render_config.draw_ego_attention:
                 self.attn_surfs = [self.surf.copy() for _ in range(self.ego_attn_score.shape[1])]
                 self.draw_attention(agent_info, world_render_idx, agent_response_types)
@@ -785,6 +800,43 @@ class PyGameVisualizer:
         pygame.display.quit()
         pygame.quit()
 
+    def saveAux(self, world_render_idx=0, time_step=0):
+        """save the aux for the agent at the given time step. (to use in drawing the expert trajectory)"""
+        # Get expert position info
+        agent_info = (
+            self.sim.absolute_self_observation_tensor()
+            .to_torch()[world_render_idx, :, :]
+            .cpu()
+            .detach()
+            .numpy()
+        )
+        
+        # Get the agent goal positions and current positions
+        aux = np.concatenate((agent_info[:, :2], agent_info[:, 7:8]), axis=-1)  # x, y, heading
+        
+        agent_response_types = (  # 0: Valid (can be controlled), 2: Invalid (static vehicles)
+            self.sim.response_type_tensor()
+            .to_torch()[world_render_idx, :, :]
+            .cpu()
+            .detach()
+            .numpy()
+            .squeeze(axis=-1)
+        )
+        
+        ego_idx = (agent_response_types == 0).nonzero()[0][0]
+
+        info_tensor = self.sim.info_tensor().to_torch()[
+            world_render_idx
+        ]
+        if info_tensor[ego_idx, -1] == float(
+            gpudrive.EntityType.Padding
+        ) or info_tensor[ego_idx, -1] == float(
+            gpudrive.EntityType._None
+        ):
+            return
+        
+        self.ego_aux[world_render_idx, time_step, :] = aux[ego_idx]
+    
     def saveFootprint(self, world_render_idx=0, time_step=0, pos=None):
         """save the expert footprint for the agent at the given time step. (to use in drawing the expert trajectory)"""
         if pos is not None:
@@ -925,3 +977,213 @@ class PyGameVisualizer:
         max_text = small_font.render(f"{float(max_val):.3f}", True, (0, 0, 0))
         self.attn_surfs[head_idx].blit(min_text, (colorbar_position[0] - 40, colorbar_position[1] + height // 2 - min_text.get_height() // 2))
         self.attn_surfs[head_idx].blit(max_text, (colorbar_position[0] + width + 10, colorbar_position[1] + height // 2 - max_text.get_height() // 2))
+
+    def saveAuxPred(self, aux_pred):
+        setattr(self, "aux_pred", aux_pred)
+
+    def draw_other_auxiliary(self, world_render_idx, time_step, agent_response_types, agent_pos, partner_color):        
+        for future_step, aux_pred in self.aux_pred.items():
+            grid = self.draw_ego_grid(world_render_idx, time_step, future_step)
+            self.draw_other_future(world_render_idx, aux_pred, time_step, future_step, agent_response_types, agent_pos, partner_color, grid)
+    
+    def draw_ego_grid(self, world_render_idx, time_step, future_step):
+        """Draw the ego grid on the surface."""
+        try:
+            ego_pos = self.ego_aux[world_render_idx, time_step + future_step, :2]
+            ego_rot = self.ego_aux[world_render_idx, time_step + future_step, 2]
+        except IndexError:
+            return # ego is not in the scene at future
+        
+        grid_corners = np.linspace(-0.1, 0.1, 9)
+        grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
+        grid_points = np.stack([grid_x, grid_y], axis=-1)
+        grid_points = grid_points * MAX_REL_AGENT_POS
+        
+        ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
+        
+        # rotation transformation
+        global_grid = []
+        for i in range(grid_points.shape[0]):
+            row = []
+            for j in range(grid_points.shape[1]):
+                x, y = grid_points[i, j]
+                rotated_x = x * ego_cos - y * ego_sin
+                rotated_y = x * ego_sin + y * ego_cos
+                global_x = rotated_x + ego_pos[0]
+                global_y = rotated_y + ego_pos[1]
+                screen_point = self.scale_coords((global_x, global_y), world_render_idx)
+                row.append(screen_point)
+            global_grid.append(row)
+
+        # draw row
+        for i in range(len(global_grid)):
+            for j in range(len(global_grid[i]) - 1):
+                p1 = global_grid[i][j]
+                p2 = global_grid[i][j + 1]
+                if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
+                    pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
+
+        # draw column
+        for j in range(len(global_grid[0])):
+            for i in range(len(global_grid) - 1):
+                p1 = global_grid[i][j]
+                p2 = global_grid[i + 1][j]
+                if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
+                    pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
+        
+        return global_grid
+    
+    def draw_other_future(self, world_render_idx, aux_pred, time_step, future_step, agent_response_types, agent_pos, partner_color, grid):
+        if (agent_response_types == 0).sum() == 0:
+            return
+        
+        @staticmethod
+        def _recover_pos_from_discrete(discrete_pos):
+            bins = np.linspace(-0.1, 0.1, 9)
+            bin_centers = (bins[:-1] + bins[1:]) / 2
+            
+            x_bins = (discrete_pos // 8).astype(int)
+            y_bins = (discrete_pos % 8).astype(int)
+            
+            x = bin_centers[x_bins]
+            y = bin_centers[y_bins]
+            
+            pos = np.stack([x, y], axis=-1)
+            return pos
+        
+        @staticmethod
+        def _recover_action_from_discrete(discrete_action):
+            discrete_action = np.clip(discrete_action, 0, 11).astype('int')
+            bin_centers = np.array([
+                (-np.pi + -2.0*np.pi/3)/2,
+                (-2.0*np.pi/3 + -np.pi/3)/2,
+                (-np.pi/3 + -np.pi/6)/2,
+                (-np.pi/6 + -np.pi/12)/2,
+                (-np.pi/12 + -np.pi/36)/2,
+                (-np.pi/36 + 0)/2,
+                (0 + np.pi/36)/2,
+                (np.pi/36 + np.pi/12)/2,
+                (np.pi/12 + np.pi/6)/2,
+                (np.pi/6 + np.pi/3)/2,
+                (np.pi/3 + 2.0*np.pi/3)/2,
+                (2.0*np.pi/3 + np.pi)/2,
+            ])
+            return bin_centers[discrete_action]
+        
+        @staticmethod
+        def _draw_gt_pos(surf, partner_color, grid, partner_ids, agent_pos, future_step):            
+            @staticmethod
+            def blend_with_white(color, ratio):
+                r, g, b = color
+                r = int(r + (255 - r) * ratio)
+                g = int(g + (255 - g) * ratio)
+                b = int(b + (255 - b) * ratio)
+                return (r, g, b)
+            
+            fade_ratio = {
+                5: 0.0,
+                10: 0.3,
+                15: 0.6,
+                20: 0.8
+            }
+
+            line_width = {
+                5: 4,
+                10: 3,
+                15: 2,
+                20: 1
+            }
+
+            grid = np.array(grid)
+            
+            for id, pos in enumerate(agent_pos[partner_ids]):
+                pos = self.scale_coords(pos, world_render_idx)
+                point = Point(pos[0], pos[1])
+                for i in range(8):
+                    for j in range(8):
+                        c1 = grid[i, j]
+                        c2 = grid[i, j + 1]
+                        c3 = grid[i + 1, j + 1]
+                        c4 = grid[i + 1, j]
+                        
+                        polygon = Polygon([c1, c2, c3, c4])
+                        
+                        if polygon.contains(point):
+                            agent_corners = [c1, c2, c3, c4]
+                            faded_color = blend_with_white(partner_color[id], fade_ratio[future_step])
+                            
+                            pygame.draw.polygon(surf, faded_color, agent_corners, width=line_width[future_step])
+                            break
+
+
+        # 1. Get the global future positions of the other agents
+        ego_id = (agent_response_types[:, 0] == 0).nonzero()[0][0]
+        try:
+            ego_pos = self.ego_aux[world_render_idx, time_step + future_step, :2]
+            ego_rot = self.ego_aux[world_render_idx, time_step + future_step, 2]
+        except:
+            return # ego is not in the scene at future
+        
+        ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
+        
+        aux_pred_pos = aux_pred['pos'].cpu().detach().numpy()
+        partner_valid_mask = np.logical_and(aux_pred_pos[world_render_idx] != -1.0, agent_response_types[:, 0] != STATIC_AGENT_ID)
+        partner_ids = np.where(partner_valid_mask)[0]
+        partner_ids = partner_ids[partner_ids != ego_id]
+        other_pos = _recover_pos_from_discrete(aux_pred_pos[world_render_idx])
+        other_pos = other_pos * MAX_REL_AGENT_POS
+        
+        norm = np.linalg.norm(other_pos, axis=-1, keepdims=True)
+        unit_vec = other_pos / norm
+        other_cos, other_sin = unit_vec[:, 0], unit_vec[:, 1]
+        
+        other_global_cos = other_cos * ego_cos - other_sin * ego_sin
+        other_global_sin = other_cos * ego_sin + other_sin * ego_cos
+        
+        other_global_x = np.linalg.norm(other_pos, axis=-1) * other_global_cos + ego_pos[0]
+        other_global_y = np.linalg.norm(other_pos, axis=-1) * other_global_sin + ego_pos[1]
+        other_global_pos = np.stack([other_global_x, other_global_y], axis=-1)
+        
+        # 2. Get the future rotation of the other agents
+        aux_pred_rot = aux_pred['action'].cpu().detach().numpy()        
+        other_rot = _recover_action_from_discrete(aux_pred_rot[world_render_idx])
+        other_rot = other_rot + ego_rot
+        
+        # 3. Draw the future ground truth positions of the other agents
+        _draw_gt_pos(self.surf, partner_color, grid, partner_ids, agent_pos, future_step)
+        
+        # 3. Draw the future rotations of the other agents on their global positions
+        for i, partner_id in enumerate(partner_ids):
+            color = partner_color[i]
+            
+            pos = other_global_pos[partner_id]
+            pos = self.scale_coords(pos, world_render_idx)
+            rot = other_rot[partner_id]
+
+            # draw arrow body
+            arrow_length = 20
+            end_x = pos[0] + arrow_length * np.cos(rot)
+            end_y = pos[1] + arrow_length * np.sin(rot)
+
+            end_pos = (int(end_x), int(end_y))
+            start_pos = (int(pos[0]), int(pos[1]))
+
+            pygame.draw.line(self.surf, color, start_pos, end_pos, 4)
+
+            # draw arrow head
+            arrow_head_len = 6
+            arrow_angle = np.pi / 6
+
+            left_x = end_x - arrow_head_len * np.cos(rot - arrow_angle)
+            left_y = end_y - arrow_head_len * np.sin(rot - arrow_angle)
+            right_x = end_x - arrow_head_len * np.cos(rot + arrow_angle)
+            right_y = end_y - arrow_head_len * np.sin(rot + arrow_angle)
+
+            pygame.draw.line(self.surf, color, end_pos, (int(left_x), int(left_y)), 4)
+            pygame.draw.line(self.surf, color, end_pos, (int(right_x), int(right_y)), 4)
+            
+            # draw future step number
+            font = pygame.font.SysFont(None, 20)
+            step_text = font.render(str(future_step), True, (0, 0, 0))
+            text_rect = step_text.get_rect(center=end_pos)
+            self.surf.blit(step_text, text_rect)

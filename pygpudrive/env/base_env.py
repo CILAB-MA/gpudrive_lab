@@ -221,7 +221,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             )
         return params
 
-    def render(self, world_render_idx=0, color_objects_by_actor=None):
+    def render(self, world_render_idx=0, time_step=0, color_objects_by_actor=None):
         """Renders the environment.
 
         Args:
@@ -240,6 +240,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
         }:
             return self.visualizer.getRender(
                 world_render_idx=world_render_idx,
+                time_step=time_step,
                 cont_agent_mask=self.cont_agent_mask,
                 color_objects_by_actor=color_objects_by_actor,
             )
@@ -273,6 +274,23 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             raise ValueError(
                 "Expert footprint rendering is only supported in Pygame absolute mode."
             )
+    def save_aux(self, world_render_idx=0, time_step=0):
+        """Saves the ego aux of the environment.
+
+        Args:
+            expert_actions: Expert actions.
+
+        Returns:
+            Any: Rendered view of the world, or None if an invalid index is specified.
+        """
+        if self.render_config.render_mode in {
+            RenderMode.PYGAME_ABSOLUTE,
+        }:
+            return self.visualizer.saveAux(world_render_idx=world_render_idx, time_step=time_step)
+        else:
+            raise ValueError(
+                "Expert action rendering is only supported in Pygame absolute mode."
+            )
 
     def save_ego_attn_score(self, ego_attn_score):
         """Saves the attention scores of ego agent.
@@ -291,6 +309,27 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
         else:
             raise ValueError(
                 "Attention objects rendering is only supported in Pygame absolute mode."
+            )
+            
+    def save_aux_pred(self, aux_dict):
+        """Saves the auxiliary predictions of the environment.
+
+        Args:
+            aux_dict: Dictionary containing auxiliary predictions.
+
+        Returns:
+            Any: Rendered view of the world, or None if an invalid index is specified.
+        """
+        if not self.render_config.draw_other_aux:
+            return None
+        
+        if self.render_config.render_mode in {
+            RenderMode.PYGAME_ABSOLUTE,
+        }:
+            return self.visualizer.saveAuxPred(aux_dict)
+        else:
+            raise ValueError(
+                "Auxiliary predictions rendering is only supported in Pygame absolute mode."
             )
 
     def reinit_scenarios(self, dataset: List[str]):

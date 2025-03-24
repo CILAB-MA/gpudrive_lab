@@ -210,6 +210,7 @@ class RenderConfig:
     draw_expert_footprint: bool = False
     draw_only_ego_footprint: bool = False
     draw_ego_attention: bool = False
+    draw_other_aux: bool = False
 
     def __str__(self) -> str:
         """Returns a string representation of the rendering configuration."""
