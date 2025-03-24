@@ -104,8 +104,10 @@ class EnvConfig:
 @dataclass
 class ExperimentConfig:
     # Hyperparameters
-    batch_size: int = 1024
-    epochs: int = 500
+    batch_size: int = 512
+    total_gradient_steps: int = 4e5
+    log_freq: int = 50
+    eval_freq: int = 200
     lr: float = 5e-4
     sample_per_epoch: int = 438763
     
