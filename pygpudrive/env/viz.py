@@ -4,6 +4,7 @@ import numpy as np
 import math
 import gpudrive
 import matplotlib.cm as cm
+from shapely.geometry import Point, Polygon
 
 from pygpudrive.env.config import MadronaOption, PygameOption, RenderMode
 from pygpudrive.env.constants import MAX_REL_AGENT_POS
@@ -679,7 +680,7 @@ class PyGameVisualizer:
                     )
             if self.render_config.draw_other_aux:
                 partner_color = partner_color[1:]
-                self.draw_other_auxiliary(world_render_idx, time_step, agent_response_types, partner_color)
+                self.draw_other_auxiliary(world_render_idx, time_step, agent_response_types, agent_pos, partner_color)
             
             if self.render_config.draw_ego_attention:
                 self.attn_surfs = [self.surf.copy() for _ in range(self.ego_attn_score.shape[1])]
@@ -980,10 +981,10 @@ class PyGameVisualizer:
     def saveAuxPred(self, aux_pred):
         setattr(self, "aux_pred", aux_pred)
 
-    def draw_other_auxiliary(self, world_render_idx, time_step, agent_response_types, partner_color):        
+    def draw_other_auxiliary(self, world_render_idx, time_step, agent_response_types, agent_pos, partner_color):        
         for future_step, aux_pred in self.aux_pred.items():
-            self.draw_ego_grid(world_render_idx, time_step, future_step)
-            self.draw_other_future(world_render_idx, aux_pred, time_step, future_step, agent_response_types, partner_color)
+            grid = self.draw_ego_grid(world_render_idx, time_step, future_step)
+            self.draw_other_future(world_render_idx, aux_pred, time_step, future_step, agent_response_types, agent_pos, partner_color, grid)
     
     def draw_ego_grid(self, world_render_idx, time_step, future_step):
         """Draw the ego grid on the surface."""
@@ -1029,8 +1030,10 @@ class PyGameVisualizer:
                 p2 = global_grid[i + 1][j]
                 if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
                     pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
+        
+        return global_grid
     
-    def draw_other_future(self, world_render_idx, aux_pred, time_step, future_step, agent_response_types, partner_color):
+    def draw_other_future(self, world_render_idx, aux_pred, time_step, future_step, agent_response_types, agent_pos, partner_color, grid):
         if (agent_response_types == 0).sum() == 0:
             return
         
@@ -1048,7 +1051,7 @@ class PyGameVisualizer:
             pos = np.stack([x, y], axis=-1)
             return pos
         
-        @staticmethod        
+        @staticmethod
         def _recover_action_from_discrete(discrete_action):
             discrete_action = np.clip(discrete_action, 0, 11).astype('int')
             bin_centers = np.array([
@@ -1067,6 +1070,52 @@ class PyGameVisualizer:
             ])
             return bin_centers[discrete_action]
         
+        @staticmethod
+        def _draw_gt_pos(surf, partner_color, grid, partner_ids, agent_pos, future_step):            
+            @staticmethod
+            def blend_with_white(color, ratio):
+                r, g, b = color
+                r = int(r + (255 - r) * ratio)
+                g = int(g + (255 - g) * ratio)
+                b = int(b + (255 - b) * ratio)
+                return (r, g, b)
+            
+            fade_ratio = {
+                5: 0.0,
+                10: 0.3,
+                15: 0.6,
+                20: 0.8
+            }
+
+            line_width = {
+                5: 4,
+                10: 3,
+                15: 2,
+                20: 1
+            }
+
+            grid = np.array(grid)
+            
+            for id, pos in enumerate(agent_pos[partner_ids]):
+                pos = self.scale_coords(pos, world_render_idx)
+                point = Point(pos[0], pos[1])
+                for i in range(8):
+                    for j in range(8):
+                        c1 = grid[i, j]
+                        c2 = grid[i, j + 1]
+                        c3 = grid[i + 1, j + 1]
+                        c4 = grid[i + 1, j]
+                        
+                        polygon = Polygon([c1, c2, c3, c4])
+                        
+                        if polygon.contains(point):
+                            agent_corners = [c1, c2, c3, c4]
+                            faded_color = blend_with_white(partner_color[id], fade_ratio[future_step])
+                            
+                            pygame.draw.polygon(surf, faded_color, agent_corners, width=line_width[future_step])
+                            break
+
+
         # 1. Get the global future positions of the other agents
         ego_id = (agent_response_types[:, 0] == 0).nonzero()[0][0]
         try:
@@ -1099,6 +1148,9 @@ class PyGameVisualizer:
         aux_pred_rot = aux_pred['action'].cpu().detach().numpy()        
         other_rot = _recover_action_from_discrete(aux_pred_rot[world_render_idx])
         other_rot = other_rot + ego_rot
+        
+        # 3. Draw the future ground truth positions of the other agents
+        _draw_gt_pos(self.surf, partner_color, grid, partner_ids, agent_pos, future_step)
         
         # 3. Draw the future rotations of the other agents on their global positions
         for i, partner_id in enumerate(partner_ids):
