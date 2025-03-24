@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linaer_probing/ego_linear_prob.py
 method: grid
-name: ego_linear_probing_5000baseline
+name: ego_linear_probing_500v2baseline
 metric:
   goal: minimize
   name: eval/loss
@@ -29,7 +29,7 @@ parameters:
   batch_size:
     values: [256]
   epochs:
-    values: [50]
+    values: [30]
   lr:
     values: [0.001]
   sample_per_epoch:

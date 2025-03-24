@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: linear_probing_5000v2
+name: linear_probing_100v2baseline
 metric:
   goal: minimize
   name: eval/loss
