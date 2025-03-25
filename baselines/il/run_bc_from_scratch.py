@@ -267,7 +267,8 @@ def train():
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     pbar = tqdm(total=config.total_gradient_steps, desc="Gradient Steps", ncols=100)
-    while gradient_steps < config.total_gradient_steps:
+    stop_training = False
+    while gradient_steps < config.total_gradient_steps and not stop_training:
         bc_policy.train()
         losses = 0
         dx_losses = 0
@@ -384,6 +385,7 @@ def train():
                     early_stopping += 1
                     if early_stopping > config.early_stop_num + 1:
                         wandb.finish()
+                        stop_training = True
                         break
 
 if __name__ == "__main__":
