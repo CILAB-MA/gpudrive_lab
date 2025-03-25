@@ -994,7 +994,7 @@ class PyGameVisualizer:
         except IndexError:
             return # ego is not in the scene at future
         
-        grid_corners = np.linspace(-0.05, 0.05, 11)
+        grid_corners = np.linspace(-0.03, 0.03, 9)
         grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
         grid_points = np.stack([grid_x, grid_y], axis=-1)
         grid_points = grid_points * MAX_REL_AGENT_POS
@@ -1028,7 +1028,7 @@ class PyGameVisualizer:
         
         @staticmethod
         def _recover_pos_from_discrete(discrete_pos):
-            bins = np.linspace(-0.05, 0.05, 11)
+            bins = np.linspace(-0.03, 0.03, 9)
             bin_centers = (bins[:-1] + bins[1:]) / 2
             
             x_bins = (discrete_pos // 8).astype(int)
@@ -1089,8 +1089,8 @@ class PyGameVisualizer:
                     pos = agent_pos[partner_id]
                     pos = self.scale_coords(pos, world_render_idx)
                     point = Point(pos[0], pos[1])
-                    for i in range(10):
-                        for j in range(10):
+                    for i in range(8):
+                        for j in range(8):
                             c1 = grid[i, j]
                             c2 = grid[i, j + 1]
                             c3 = grid[i + 1, j + 1]
