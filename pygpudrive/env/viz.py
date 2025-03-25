@@ -983,8 +983,8 @@ class PyGameVisualizer:
 
     def draw_other_auxiliary(self, world_render_idx, time_step, agent_response_types, agent_pos, partner_color):        
         for future_step, aux_pred in self.aux_pred.items():
-            grid = self.draw_ego_grid(world_render_idx, time_step, future_step)
-            self.draw_other_future(world_render_idx, aux_pred, time_step, future_step, agent_response_types, agent_pos, partner_color, grid)
+            grid = self.draw_ego_grid(world_render_idx, time_step, future_step * 2)
+            self.draw_other_future(world_render_idx, aux_pred, time_step, future_step * 2, agent_response_types, agent_pos, partner_color, grid)
     
     def draw_ego_grid(self, world_render_idx, time_step, future_step):
         """Draw the ego grid on the surface."""
@@ -994,7 +994,7 @@ class PyGameVisualizer:
         except IndexError:
             return # ego is not in the scene at future
         
-        grid_corners = np.linspace(-0.1, 0.1, 9)
+        grid_corners = np.linspace(-0.05, 0.05, 9)
         grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
         grid_points = np.stack([grid_x, grid_y], axis=-1)
         grid_points = grid_points * MAX_REL_AGENT_POS
@@ -1015,21 +1015,21 @@ class PyGameVisualizer:
                 row.append(screen_point)
             global_grid.append(row)
 
-        # draw row
-        for i in range(len(global_grid)):
-            for j in range(len(global_grid[i]) - 1):
-                p1 = global_grid[i][j]
-                p2 = global_grid[i][j + 1]
-                if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
-                    pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
+        # # draw row
+        # for i in range(len(global_grid)):
+        #     for j in range(len(global_grid[i]) - 1):
+        #         p1 = global_grid[i][j]
+        #         p2 = global_grid[i][j + 1]
+        #         if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
+        #             pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
 
-        # draw column
-        for j in range(len(global_grid[0])):
-            for i in range(len(global_grid) - 1):
-                p1 = global_grid[i][j]
-                p2 = global_grid[i + 1][j]
-                if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
-                    pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
+        # # draw column
+        # for j in range(len(global_grid[0])):
+        #     for i in range(len(global_grid) - 1):
+        #         p1 = global_grid[i][j]
+        #         p2 = global_grid[i + 1][j]
+        #         if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
+        #             pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
         
         return global_grid
     
@@ -1039,7 +1039,7 @@ class PyGameVisualizer:
         
         @staticmethod
         def _recover_pos_from_discrete(discrete_pos):
-            bins = np.linspace(-0.1, 0.1, 9)
+            bins = np.linspace(-0.05, 0.05, 9)
             bin_centers = (bins[:-1] + bins[1:]) / 2
             
             x_bins = (discrete_pos // 8).astype(int)
@@ -1081,17 +1081,17 @@ class PyGameVisualizer:
                 return (r, g, b)
             
             fade_ratio = {
-                5: 0.0,
-                10: 0.3,
-                15: 0.6,
-                20: 0.8
+                10: 0.0,
+                20: 0.3,
+                30: 0.6,
+                40: 0.8
             }
 
             line_width = {
-                5: 4,
-                10: 3,
-                15: 2,
-                20: 1
+                10: 4,
+                20: 3,
+                30: 2,
+                40: 1
             }
 
             grid = np.array(grid)
@@ -1110,9 +1110,19 @@ class PyGameVisualizer:
                         
                         if polygon.contains(point):
                             agent_corners = [c1, c2, c3, c4]
+                            cx = (c1[0] + c2[0] + c3[0] + c4[0]) / 4
+                            cy = (c1[1] + c2[1] + c3[1] + c4[1]) / 4
+                            w = (np.linalg.norm(np.array(c1) - np.array(c2)) + np.linalg.norm(np.array(c4) - np.array(c3))) / 2
+                            h = (np.linalg.norm(np.array(c1) - np.array(c4)) + np.linalg.norm(np.array(c2) - np.array(c3))) / 2
+                            square = [
+                                (cx - 0.1 * w, cy - 0.1 * h),
+                                (cx + 0.1 * w, cy - 0.1 * h),
+                                (cx + 0.1 * w, cy + 0.1 * h),
+                                (cx - 0.1 * w, cy + 0.1 * h)
+                            ]
                             faded_color = blend_with_white(partner_color[id], fade_ratio[future_step])
                             
-                            pygame.draw.polygon(surf, faded_color, agent_corners, width=line_width[future_step])
+                            pygame.draw.polygon(surf, faded_color, square, width=0)
                             break
 
 

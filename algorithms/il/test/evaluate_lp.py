@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_gmm_all_data_20250304_1338.pth')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
-    parser.add_argument('--video-path', '-vp', type=str, default='/data/videos')
+    parser.add_argument('--video-path', '-vp', type=str, default='/data/videos/test')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     parser.add_argument('--shortest-path-test', '-spt', action='store_true')
     args = parser.parse_args()
