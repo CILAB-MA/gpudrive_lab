@@ -1125,8 +1125,8 @@ class PyGameVisualizer:
         ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
         
         aux_pred_pos = aux_pred['pos'].cpu().detach().numpy()
-        partner_ids = np.where(np.logical_and(~done, agent_response_types[:, 0] == 0))[0]
-        partner_ids = partner_ids[partner_ids != ego_id]
+        alive_partner_ids = np.where(np.logical_and(~done, agent_response_types[:, 0] == 0))[0]
+        alive_partner_ids = alive_partner_ids[alive_partner_ids != ego_id]
         other_pos = _recover_pos_from_discrete(aux_pred_pos[world_render_idx])
         other_pos = other_pos * MAX_REL_AGENT_POS
         
@@ -1147,11 +1147,11 @@ class PyGameVisualizer:
         other_rot = other_rot + ego_rot
         
         # 3. Draw the future ground truth positions of the other agents
-        _draw_gt_pos(self.surf, partner_color, grid, controlled_agent_id, partner_ids, other_future_pos, future_step)
+        _draw_gt_pos(self.surf, partner_color, grid, controlled_agent_id, alive_partner_ids, other_future_pos, future_step)
         
         # 3. Draw the future rotations of the other agents on their global positions
         for i, partner_id in enumerate(controlled_agent_id):
-            if partner_id in partner_ids:
+            if partner_id in alive_partner_ids:
                 color = partner_color[i]
                 
                 pos = other_global_pos[partner_id]
