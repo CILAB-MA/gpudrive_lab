@@ -101,8 +101,10 @@ class PyGameVisualizer:
                 self.footprints = None
             if self.render_config.draw_other_aux:
                 self.ego_aux = np.zeros((self.num_worlds, gpudrive.episodeLen, 3))
+                self.other_aux = np.zeros((self.num_worlds, gpudrive.episodeLen, 128, 3))
             else:
                 self.ego_aux = None
+                self.other_aux = None
 
     @staticmethod
     def get_all_endpoints(map_info):
@@ -834,7 +836,7 @@ class PyGameVisualizer:
             gpudrive.EntityType._None
         ):
             return
-        
+        self.other_aux[world_render_idx, time_step] = aux
         self.ego_aux[world_render_idx, time_step, :] = aux[ego_idx]
     
     def saveFootprint(self, world_render_idx=0, time_step=0, pos=None):
@@ -994,7 +996,7 @@ class PyGameVisualizer:
         except IndexError:
             return # ego is not in the scene at future
         
-        grid_corners = np.linspace(-0.05, 0.05, 9)
+        grid_corners = np.linspace(-0.05, 0.05, 11)
         grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
         grid_points = np.stack([grid_x, grid_y], axis=-1)
         grid_points = grid_points * MAX_REL_AGENT_POS
@@ -1039,7 +1041,7 @@ class PyGameVisualizer:
         
         @staticmethod
         def _recover_pos_from_discrete(discrete_pos):
-            bins = np.linspace(-0.05, 0.05, 9)
+            bins = np.linspace(-0.05, 0.05, 11)
             bin_centers = (bins[:-1] + bins[1:]) / 2
             
             x_bins = (discrete_pos // 8).astype(int)
@@ -1097,10 +1099,12 @@ class PyGameVisualizer:
             grid = np.array(grid)
             
             for id, pos in enumerate(agent_pos[partner_ids]):
+                if id > 1:
+                    continue
                 pos = self.scale_coords(pos, world_render_idx)
                 point = Point(pos[0], pos[1])
-                for i in range(8):
-                    for j in range(8):
+                for i in range(10):
+                    for j in range(10):
                         c1 = grid[i, j]
                         c2 = grid[i, j + 1]
                         c3 = grid[i + 1, j + 1]
@@ -1130,7 +1134,9 @@ class PyGameVisualizer:
         ego_id = (agent_response_types[:, 0] == 0).nonzero()[0][0]
         try:
             ego_pos = self.ego_aux[world_render_idx, time_step + future_step, :2]
+            other_future_pos = self.other_aux[world_render_idx, time_step + future_step, :, :2]
             ego_rot = self.ego_aux[world_render_idx, time_step + future_step, 2]
+            other_future_rot = self.other_aux[world_render_idx, time_step + future_step, :, 2]
         except:
             return # ego is not in the scene at future
         
@@ -1160,10 +1166,12 @@ class PyGameVisualizer:
         other_rot = other_rot + ego_rot
         
         # 3. Draw the future ground truth positions of the other agents
-        _draw_gt_pos(self.surf, partner_color, grid, partner_ids, agent_pos, future_step)
+        _draw_gt_pos(self.surf, partner_color, grid, partner_ids, other_future_pos, future_step)
         
         # 3. Draw the future rotations of the other agents on their global positions
-        for i, partner_id in enumerate(partner_ids):
+        for i, partner_id in enumerate(partner_ids): 
+            if i > 1:
+                continue
             color = partner_color[i]
             
             pos = other_global_pos[partner_id]
