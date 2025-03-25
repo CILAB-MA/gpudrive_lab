@@ -425,7 +425,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         
         # Attention
         self.fusion_attn = SelfAttentionBlock(
-            num_layers=1,
+            num_layers=3,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
@@ -434,7 +434,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
             separate_attn_weights=False
         )
         self.ro_attn = SelfAttentionBlock(
-            num_layers=1,
+            num_layers=2,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
@@ -443,7 +443,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
             separate_attn_weights=False
         )
         self.rg_attn = SelfAttentionBlock(
-            num_layers=1,
+            num_layers=2,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,

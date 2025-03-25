@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: early_attn10000
+name: 500scenes
 metric:
   goal: minimize
   name: eval/loss
@@ -13,23 +13,27 @@ parameters:
 
   # EXPERIMENT
   batch_size:
-    values: [1024]
-  epochs:
-    values: [500]
+    values: [512]
+  total_gradient_steps:
+    values: [100000]
+  eval_freq:
+    values: [1000]
+  log_freq:
+    values: [100]
   lr:
     values: [0.0005]
   sample_per_epoch:
     values: [438763]
   seed:
-    values: [42]
+    values: [3, 11, 17 ,42]
   early_stop_num:
     values: [3]
   data_path:
-    values: ['/data/tom_v5'] # for 10,0000
+    values: ['/data/'] # for 10,0000
   train_data_file:
-    values: ['train_trajectory_10000.npz']
+    values: ['train_trajectory_500.npz']
   test_data_file:
-    values: ['test_trajectory_1000.npz']
+    values: ['test_trajectory_200.npz']
   
   # NETWORKCONFIG
   network_dim:
