@@ -1,40 +1,31 @@
-import torch
-import torch.nn as nn
-from algorithms.sb3.dynamic_space.model import *
+import torch, os, yaml
+import numpy as np
+from tqdm import tqdm
+from algorithms.sb3.dynamic_space.model import LateFusionBCNet
 import argparse
-
+import wandb
+from algorithms.sb3.dynamic_space.config import EnvConfig, ExperimentConfig
+from algorithms.sb3.dynamic_space.dataloader import ExpertDataset
+from torch.utils.data import DataLoader
+from torch.optim import AdamW
+import torch.nn.functional as F
+from datetime import datetime
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--device', '-d', default='cuda')
-    parser.add_argument('--early-stop-num', '-e', default=4)
+    parser.add_argument('--early-stop-num', '-es', default=4)
+    parser.add_argument('--epochs', '-e', default=200)
     args = parser.parse_args()
     
     return args
 
-def train():
+def train(args):
     model_path = "/data/RL/model/pred_model"
-    env_config = EnvConfig(
-        dynamics_model='delta_local',
-        steer_actions=torch.round(
-            torch.linspace(-0.3, 0.3, 7), decimals=3
-        ),
-        accel_actions=torch.round(
-            torch.linspace(-6.0, 6.0, 7), decimals=3
-        ),
-        dx=torch.round(
-            torch.linspace(-6.0, 6.0, 100), decimals=3
-        ),
-        dy=torch.round(
-            torch.linspace(-6.0, 6.0, 100), decimals=3
-        ),
-        dyaw=torch.round(
-            torch.linspace(-3.14, 3.14, 300), decimals=3
-        ),
-    )
+    env_config = EnvConfig()
     # config rl 코드 보고 가져오기
-    bc_config = BehavCloningConfig()
-    pred_model = LateFusionBCNet()
+    bc_config = ExperimentConfig()
+    pred_model = LateFusionBCNet(env_config, bc_config)
 
     with np.load(os.path.join('/data/RL/data/train_trajectory_5000.npz')) as npz:
         train_dataset = ExpertDataset(**npz)
@@ -55,7 +46,7 @@ def train():
     del test_dataset
     
     # Configure loss and optimizer
-    optimizer = Adam(bc_policy.parameters(), lr=bc_config.lr)
+    optimizer = AdamW(pred_model.parameters(), lr=bc_config.lr)
 
     # Logging
     with open("private.yaml") as f:
@@ -73,15 +64,15 @@ def train():
     )
     best_loss = 9999999
     early_stopping = 0
-    for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
-        bc_policy.train()
+    for epoch in tqdm(range(args.epochs), desc="Epochs", unit="epoch"):
+        pred_model.train()
         losses = 0
         mu_losses = 0
         std_losses = 0
         for i, batch in enumerate(train_loader):
             obs, mu, std, _ = batch
             obs, mu, std = obs.to(args.device), mu.to(args.device), std.to(args.device) 
-            pred_mu, pred_std = bc_policy(obs) 
+            pred_mu, pred_std = pred_model(obs) 
             mu_loss = F.smooth_l1_loss(pred_mu, mu)
             std_loss = F.smooth_l1_loss(pred_std, std)
             tot_loss = mu_loss + std_loss
@@ -91,7 +82,7 @@ def train():
             losses += tot_loss
             mu_losses += mu_loss
             std_losses += std_loss
-        if arg.use_wandb:
+        if args.use_wandb:
             log_dict = {
                 "train/loss": losses / (i + 1),
                 "train/mu_loss": mu_losses / (i + 1),
@@ -102,7 +93,7 @@ def train():
         if epoch % 5 == 0:
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
-            bc_policy.eval()
+            pred_model.eval()
             losses = 0
             mu_losses = 0
             std_losses = 0
@@ -110,7 +101,7 @@ def train():
                 with torch.no_grad():
                     obs, mu, std, _ = batch
                     obs, mu, std = obs.to(args.device), mu.to(args.device), std.to(args.device) 
-                    pred_mu, pred_std = bc_policy(obs) 
+                    pred_mu, pred_std = pred_model(obs) 
 
                     mu_loss = F.smooth_l1_loss(pred_mu, mu)
                     std_loss = F.smooth_l1_loss(pred_std, std)
@@ -118,7 +109,7 @@ def train():
                     mu_losses += mu_loss
                     std_losses += std_loss
 
-            if arg.use_wandb:
+            if args.use_wandb:
                 log_dict = {
                     "eval/loss": losses / (i + 1),
                     "eval/mu_loss": mu_losses / (i + 1),
@@ -126,10 +117,10 @@ def train():
                 }
                 wandb.log(log_dict, step=epoch)
 
-            if test_loss < best_loss:
-                torch.save(bc_policy, f"{model_path}/pred_model.pth")
+            if losses < best_loss:
+                torch.save(pred_model, f"{model_path}/pred_model.pth")
                 best_loss = losses
-                earlt_stopping = 0
+                early_stopping = 0
                 print(f'EPOCH {epoch} gets BEST!')
             else:
                 early_stopping += 1

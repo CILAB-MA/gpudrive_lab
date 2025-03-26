@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from typing import List
-
-from networks.perm_eq_late_fusion import CustomLateFusionNet
+from abc import abstractmethod
+from pygpudrive.env import constants
 
 def init(module, weight_init, bias_init, gain=1):
     '''
@@ -16,13 +15,17 @@ def init(module, weight_init, bias_init, gain=1):
 
 class LateFusionBCNet(nn.Module):
     def __init__(self, env_config, exp_config):
-        super(LateFusionBCNet, self).__init__(env_config, net_config)
-        self.num_stack = num_stack
+        super(LateFusionBCNet, self).__init__()
 
-        self.ego_input_dim = 6
-        self.ro_input_dim = 10
+        # Unpack feature dimensions
+        self.ego_input_dim = constants.EGO_FEAT_DIM
+        self.ro_input_dim = constants.PARTNER_FEAT_DIM
+        self.rg_input_dim = constants.ROAD_GRAPH_FEAT_DIM
         self.hidden_dim = 128
         self.hidden_num = 2
+        self.ro_max = 127
+        self.rg_max = 200
+        self.dropout = 0.0
         # Scene encoder
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim,
@@ -34,18 +37,16 @@ class LateFusionBCNet(nn.Module):
             input_dim=self.rg_input_dim
         )
 
-        self.mu_head = GMM(
-            network_type=self.__class__.__name__,
-            input_dim=128,
-            head_config=head_config,
-            time_dim=1,
+        self.mu_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, 3),
         )
 
-        self.std_head = GMM(
-            network_type=self.__class__.__name__,
-            input_dim=128,
-            head_config=head_config,
-            time_dim=1,
+        self.std_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, 3),
         )
 
     @abstractmethod
@@ -67,7 +68,7 @@ class LateFusionBCNet(nn.Module):
 
         return network
 
-    def _unpack_obs(self, obs_flat, num_stack):
+    def _unpack_obs(self, obs_flat, num_stack=1):
         """
         Unpack the flattened observation into the ego state and visible state.
         Args:
@@ -101,11 +102,11 @@ class LateFusionBCNet(nn.Module):
 
     def forward(self, obs, deterministic=False):
         # Unpack observation
-        ego_state, road_objects, road_graph = self._unpack_obs(features)
+        ego_state, road_objects, road_graph = self._unpack_obs(obs)
         # Embed features
-        ego_state = self.actor_ego_state_net(ego_state)
-        road_objects = self.actor_ro_net(road_objects)
-        road_graph = self.actor_rg_net(road_graph)
+        ego_state = self.ego_state_net(ego_state)
+        road_objects = self.road_object_net(road_objects)
+        road_graph = self.road_graph_net(road_graph)
         road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
@@ -117,6 +118,6 @@ class LateFusionBCNet(nn.Module):
         out = self.actor_out_net(
             torch.cat((ego_state, road_objects, road_graph), dim=1)
         )
-        mu = self.mu_head(context, deterministic)
-        std = self.std_head(context, deterministic)
+        mu = self.mu_head(out)
+        std = self.std_head(out)
         return mu, std
