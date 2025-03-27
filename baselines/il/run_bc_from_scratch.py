@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     
     # MODEL
-    parser.add_argument('--model-path', '-mp', type=str, default='/results/model')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
     parser.add_argument('--model-name', '-m', type=str, default='early_attn', choices=['bc', 'late_fusion', 'attention', 'early_attn',
                                                                                          'wayformer',
                                                                                          'aux_fusion', 'aux_attn'])
@@ -143,7 +143,7 @@ def train():
             if key not in wandb.config:
                 wandb.config[key] = value
         config = wandb.config
-        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
+        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.train_data_file}_seed_{config.seed}"
         wandb.run.save()
         # NetConfig, HeadConfig Update (if sweep parameter is used)
         for key, value in config.items():
@@ -377,7 +377,7 @@ def train():
                         }
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
-                    torch.save(bc_policy, f"{model_path}/{config.model_name}_{config.exp_name}_{current_time}.pth")
+                    torch.save(bc_policy, f"{model_path}/{config.model_name}_{config.train_data_file}_seed_{config.seed}_{current_time}.pth")
                     best_loss = test_loss
                     early_stopping = 0
                     print(f'STEP {gradient_steps} gets BEST!')
