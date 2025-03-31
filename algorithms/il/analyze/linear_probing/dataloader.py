@@ -1,8 +1,11 @@
 import torch
 import numpy as np
 
+from pygpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
+
+
 class OtherFutureDataset(torch.utils.data.Dataset):
-    def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
+    def __init__(self, obs, actions, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None, other_info=None,
                  rollout_len=5, pred_len=1, aux_future_step=1):
         # obs
         self.obs = obs
@@ -34,8 +37,6 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         new_partner_mask = np.full(new_shape, 2, dtype=np.float32)
         new_partner_mask[:, rollout_len - 1:] = partner_mask
         self.partner_mask = np.where(new_partner_mask == 2, 1, 0).astype('bool')
-        self.other_pos = self._get_multi_class_pos(aux_info[..., 1:3])
-        self.other_actions = self._get_multi_class_actions(aux_info[..., 4:7])
 
         # road_mask
         self.road_mask = road_mask
@@ -43,6 +44,11 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         new_road_mask = np.ones(new_shape)
         new_road_mask[:, rollout_len - 1:] = road_mask
         self.road_mask = new_road_mask.astype('bool')
+        
+        # linear probing
+        current_relative_pos = self._transform_relative_pos(aux_info, partner_info[..., -1:], ego_global_pos, ego_global_rot, future_step=aux_future_step)
+        self.other_pos = self._get_multi_class_pos(current_relative_pos)
+        self.other_actions = self._get_multi_class_actions(aux_info[..., 4:7])
 
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
@@ -113,6 +119,39 @@ class OtherFutureDataset(torch.utils.data.Dataset):
 
         return aligned_future_acton_sum, combined_mask_bool
     
+    def _transform_relative_pos(self, aux_info, partner_rot, ego_global_pos, ego_global_rot, future_step):
+        """transform time t relative pos to current relative pos"""
+        # 1. transform t-relative pos to t-global pos
+        # get partner's relative pos and rot at time t
+        t_partner_pos = aux_info[..., 1:3] * MAX_REL_AGENT_POS
+        t_partner_rot = np.zeros_like(partner_rot)
+        t_partner_rot[:, :-future_step] = partner_rot[:, future_step:]
+        
+        # get ego's global pos and rot at time t
+        t_ego_global_pos = np.zeros_like(ego_global_pos)
+        t_ego_global_rot = np.zeros_like(ego_global_rot)
+        t_ego_global_pos[:, :-future_step] = ego_global_pos[:, future_step:]
+        t_ego_global_rot[:, :-future_step] = ego_global_rot[:, future_step:]
+        
+        theta = t_ego_global_rot + t_partner_rot.squeeze(-1)
+        t_partner_global_pos_x = t_ego_global_pos[..., 0, None] + t_partner_pos[..., 0] * np.cos(theta) - t_partner_pos[..., 1] * np.sin(theta)
+        t_partner_global_pos_y = t_ego_global_pos[..., 1, None] + t_partner_pos[..., 0] * np.sin(theta) + t_partner_pos[..., 1] * np.cos(theta)
+        
+        # 2. transform t-global pos to current relative pos
+        delta_x = t_partner_global_pos_x - ego_global_pos[..., 0, None]
+        delta_y = t_partner_global_pos_y - ego_global_pos[..., 1, None]
+        
+        cos_theta = np.cos(-ego_global_rot)
+        sin_theta = np.sin(-ego_global_rot)
+        
+        current_relative_pos_x = delta_x * cos_theta + delta_y * sin_theta
+        current_relative_pos_y = -delta_x * sin_theta + delta_y * cos_theta
+        current_relative_pos_x = 2 * ((current_relative_pos_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos_y = 2 * ((current_relative_pos_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+        
+        return current_relative_pos
+
     def _compute_valid_indices(self):
         N, T = self.valid_masks.shape
         valid_time = np.arange(T - (self.rollout_len + self.pred_len - 2))
@@ -327,11 +366,12 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from algorithms.il.analyze.linear_probing.dataloader import OtherFutureDataset
 
-    data = np.load("/data/tom_v5/train_trajectory_100.npz")
+    data = np.load("/data/tom_v5/train_trajectory_1000.npz")
+    global_data = np.load("/data/tom_v5/linear_probing/global_train_trajectory_1000.npz")
 
     expert_data_loader = DataLoader(
         OtherFutureDataset(
-            data['obs'], data['actions'], 
+            data['obs'], data['actions'], global_data['ego_global_pos'], global_data['ego_global_rot'],
             data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
             rollout_len=5, pred_len=1, aux_future_step=1
         ),
@@ -340,6 +380,7 @@ if __name__ == "__main__":
         num_workers=4,
     )
     del data
+    del global_data
 
     total_pos_counts = np.zeros(64, dtype=int)      # other_pos는 0~63
     total_action_counts = np.zeros(64, dtype=int)   # other_actions는 0~63

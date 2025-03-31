@@ -3,8 +3,8 @@ from dataclasses import dataclass
 @dataclass
 class ExperimentConfig:
     # MODEL
-    model_path: str = "/data/model/early_attn_500"
-    model_name: str = "early_attn_gmm_data_500_seed_3_20250228_1101"
+    model_path: str = "/data/model/early_attn_baseline_500"
+    model_name: str = "early_attn_all_data_0325_185146"
     
     # DATA
     data_path: str = "/data/tom_v5"
