@@ -313,13 +313,15 @@ def save_global_pos_and_actions(env, save_path, save_index=0):
             )
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
     
-    for time_step in tqdm(range(env.episode_len)):
+    progress_bar = tqdm(range(env.episode_len))
+    for time_step in progress_bar:
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
                 expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
                 expert_global_action_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
         
         env.step_dynamics(expert_actions[:, :, time_step, :])
+        obs = env.get_obs() 
         dones = env.get_dones().to(device)
         
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
@@ -328,9 +330,25 @@ def save_global_pos_and_actions(env, save_path, save_index=0):
                 .to_torch()
                 .to(device)
             )
+        infos = env.get_infos()
+        if (dead_agent_mask == True).all():
+            controlled_agent_info = infos[cont_agent_mask]
+            off_road = controlled_agent_info[:, 0]
+            veh_collision = controlled_agent_info[:, 1]
+            goal_achieved = controlled_agent_info[:, 3]
+            off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
+            veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
+            goal_rate = goal_achieved.sum().float() / cont_agent_mask.sum().float()
+            
+            collision = (veh_collision + off_road > 0)
+            print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
+            print(f'Save number w/o collision {len(expert_global_pos_lst[~collision])} / {len(expert_global_pos_lst)}')
+            
+            progress_bar.close()
+            break
 
-    expert_global_pos_lst = expert_global_pos_lst.to('cpu')
-    expert_global_action_lst = expert_global_action_lst.to('cpu')
+    expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
+    expert_global_action_lst = expert_global_action_lst[~collision].to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
     np.savez_compressed(f"{save_path}/global_trajectory_{save_index}.npz", 

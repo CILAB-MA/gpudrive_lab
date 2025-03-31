@@ -16,7 +16,7 @@ def arg_parse():
     
     parser.add_argument('--num_stack', type=int, default=1)
     parser.add_argument('--world_start_index', type=int, default=0)
-    parser.add_argument('--save_path', type=str, default='/data/tom_v5/ego/train_subset')
+    parser.add_argument('--save_path', type=str, default='/data/tom_v5/linear_probing/train_subset')
     parser.add_argument('--function', type=str, default='save_global_pos_and_actions', choices=[
                                                                             'save_obs_action_mean_std_mask_by_veh',
                                                                             'save_trajectory',
