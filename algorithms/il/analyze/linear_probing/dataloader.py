@@ -47,6 +47,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         
         # linear probing
         current_relative_pos = self._transform_relative_pos(aux_info, partner_info[..., -1:], ego_global_pos, ego_global_rot, future_step=aux_future_step)
+        current_relative_pos[aux_mask] = 0
         self.other_pos = self._get_multi_class_pos(current_relative_pos)
         self.other_actions = self._get_multi_class_actions(aux_info[..., 4:7])
 
