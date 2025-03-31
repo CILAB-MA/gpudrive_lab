@@ -293,7 +293,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                         road_mask=expert_road_mask_lst,
                         other_info=expert_other_info_lst)
 
-def save_global_pos_and_actions(env, save_path, save_index=0):
+def save_global_pos_and_rot(env, save_path, save_index=0):
     _ = env.reset()
     expert_actions, _, _ = env.get_expert_actions()
     device = env.device
@@ -304,7 +304,7 @@ def save_global_pos_and_actions(env, save_path, save_index=0):
     print("alive_agent_num : ", alive_agent_num)
     
     expert_global_pos_lst = torch.zeros((alive_agent_num, env.episode_len, 2), device=device) # global pos (2)
-    expert_global_action_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
+    expert_global_rot_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
     
     agent_info = (
                 env.sim.absolute_self_observation_tensor()
@@ -318,7 +318,7 @@ def save_global_pos_and_actions(env, save_path, save_index=0):
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
                 expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
-                expert_global_action_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
+                expert_global_rot_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
         
         env.step_dynamics(expert_actions[:, :, time_step, :])
         obs = env.get_obs() 
@@ -348,12 +348,12 @@ def save_global_pos_and_actions(env, save_path, save_index=0):
             break
 
     expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
-    expert_global_action_lst = expert_global_action_lst[~collision].to('cpu')
+    expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
     np.savez_compressed(f"{save_path}/global_trajectory_{save_index}.npz", 
                         ego_global_pos=expert_global_pos_lst,
-                        ego_global_action=expert_global_action_lst)
+                        ego_global_rot=expert_global_rot_lst)
 
 
 if __name__ == "__main__":
@@ -366,13 +366,13 @@ if __name__ == "__main__":
     parser.add_argument('--save_path', type=str, default='/')
     parser.add_argument('--save_index', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--function', type=str, default='save_global_pos_and_actions', 
+    parser.add_argument('--function', type=str, default='save_global_pos_and_rot', 
                         choices=[
                             'save_obs_action_mean_std_mask_by_veh',
                             'save_trajectory',
                             'save_trajectory_by_scenes',
                             'save_trajectory_and_three_mask_by_scenes',
-                            'save_global_pos_and_actions'])
+                            'save_global_pos_and_rot'])
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
@@ -416,8 +416,8 @@ if __name__ == "__main__":
         save_trajectory_by_scenes(env, args.save_path, args.save_index)
     elif args.function == 'save_trajectory_and_three_mask_by_scenes':
         save_trajectory_and_three_mask_by_scenes(env, args.save_path, args.save_index)
-    elif args.function == 'save_global_pos_and_actions':
-        save_global_pos_and_actions(env, args.save_path, args.save_index)
+    elif args.function == 'save_global_pos_and_rot':
+        save_global_pos_and_rot(env, args.save_path, args.save_index)
     else:
         raise ValueError("Invalid function name")
 

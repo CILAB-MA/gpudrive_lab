@@ -17,12 +17,12 @@ def arg_parse():
     parser.add_argument('--num_stack', type=int, default=1)
     parser.add_argument('--world_start_index', type=int, default=0)
     parser.add_argument('--save_path', type=str, default='/data/tom_v5/linear_probing/train_subset')
-    parser.add_argument('--function', type=str, default='save_global_pos_and_actions', choices=[
+    parser.add_argument('--function', type=str, default='save_global_pos_and_rot', choices=[
                                                                             'save_obs_action_mean_std_mask_by_veh',
                                                                             'save_trajectory',
                                                                             'save_trajectory_by_scenes',
                                                                             'save_trajectory_and_three_mask_by_scenes',
-                                                                            'save_global_pos_and_actions'])
+                                                                            'save_global_pos_and_rot'])
     return parser.parse_args()
 
 def get_least_used_gpu():
