@@ -837,6 +837,7 @@ class PyGameVisualizer:
             gpudrive.EntityType._None
         ):
             return
+        
         self.other_aux[world_render_idx, time_step] = aux
         self.ego_aux[world_render_idx, time_step, :] = aux[ego_idx]
     
@@ -983,14 +984,14 @@ class PyGameVisualizer:
 
     def draw_other_auxiliary(self, world_render_idx, time_step, agent_response_types, partner_color):
         for future_step, aux_pred in self.aux_pred.items():
-            grid = self.get_ego_grid(world_render_idx, time_step, future_step * 2)
-            self.draw_other_future(world_render_idx, aux_pred, time_step, future_step * 2, agent_response_types, partner_color, grid)
+            grid = self.get_ego_grid(world_render_idx, time_step)
+            self.draw_other_future(world_render_idx, aux_pred, time_step, 2*future_step, agent_response_types, partner_color, grid)
     
-    def get_ego_grid(self, world_render_idx, time_step, future_step):
+    def get_ego_grid(self, world_render_idx, time_step):
         """Get the ego grid on the surface."""
         try:
-            ego_pos = self.ego_aux[world_render_idx, time_step + future_step, :2]
-            ego_rot = self.ego_aux[world_render_idx, time_step + future_step, 2]
+            ego_pos = self.ego_aux[world_render_idx, time_step, :2]
+            ego_rot = self.ego_aux[world_render_idx, time_step, 2]
         except IndexError:
             return # ego is not in the scene at future
         
@@ -1028,7 +1029,7 @@ class PyGameVisualizer:
         
         @staticmethod
         def _recover_pos_from_discrete(discrete_pos):
-            bins = np.linspace(-0.03, 0.03, 9)
+            bins = np.linspace(-0.1, 0.1, 9)
             bin_centers = (bins[:-1] + bins[1:]) / 2
             
             x_bins = (discrete_pos // 8).astype(int)
@@ -1116,9 +1117,9 @@ class PyGameVisualizer:
 
         # 1. Get the global future positions of the other agents
         try:
-            ego_pos = self.ego_aux[world_render_idx, time_step + future_step, :2]
+            ego_pos = self.ego_aux[world_render_idx, time_step, :2]
             other_future_pos = self.other_aux[world_render_idx, time_step + future_step, :, :2]
-            ego_rot = self.ego_aux[world_render_idx, time_step + future_step, 2]
+            ego_rot = self.ego_aux[world_render_idx, time_step, 2]
         except:
             return # ego is not in the scene at future
         
