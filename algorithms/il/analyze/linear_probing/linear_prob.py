@@ -171,7 +171,10 @@ def train():
                     backbone.get_context(obs, all_masks, other_info=other_info)
                 except TypeError:
                     backbone.get_context(obs, all_masks)
-                lp_input = layers[nth_layer][:,1:,:]
+                if config.model == 'early_lp':
+                    lp_input = layers[nth_layer][:,1:128,:]
+                else:
+                    lp_input = layers[nth_layer][:,1:,:]
             # get partner pred pos and action
             pred_pos = pos_linear_model(lp_input)
             masked_pos = pred_pos[~aux_mask]
