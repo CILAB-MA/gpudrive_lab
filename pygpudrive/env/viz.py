@@ -19,6 +19,7 @@ WHITE = (255, 255, 255)
 CHARCOAL = (22, 28, 32)
 
 STATIC_AGENT_ID = 2
+GRID_SIZE = 0.1
 
 SHORT_MIN = np.iinfo(np.int16).min  # -32768
 SHORT_MAX = np.iinfo(np.int16).max  # 32767
@@ -984,18 +985,41 @@ class PyGameVisualizer:
 
     def draw_other_auxiliary(self, world_render_idx, time_step, agent_response_types, partner_color):
         for future_step, aux_pred in self.aux_pred.items():
-            grid = self.get_ego_grid(world_render_idx, time_step)
-            self.draw_other_future(world_render_idx, aux_pred, time_step, 2*future_step, agent_response_types, partner_color, grid)
+            grid, ego_pos, ego_rot = self.get_ego_info(world_render_idx)
+            self.draw_other_future(world_render_idx, aux_pred, time_step, 2*future_step, agent_response_types, partner_color, grid, ego_pos, ego_rot)
     
-    def get_ego_grid(self, world_render_idx, time_step):
+    def get_ego_info(self, world_render_idx):
         """Get the ego grid on the surface."""
         try:
-            ego_pos = self.ego_aux[world_render_idx, time_step, :2]
-            ego_rot = self.ego_aux[world_render_idx, time_step, 2]
-        except IndexError:
+            # Get expert position info
+            agent_info = (
+                self.sim.absolute_self_observation_tensor()
+                .to_torch()[world_render_idx, :, :]
+                .cpu()
+                .detach()
+                .numpy()
+            )
+            
+            # Get the agent goal positions and current positions
+            aux = np.concatenate((agent_info[:, :2], agent_info[:, 7:8]), axis=-1)  # x, y, heading
+            
+            agent_response_types = (  # 0: Valid (can be controlled), 2: Invalid (static vehicles)
+                self.sim.response_type_tensor()
+                .to_torch()[world_render_idx, :, :]
+                .cpu()
+                .detach()
+                .numpy()
+                .squeeze(axis=-1)
+            )
+            
+            ego_idx = (agent_response_types == 0).nonzero()[0][0]
+            
+            ego_pos = aux[ego_idx, :2]
+            ego_rot = aux[ego_idx, 2]
+        except:
             return # ego is not in the scene at future
         
-        grid_corners = np.linspace(-0.03, 0.03, 9)
+        grid_corners = np.linspace(-GRID_SIZE, GRID_SIZE, 9)
         grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
         grid_points = np.stack([grid_x, grid_y], axis=-1)
         grid_points = grid_points * MAX_REL_AGENT_POS
@@ -1016,9 +1040,25 @@ class PyGameVisualizer:
                 row.append(screen_point)
             global_grid.append(row)
         
-        return global_grid
+        # draw row
+        for i in range(len(global_grid)):
+            for j in range(len(global_grid[i]) - 1):
+                p1 = global_grid[i][j]
+                p2 = global_grid[i][j + 1]
+                if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
+                    pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
+ 
+         # draw column
+        for j in range(len(global_grid[0])):
+            for i in range(len(global_grid) - 1):
+                p1 = global_grid[i][j]
+                p2 = global_grid[i + 1][j]
+                if all(-32768 <= p <= 32767 for p in (*p1, *p2)):
+                    pygame.draw.line(self.surf, (0, 0, 0), p1, p2, 1)
+        
+        return global_grid, ego_pos, ego_rot
     
-    def draw_other_future(self, world_render_idx, aux_pred, time_step, future_step, agent_response_types, partner_color, grid):        
+    def draw_other_future(self, world_render_idx, aux_pred, time_step, future_step, agent_response_types, partner_color, grid, ego_pos, ego_rot):        
         # 0. if the ego is done, return
         controlled_agent_id = (agent_response_types == 0).nonzero()[0]
         ego_id = controlled_agent_id[0]
@@ -1029,7 +1069,7 @@ class PyGameVisualizer:
         
         @staticmethod
         def _recover_pos_from_discrete(discrete_pos):
-            bins = np.linspace(-0.1, 0.1, 9)
+            bins = np.linspace(-GRID_SIZE, GRID_SIZE, 9)
             bin_centers = (bins[:-1] + bins[1:]) / 2
             
             x_bins = (discrete_pos // 8).astype(int)
@@ -1061,7 +1101,7 @@ class PyGameVisualizer:
             return bin_centers[discrete_action]
         
         @staticmethod
-        def _draw_gt_pos(surf, partner_color, grid, controlled_agent_id, partner_ids, agent_pos, future_step):
+        def _draw_gt_pos(surf, partner_color, grid, controlled_agent_id, partner_ids, partner_pos, future_step):
             def blend_with_white(color, ratio):
                 r, g, b = color
                 r = int(r + (255 - r) * ratio)
@@ -1076,18 +1116,11 @@ class PyGameVisualizer:
                 40: 0.8
             }
 
-            line_width = {
-                10: 4,
-                20: 3,
-                30: 2,
-                40: 1
-            }
-
             grid = np.array(grid)
             
             for id, partner_id in enumerate(controlled_agent_id):
                 if partner_id in partner_ids:
-                    pos = agent_pos[partner_id]
+                    pos = partner_pos[partner_id]
                     pos = self.scale_coords(pos, world_render_idx)
                     point = Point(pos[0], pos[1])
                     for i in range(8):
@@ -1117,11 +1150,9 @@ class PyGameVisualizer:
 
         # 1. Get the global future positions of the other agents
         try:
-            ego_pos = self.ego_aux[world_render_idx, time_step, :2]
             other_future_pos = self.other_aux[world_render_idx, time_step + future_step, :, :2]
-            ego_rot = self.ego_aux[world_render_idx, time_step, 2]
         except:
-            return # ego is not in the scene at future
+            return # other agents are not in the scene at future
         
         ego_cos, ego_sin = np.cos(ego_rot), np.sin(ego_rot)
         
