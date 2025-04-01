@@ -239,20 +239,14 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         return batch
 
 class EgoFutureDataset(OtherFutureDataset):
-    def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
+    def __init__(self, obs, actions, ego_global_pos, masks=None, partner_mask=None, road_mask=None, other_info=None,
                  rollout_len=5, pred_len=1, ego_future_step=1):
-        # obs, future_pos
+        # obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
         self.obs = np.concatenate([obs_pad, obs], axis=1)
-        future_pos_pad = np.zeros((obs.shape[0], ego_future_step, 2), dtype=np.float32)
-        future_pos = np.concatenate([obs[..., 3:5], future_pos_pad], axis=1)[:, ego_future_step:]
-        self.future_pos = self._get_multi_class_pos(future_pos)
         
-        # actions, future_actions
+        # actions
         self.actions = actions
-        future_actions_pad = np.zeros((actions.shape[0], ego_future_step, *actions.shape[2:]), dtype=np.float32)
-        future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
-        self.future_actions = self._get_multi_class_actions(future_actions)
         
         # current ego mask        
         valid_masks = 1 - masks
@@ -273,6 +267,13 @@ class EgoFutureDataset(OtherFutureDataset):
         self.road_mask = road_mask
         road_mask_pad = np.ones((road_mask.shape[0], rollout_len - 1, *road_mask.shape[2:]), dtype=np.float32).astype('bool')
         self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
+        
+        # linear probing
+        future_pos = self._transform_relative_pos(ego_global_pos, future_step=ego_future_step)
+        self.future_pos = self._get_multi_class_pos(future_pos)
+        future_actions_pad = np.zeros((actions.shape[0], ego_future_step, *actions.shape[2:]), dtype=np.float32)
+        future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
+        self.future_actions = self._get_multi_class_actions(future_actions)
           
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
@@ -291,6 +292,23 @@ class EgoFutureDataset(OtherFutureDataset):
         return list(zip(valid_idx1, valid_idx2))
     
     @staticmethod
+    def _transform_relative_pos(ego_global_pos, future_step):
+        """transform global pos to current relative pos"""
+        current_relative_pos = np.zeros_like(ego_global_pos)
+        ego_current_pos = ego_global_pos[:, :-future_step]
+        ego_future_pos = ego_global_pos[:, future_step:]
+        
+        delta_x = ego_future_pos[..., 0] - ego_current_pos[..., 0]
+        delta_y = ego_future_pos[..., 1] - ego_current_pos[..., 1]
+        
+        current_relative_pos_x = 2 * ((delta_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos_y = 2 * ((delta_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos[:, :-future_step, :] = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+        
+        return current_relative_pos
+        
+    
+    @staticmethod
     def _get_multi_class_pos(pos):
         """
         Convert continuous pos to multi-class discrete pos based on x, y.
@@ -298,7 +316,7 @@ class EgoFutureDataset(OtherFutureDataset):
         x, y = pos[..., 0], pos[..., 1]
         
         # Define bins for discretization (-1 to 1 with 8 bins)
-        bins = np.linspace(-0.5, 0.5, 9)
+        bins = np.linspace(-0.05, 0.05, 9)
         
         # Digitize x and y into 8 categories (0 to 7)
         x_bins = np.digitize(x, bins) - 1
@@ -367,14 +385,63 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from algorithms.il.analyze.linear_probing.dataloader import OtherFutureDataset
 
-    data = np.load("/data/tom_v5/train_trajectory_1000.npz")
-    global_data = np.load("/data/tom_v5/linear_probing/global_train_trajectory_1000.npz")
+    data = np.load("/data/tom_v5/train_trajectory_100.npz")
+    global_data = np.load("/data/tom_v5/linear_probing/global_train_trajectory_100.npz")
 
+    # expert_data_loader = DataLoader(
+    #     OtherFutureDataset(
+    #         data['obs'], data['actions'], global_data['ego_global_pos'], global_data['ego_global_rot'],
+    #         data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
+    #         rollout_len=5, pred_len=1, aux_future_step=1
+    #     ),
+    #     batch_size=256,
+    #     shuffle=True,
+    #     num_workers=4,
+    # )
+
+    # total_pos_counts = np.zeros(64, dtype=int)      # other_pos는 0~63
+    # total_action_counts = np.zeros(64, dtype=int)   # other_actions는 0~63
+
+    # for batch in expert_data_loader:
+    #     _, _, _, _, _, _, _, aux_mask, other_pos, other_actions = batch
+
+    #     # 텐서를 CPU로 옮기고 numpy로 변환
+    #     pos_vals = other_pos[~aux_mask].cpu().numpy().astype(int)
+    #     action_vals = other_actions[~aux_mask].cpu().numpy().astype(int)
+
+    #     # np.bincount로 개수 세기
+    #     total_pos_counts += np.bincount(pos_vals, minlength=64)
+    #     total_action_counts += np.bincount(action_vals, minlength=64)
+
+    # # 누적된 값으로 바 그래프 그리기
+
+    # # other_pos 분포
+    # plt.figure(figsize=(10, 4))
+    # plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)
+    # plt.xlabel("other_pos (0~63)")
+    # plt.ylabel("count")
+    # plt.title("other_pos distribution")
+    # plt.xticks(range(0, 64, 4))
+    # plt.grid(axis="y", linestyle="--", alpha=0.5)
+    # plt.tight_layout()
+    # plt.savefig('Other pos dist.png', dpi=300)
+
+    # # other_actions 분포
+    # plt.figure(figsize=(16, 4))
+    # plt.bar(range(64), total_action_counts, color='red', alpha=0.7)
+    # plt.xlabel("other_actions (0~63)")
+    # plt.ylabel("count")
+    # plt.title("other_actions distribution")
+    # plt.xticks(range(64))
+    # plt.grid(axis="y", linestyle="--", alpha=0.5)
+    # plt.tight_layout()
+    # plt.savefig('Other action dist.png', dpi=300)
+    
     expert_data_loader = DataLoader(
-        OtherFutureDataset(
-            data['obs'], data['actions'], global_data['ego_global_pos'], global_data['ego_global_rot'],
+        EgoFutureDataset(
+            data['obs'], data['actions'], global_data['ego_global_pos'],
             data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
-            rollout_len=5, pred_len=1, aux_future_step=1
+            rollout_len=5, pred_len=1, ego_future_step=40
         ),
         batch_size=256,
         shuffle=True,
@@ -386,12 +453,13 @@ if __name__ == "__main__":
     total_pos_counts = np.zeros(64, dtype=int)      # other_pos는 0~63
     total_action_counts = np.zeros(64, dtype=int)   # other_actions는 0~63
 
+    
     for batch in expert_data_loader:
-        _, _, _, _, _, _, _, aux_mask, other_pos, other_actions = batch
+        _, _, future_pos, future_action, _, future_valid_mask, *_ = batch
 
         # 텐서를 CPU로 옮기고 numpy로 변환
-        pos_vals = other_pos[~aux_mask].cpu().numpy().astype(int)
-        action_vals = other_actions[~aux_mask].cpu().numpy().astype(int)
+        pos_vals = future_pos[future_valid_mask].cpu().numpy().astype(int)
+        action_vals = future_action[future_valid_mask].cpu().numpy().astype(int)
 
         # np.bincount로 개수 세기
         total_pos_counts += np.bincount(pos_vals, minlength=64)
@@ -399,24 +467,24 @@ if __name__ == "__main__":
 
     # 누적된 값으로 바 그래프 그리기
 
-    # other_pos 분포
+    # ego_future_pos 분포
     plt.figure(figsize=(10, 4))
     plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)
-    plt.xlabel("other_pos (0~63)")
+    plt.xlabel("ego_future_pos (0~63)")
     plt.ylabel("count")
-    plt.title("other_pos distribution")
+    plt.title("ego_future_pos distribution")
     plt.xticks(range(0, 64, 4))
     plt.grid(axis="y", linestyle="--", alpha=0.5)
     plt.tight_layout()
-    plt.savefig('Other pos dist.png', dpi=300)
+    plt.savefig('ego future pos dist.png', dpi=300)
 
-    # other_actions 분포
+    # ego_future_actions 분포
     plt.figure(figsize=(16, 4))
     plt.bar(range(64), total_action_counts, color='red', alpha=0.7)
-    plt.xlabel("other_actions (0~63)")
+    plt.xlabel("ego_future_actions (0~63)")
     plt.ylabel("count")
-    plt.title("other_actions distribution")
+    plt.title("ego_future_actions distribution")
     plt.xticks(range(64))
     plt.grid(axis="y", linestyle="--", alpha=0.5)
     plt.tight_layout()
-    plt.savefig('Other action dist.png', dpi=300)
+    plt.savefig('ego future action dist.png', dpi=300)

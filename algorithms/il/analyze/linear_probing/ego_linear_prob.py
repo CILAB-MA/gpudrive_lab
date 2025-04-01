@@ -54,9 +54,13 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
         partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
         road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
-        other_info = npz['other_info'] if 'other_info' in npz.keys() else None    
-    dataset = EgoFutureDataset(expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
-        rollout_len=config.rollout_len, pred_len=config.pred_len, ego_future_step=config.ego_future_step)
+        other_info = npz['other_info'] if 'other_info' in npz.keys() else None
+    with np.load(os.path.join(data_path, "linear_probing", "global_" + data_file)) as global_npz:
+        ego_global_pos = global_npz['ego_global_pos']
+    dataset = EgoFutureDataset(
+        expert_obs, expert_actions, ego_global_pos, expert_masks, partner_mask, road_mask, other_info,
+        rollout_len=config.rollout_len, pred_len=config.pred_len, ego_future_step=config.ego_future_step
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=config.batch_size,
