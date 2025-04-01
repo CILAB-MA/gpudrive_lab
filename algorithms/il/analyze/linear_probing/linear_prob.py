@@ -183,9 +183,9 @@ def train():
 
             # get partner expert pos and action
             other_pos = other_pos.clone()
-            other_heading = other_heading.clone()
+            # other_heading = other_heading.clone()
             masked_other_pos = other_pos[~aux_mask]
-            masked_other_heading = other_heading[~aux_mask]
+            # masked_other_heading = other_heading[~aux_mask]
             
             # get loss
             pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
@@ -251,7 +251,7 @@ def train():
                 all_masks= [ego_masks, partner_masks, road_masks]
                 
                 with torch.no_grad():
-                    if config.baseline:
+                    if config.model == 'baseline':
                         B, T, _ = obs.shape
                         ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
                         partner_obs = obs[..., 6:1276].reshape(B, T, 127, 10)
@@ -262,7 +262,7 @@ def train():
                             backbone.get_context(obs, all_masks, other_info=other_info)
                         except TypeError:
                             backbone.get_context(obs, all_masks)
-                        lp_input = layers[nth_layer][:,1:,:]
+                        lp_input = layers[nth_layer][:,1:128,:]
 
                     # get partner pred pos and action
                     pred_pos = pos_linear_model(lp_input)
@@ -281,7 +281,7 @@ def train():
                     
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
-                    heading_class = heading_class.detach().cpu().numpy()
+                    # heading_class = heading_class.detach().cpu().numpy()
                     masked_other_pos = masked_other_pos.detach().cpu().numpy()
                     # masked_other_heading = masked_other_heading.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_other_pos, average='macro')

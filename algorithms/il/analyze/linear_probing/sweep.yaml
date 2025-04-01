@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linaer_probing/linear_prob.py
 method: grid
-name: debug_lp
+name: lp_other_100
 metric:
   goal: minimize
   name: eval/loss
