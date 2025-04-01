@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
                                                                    'no_guide_weighted', 'guide_no_weighted'])
     parser.add_argument('--aux-future-step', '-afs', type=int, default=30)
-    parser.add_argument('--baseline', '-b', action='store_true')
+    parser.add_argument('--model', '-m', default='baseline', choices=['baseline', 'early_lp', 'final_lp'])
     args = parser.parse_args()
     
     return args
@@ -114,22 +114,26 @@ def train():
         config.__dict__.update(vars(args))
     set_seed(config.seed)
     # Backbone and heads
-    if config.baseline:
+    if config.model == 'baseline':
         hidden_dim = 50 + 30 # partner info + ego info
         backbone = None
     else:
         backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
         backbone.eval()
-        print(backbone)
-        ro_attn_layers = register_all_layers_forward_hook(backbone.ro_attn)
+        if config.model == 'early_lp':
+            layers = register_all_layers_forward_hook(backbone.fusion_attn)
+            nth_layer = '2'
+        else:
+            layers = register_all_layers_forward_hook(backbone.ro_attn)
+            nth_layer = '1'
         hidden_dim = 128
 
     pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
-    action_linear_model = LinearProbAction(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
+    # head_linear_model = LinearProbAngle(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
     
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
-    action_optimizer = AdamW(action_linear_model.parameters(), lr=config.lr, eps=0.0001)
+    # head_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
     
     # DataLoaders
     expert_data_loader = get_dataloader(config.data_path, config.train_data, config)
@@ -137,14 +141,13 @@ def train():
     
     for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
         pos_linear_model.train()
-        action_linear_model.train()
         
         pos_accuracys = 0
-        action_accuracys = 0
+        heading_accuracys = 0
         pos_losses = 0
-        action_losses = 0
+        heading_losses = 0
         pos_f1_macros = 0
-        action_f1_macros = 0
+        heading_f1_macros = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
 
@@ -158,7 +161,7 @@ def train():
             road_masks = road_masks.to("cuda") if len(batch) > 3 else None
             other_info = other_info.to("cuda").transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
             all_masks= [ego_masks, partner_masks, road_masks]
-            if config.baseline:
+            if config.model == 'baseline':
                 B, T, _ = obs.shape
                 ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
                 partner_obs = obs[..., 6:1276].reshape(B, T, 127, 10)
@@ -168,69 +171,69 @@ def train():
                     backbone.get_context(obs, all_masks, other_info=other_info)
                 except TypeError:
                     backbone.get_context(obs, all_masks)
-                lp_input = ro_attn_layers['0'][:,1:,:]
+                lp_input = layers[nth_layer][:,1:,:]
             # get partner pred pos and action
             pred_pos = pos_linear_model(lp_input)
             masked_pos = pred_pos[~aux_mask]
-            pred_action = action_linear_model(lp_input)
-            masked_action = pred_action[~aux_mask]
+            # pred_heading = head_linear_model(lp_input)
+            # masked_heading = pred_heading[~aux_mask]
 
             # get partner expert pos and action
             other_pos = other_pos.clone()
-            other_actions = other_actions.clone()
+            other_heading = other_heading.clone()
             masked_other_pos = other_pos[~aux_mask]
-            masked_other_actions = other_actions[~aux_mask]
+            masked_other_heading = other_heading[~aux_mask]
             
             # get loss
             pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
-            action_loss, action_acc, action_class = action_linear_model.loss(masked_action, masked_other_actions)
-            total_loss = pos_loss + action_loss
+            # heading_loss, heading_acc, heading_class = head_linear_model.loss(masked_heading, masked_other_heading)
+            total_loss = pos_loss# + heading_loss
             
             pos_optimizer.zero_grad()
-            action_optimizer.zero_grad()
+            # head_optimizer.zero_grad()
             total_loss.backward()
             pos_optimizer.step()
-            action_optimizer.step()
+            # head_optimizer.step()
 
             # get F1 scores
             pos_class = pos_class.detach().cpu().numpy()
-            action_class = action_class.detach().cpu().numpy()
+            # heading_class = heading_class.detach().cpu().numpy()
             masked_other_pos = masked_other_pos.detach().cpu().numpy()
-            masked_other_actions = masked_other_actions.detach().cpu().numpy()
+            # masked_other_heading = masked_other_heading.detach().cpu().numpy()
             pos_f1_macro = f1_score(pos_class, masked_other_pos, average='macro')
-            action_f1_macro = f1_score(action_class, masked_other_actions, average='macro')
+            # heading_f1_macro = f1_score(heading_class, masked_other_heading, average='macro')
 
             pos_accuracys += pos_acc
-            action_accuracys += action_acc
+            # heading_accuracys += heading_acc
             pos_losses += pos_loss.item()
-            action_losses += action_loss.item()
-            action_f1_macros += action_f1_macro
+            # heading_losses += heading_loss.item()
+            # heading_f1_macros += heading_f1_macro
             pos_f1_macros += pos_f1_macro
 
         if config.use_wandb:
             wandb.log(
                 {
                     "train/pos_accuracy": pos_accuracys / (i + 1),
-                    "train/action_accuracy": action_accuracys / (i + 1),
+                    # "train/heading_accuracy": heading_accuracys / (i + 1),
                     "train/pos_loss": pos_losses / (i + 1),
-                    "train/action_loss": action_losses / (i + 1),
+                    # "train/heading_loss": heading_losses / (i + 1),
                     "train/pos_f1_macro": pos_f1_macros / (i + 1),
-                    "train/action_f1_macro": action_f1_macros / (i + 1)
+                    # "train/heading_f1_macro": heading_f1_macros / (i + 1)
                 }, step=epoch
             )
 
         # Evaluation loop
         if epoch % 2 == 0:
             pos_linear_model.eval()
-            action_linear_model.eval()
+            # head_linear_model.eval()
             
             pos_accuracys = 0
-            action_accuracys = 0
+            heading_accuracys = 0
             pos_losses = 0
-            action_losses = 0
             total_samples = 0
+            heading_losses = 0
             pos_f1_macros = 0
-            action_f1_macros = 0
+            heading_f1_macros = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
                 if total_samples + batch_size > int(config.sample_per_epoch / 5): 
@@ -258,57 +261,53 @@ def train():
                             backbone.get_context(obs, all_masks, other_info=other_info)
                         except TypeError:
                             backbone.get_context(obs, all_masks)
-                        lp_input = ro_attn_layers['0'][:,1:,:]
+                        lp_input = layers[nth_layer][:,1:,:]
 
                     # get partner pred pos and action
                     pred_pos = pos_linear_model(lp_input)
-                    pred_action = action_linear_model(lp_input)
                     masked_pos = pred_pos[~aux_mask]
-                    masked_action = pred_action[~aux_mask]
+                    # pred_heading = head_linear_model(lp_input)
+                    # masked_heading = pred_heading[~aux_mask]
 
                     # get partner expert pos and action
                     other_pos = other_pos.clone()
-                    other_actions = other_actions.clone()
+                    # other_heading = other_heading.clone()
                     masked_other_pos = other_pos[~aux_mask]
-                    masked_other_actions = other_actions[~aux_mask]
-                    pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
-                    action_loss, action_acc, action_class = action_linear_model.loss(masked_action, masked_other_actions)
+                    # masked_other_heading = other_heading[~aux_mask]
 
+                    pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
+                    # heading_loss, heading_acc, heading_class = head_linear_model.loss(masked_heading, masked_other_heading)
+                    
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
-                    action_class = action_class.detach().cpu().numpy()
+                    heading_class = heading_class.detach().cpu().numpy()
                     masked_other_pos = masked_other_pos.detach().cpu().numpy()
-                    masked_other_actions = masked_other_actions.detach().cpu().numpy()
+                    masked_other_heading = masked_other_heading.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_other_pos, average='macro')
-                    action_f1_macro = f1_score(action_class, masked_other_actions, average='macro')
+                    heading_f1_macro = f1_score(heading_class, masked_other_heading, average='macro')
 
                     pos_accuracys += pos_acc
-                    action_accuracys += action_acc
+                    # heading_accuracys += heading_acc
                     pos_losses += pos_loss.item()
-                    action_losses += action_loss.item()
-                    action_f1_macros += action_f1_macro
+                    # heading_losses += heading_loss.item()
+                    heading_f1_macros += heading_f1_macro
                     pos_f1_macros += pos_f1_macro
 
             if config.use_wandb:
                 wandb.log(
                     {
                         "eval/pos_accuracy": pos_accuracys / (i + 1),
-                        "eval/action_accuracy": action_accuracys / (i + 1),
+                        # "eval/heading_accuracy": heading_accuracys / (i + 1),
                         "eval/pos_loss": pos_losses / (i + 1),
-                        "eval/action_loss": action_losses / (i + 1),
+                        # "eval/heading_loss": heading_losses / (i + 1),
                         "eval/pos_f1_macro": pos_f1_macros / (i + 1),
-                        "eval/action_f1_macro": action_f1_macros / (i + 1)
+                        # "eval/heading_f1_macro": heading_f1_macros / (i + 1)
                     }, step=epoch
                 )
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2"), exist_ok=True)
-    if config.baseline:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_b_{args.aux_future_step}.pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_b_{args.aux_future_step}.pth"))
-    else:
-        torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_{args.aux_future_step}.pth"))
-        torch.save(action_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_{args.aux_future_step}.pth"))
-
+    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_{config.model}_{config.aux_future_step}.pth"))
+    # torch.save(head_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_{config.model}_{config.aux_future_step}.pth"))
 if __name__ == "__main__":
     args = parse_args()
     if args.use_wandb:

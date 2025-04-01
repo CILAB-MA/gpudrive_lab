@@ -73,19 +73,27 @@ class LinearProbPosition(LinearProb):
         accuracy = correct / total
         return loss, accuracy, pred_class
 
-# class LinearProbAngle(LinearProb):
-#     def __init__(self, context_dim, other_dim):
-#         super(LinearProbAngle, self).__init__(context_dim, other_dim)
-#         self.yaw_head = nn.Linear(context_dim, other_dim)
-        
-#     def forward(self, context):
-#         yaw = self.yaw_head(context)
-#         return yaw
+class LinearProbAngle(LinearProb):
+    def __init__(self, context_dim, other_dim, future_step=None):
+        super(LinearProbAngle, self).__init__(context_dim, other_dim)
+        self.yaw_head = nn.Linear(context_dim, other_dim)
+        self.future_step = future_step
+
+    def forward(self, context):
+        yaw = self.yaw_head(context)
+        return yaw
     
-#     def loss(self, pred_angle, expert_angle):
-#         criterion = nn.MSELoss()
-#         loss = criterion(pred_angle, expert_angle)
-#         return loss
+    def loss(self, pred_logits, expert_labels):
+        # compute loss
+        criterion = nn.CrossEntropyLoss()
+        loss = criterion(pred_logits, expert_labels)
+        
+        # compute accuracy
+        pred_class = torch.argmax(pred_logits, dim=-1)
+        correct = (pred_class == expert_labels).sum().item()
+        total = expert_labels.numel()
+        accuracy = correct / total
+        return loss, accuracy, pred_class
     
 # class LinearProbSpeed(LinearProb):
 #     def __init__(self, context_dim, other_dim):
