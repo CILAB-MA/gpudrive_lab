@@ -17,14 +17,15 @@ parameters:
   train_data:
     value: "train_trajectory_5000.npz"
   test_data:
-    value: "test_trajectory_200.npz"
+    value: "test_trajectory_1000.npz"
   rollout_len:
     value: 5
   pred_len:
     value: 1
   ego_future_step:
-    values: [5, 10 ,15, 20]
-
+    values: [10, 20 , 30, 40]
+  model:
+    values: ['early_lp', 'final_lp', 'baseline']
   # EXPERIMENT
   batch_size:
     values: [256]

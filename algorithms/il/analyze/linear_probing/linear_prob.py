@@ -239,8 +239,6 @@ def train():
             heading_f1_macros = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
-                if total_samples + batch_size > int(config.sample_per_epoch / 5): 
-                    break
                 total_samples += batch_size
                 obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, other_pos, other_actions = batch
                 obs, expert_action = obs.to("cuda"), expert_action.to("cuda")
@@ -285,15 +283,15 @@ def train():
                     pos_class = pos_class.detach().cpu().numpy()
                     heading_class = heading_class.detach().cpu().numpy()
                     masked_other_pos = masked_other_pos.detach().cpu().numpy()
-                    masked_other_heading = masked_other_heading.detach().cpu().numpy()
+                    # masked_other_heading = masked_other_heading.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_other_pos, average='macro')
-                    heading_f1_macro = f1_score(heading_class, masked_other_heading, average='macro')
+                    # heading_f1_macro = f1_score(heading_class, masked_other_heading, average='macro')
 
                     pos_accuracys += pos_acc
                     # heading_accuracys += heading_acc
                     pos_losses += pos_loss.item()
                     # heading_losses += heading_loss.item()
-                    heading_f1_macros += heading_f1_macro
+                    # heading_f1_macros += heading_f1_macro
                     pos_f1_macros += pos_f1_macro
 
             if config.use_wandb:
