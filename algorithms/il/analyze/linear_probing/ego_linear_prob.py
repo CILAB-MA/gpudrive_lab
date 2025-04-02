@@ -164,7 +164,7 @@ def train():
             with torch.no_grad():
                 context, *_, = backbone.get_context(obs, all_masks)
 
-            if config.baseline:
+            if config.model == 'baseline':
                 ego_obs = obs[..., :6].reshape(-1, 30)
                 lp_input = ego_obs
             else:
@@ -245,7 +245,7 @@ def train():
                 
                 with torch.no_grad():
                     context, *_, = backbone.get_context(obs, all_masks)
-                    if config.baseline:
+                    if config.model == 'baseline':
                         ego_obs = obs[..., :6].reshape(-1, 30)
                         lp_input = ego_obs
                     else:
@@ -266,7 +266,7 @@ def train():
 
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
-                    heading_class = heading_class.detach().cpu().numpy()
+                    # heading_class = heading_class.detach().cpu().numpy()
                     masked_other_pos = masked_other_pos.detach().cpu().numpy()
                     # masked_other_heading = masked_other_heading.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_other_pos, average='macro')
