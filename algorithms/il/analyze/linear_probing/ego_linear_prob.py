@@ -148,6 +148,8 @@ def train():
         heading_losses = 0
         pos_f1_macros = 0
         heading_f1_macros = 0
+        continue_num = 0
+        
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
            
@@ -168,8 +170,8 @@ def train():
                 ego_obs = obs[..., :6].reshape(-1, 30)
                 lp_input = ego_obs
             else:
-
                 lp_input = layers[nth_layer][:,0,:]
+
             # get future pred pos and action
             future_valid_mask = future_valid_mask.squeeze(1)
             pred_pos = pos_linear_model(lp_input)
@@ -182,6 +184,10 @@ def train():
             future_actions = future_actions.clone()
             future_actions = future_actions.squeeze(1)
             masked_other_actions = future_actions[future_valid_mask]
+            
+            if future_valid_mask.sum() == 0:
+                continue_num += 1
+                continue
             
             # compute loss
             pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
@@ -211,11 +217,11 @@ def train():
         if config.use_wandb:
             wandb.log(
                 {
-                    "train/pos_accuracy": pos_accuracys / (i + 1),
+                    "train/pos_accuracy": pos_accuracys / (i + 1 - continue_num),
                     # "train/heading_accuracy": heading_accuracys / (i + 1),
-                    "train/pos_loss": pos_losses / (i + 1),
+                    "train/pos_loss": pos_losses / (i + 1 - continue_num),
                     # "train/heading_loss": heading_losses / (i + 1),
-                    "train/pos_f1_macro": pos_f1_macros / (i + 1),
+                    "train/pos_f1_macro": pos_f1_macros / (i + 1 - continue_num),
                     # "train/heading_f1_macro": heading_f1_macros / (i + 1)
                 }, step=epoch
             )
@@ -231,6 +237,7 @@ def train():
             heading_losses = 0
             pos_f1_macros = 0
             heading_f1_macros = 0
+            continue_num = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
                 obs, actions, future_pos, future_actions, cur_valid_mask, future_valid_mask, partner_masks, road_masks = batch
@@ -261,6 +268,10 @@ def train():
                     future_pos = future_pos.squeeze(1)
                     masked_other_pos = future_pos[future_valid_mask]
                     
+                    if future_valid_mask.sum() == 0:
+                        continue_num += 1
+                        continue
+                    
                     # compute loss
                     pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
 
@@ -282,18 +293,19 @@ def train():
             if config.use_wandb:
                 wandb.log(
                     {
-                        "eval/pos_accuracy": pos_accuracys / (i + 1),
+                        "eval/pos_accuracy": pos_accuracys / (i + 1 - continue_num),
                         # "eval/heading_accuracy": heading_accuracys / (i + 1),
-                        "eval/pos_loss": pos_losses / (i + 1),
+                        "eval/pos_loss": pos_losses / (i + 1 - continue_num),
                         # "eval/heading_loss": heading_losses / (i + 1),
-                        "eval/pos_f1_macro": pos_f1_macros / (i + 1),
+                        "eval/pos_f1_macro": pos_f1_macros / (i + 1 - continue_num),
                         # "eval/heading_f1_macro": heading_f1_macros / (i + 1)
                     }, step=epoch
                 )
     
     # Save head
-    os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2"), exist_ok=True)
-    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/ego_pos_{config.model}_{config.ego_future_step}.pth"))
+    save_dir = os.path.join(config.model_path, f"ego_linear_prob/{config.model_name}/seed{config.seed}v2/")
+    os.makedirs(save_dir, exist_ok=True)
+    torch.save(pos_linear_model, os.path.join(save_dir, f"pos_{config.model}_{config.aux_future_step}.pth"))
 
 if __name__ == "__main__":
     args = parse_args()

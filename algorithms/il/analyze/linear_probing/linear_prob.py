@@ -148,6 +148,7 @@ def train():
         heading_losses = 0
         pos_f1_macros = 0
         heading_f1_macros = 0
+        continue_num = 0
         for i, batch in enumerate(expert_data_loader):
             batch_size = batch[0].size(0)
 
@@ -186,6 +187,9 @@ def train():
             # other_heading = other_heading.clone()
             masked_other_pos = other_pos[~aux_mask]
             # masked_other_heading = other_heading[~aux_mask]
+            if (~aux_mask).sum() == 0:
+                continue_num += 1
+                continue
             
             # get loss
             pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
@@ -216,11 +220,11 @@ def train():
         if config.use_wandb:
             wandb.log(
                 {
-                    "train/pos_accuracy": pos_accuracys / (i + 1),
+                    "train/pos_accuracy": pos_accuracys / (i + 1 - continue_num),
                     # "train/heading_accuracy": heading_accuracys / (i + 1),
-                    "train/pos_loss": pos_losses / (i + 1),
+                    "train/pos_loss": pos_losses / (i + 1 - continue_num),
                     # "train/heading_loss": heading_losses / (i + 1),
-                    "train/pos_f1_macro": pos_f1_macros / (i + 1),
+                    "train/pos_f1_macro": pos_f1_macros / (i + 1 - continue_num),
                     # "train/heading_f1_macro": heading_f1_macros / (i + 1)
                 }, step=epoch
             )
@@ -237,6 +241,7 @@ def train():
             heading_losses = 0
             pos_f1_macros = 0
             heading_f1_macros = 0
+            continue_num = 0
             for i, batch in enumerate(eval_expert_data_loader):
                 batch_size = batch[0].size(0)
                 total_samples += batch_size
@@ -275,6 +280,9 @@ def train():
                     # other_heading = other_heading.clone()
                     masked_other_pos = other_pos[~aux_mask]
                     # masked_other_heading = other_heading[~aux_mask]
+                    if (~aux_mask).sum() == 0:
+                        continue_num += 1
+                        continue
 
                     pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_other_pos)
                     # heading_loss, heading_acc, heading_class = head_linear_model.loss(masked_heading, masked_other_heading)
@@ -297,18 +305,20 @@ def train():
             if config.use_wandb:
                 wandb.log(
                     {
-                        "eval/pos_accuracy": pos_accuracys / (i + 1),
+                        "eval/pos_accuracy": pos_accuracys / (i + 1 - continue_num),
                         # "eval/heading_accuracy": heading_accuracys / (i + 1),
-                        "eval/pos_loss": pos_losses / (i + 1),
+                        "eval/pos_loss": pos_losses / (i + 1 - continue_num),
                         # "eval/heading_loss": heading_losses / (i + 1),
-                        "eval/pos_f1_macro": pos_f1_macros / (i + 1),
+                        "eval/pos_f1_macro": pos_f1_macros / (i + 1 - continue_num),
                         # "eval/heading_f1_macro": heading_f1_macros / (i + 1)
                     }, step=epoch
                 )
     # Save head
-    os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2"), exist_ok=True)
-    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/pos_{config.model}_{config.aux_future_step}.pth"))
-    # torch.save(head_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/action_{config.model}_{config.aux_future_step}.pth"))
+    save_dir = os.path.join(config.model_path, f"linear_prob/{config.model_name}/seed{config.seed}v2/")
+    os.makedirs(save_dir, exist_ok=True)
+    torch.save(pos_linear_model, os.path.join(save_dir, f"pos_{config.model}_{config.aux_future_step}.pth"))
+
+
 if __name__ == "__main__":
     args = parse_args()
     if args.use_wandb:

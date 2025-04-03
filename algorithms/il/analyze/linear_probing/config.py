@@ -8,13 +8,14 @@ class ExperimentConfig:
     
     # DATA
     data_path: str = "/data/tom_v5"
-    train_data: str = "train_trajectory_100.npz"
-    test_data: str = "test_trajectory_1000.npz"
+    train_data: str = "train_trajectory_500.npz"
+    test_data: str = "unseen_test_trajectory_200.npz"
+    num_workers: int = 8
     rollout_len: int = 5
     pred_len: int = 1
     
     # EXPERIMENT
-    batch_size: int = 512
+    batch_size: int = 256
     epochs: int = 30
     lr: float = 0.0005
     sample_per_epoch: int = 438763
