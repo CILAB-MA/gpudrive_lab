@@ -41,21 +41,25 @@ if __name__ == "__main__":
                 video_path = args.video_path + f"_{args.partner_portion_test}"
             else:
                 video_path = args.video_path
-            # # tmp
-            # if 'early_attn_gmm_all_data_20250305_2211' not in model:
-            #     continue
+
             video_path = os.path.join(video_path, args.sweep_name)
             model_path = os.path.join(args.model_path, args.sweep_name)
             off_road_rates, veh_coll_rates, goal_rates, collision_rates, goal_progress_ratios = [], [], [], [], []
+            
+            model_train_num = int(model.split('_')[4].split('.')[0])
+            
+            if dataset == 'train':
+                total_world_count = model_train_num
+                if model_train_num % 200 != 0:
+                    one_run_world_count = 100
 
             for i in tqdm(range(args.start_idx, total_world_count // one_run_world_count)):
-                start_idx = i * one_run_world_count
-                if dataset == 'valid' and start_idx >= 200:
+                start_idx = i * one_run_world_count + 11000 if dataset == 'valid' else i * one_run_world_count
+                if dataset == 'valid' and start_idx >= 12200:
                     break
                 print("model: ", model, "dataset: ", dataset, "idx:", start_idx)
                 arguments = f"-mc --dataset {dataset} -mp {model_path} -vp {video_path} -mn {model} --num-world {one_run_world_count} --start-idx {start_idx} -pp {args.partner_portion_test}"
-                # if i == 0:
-                #     arguments += ' -mv'
+                
                 if args.shortest_path_test:
                     arguments += ' -spt'
                 command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python algorithms/il/test/evaluate.py {arguments}"
