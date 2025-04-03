@@ -17,7 +17,7 @@ parameters:
   train_data:
     value: "train_trajectory_100.npz"
   test_data:
-    value: "test_trajectory_200.npz"
+    value: "unseen_test_trajectory_200.npz"
   rollout_len:
     value: 5
   pred_len:
