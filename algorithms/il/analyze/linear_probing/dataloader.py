@@ -168,7 +168,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         x, y = pos[..., 0], pos[..., 1]
         
         # Define bins for discretization (-1 to 1 with 8 bins)
-        bins = np.linspace(-0.1, 0.1, 9)
+        bins = np.linspace(-0.05, 0.05, 9)
         
         # Digitize x and y into 8 categories (0 to 7)
         x_bins = np.digitize(x, bins) - 1

@@ -293,7 +293,7 @@ def train():
     
     # Save head
     os.makedirs(os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2"), exist_ok=True)
-    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/ego_pos_{config.model}_{config.aux_future_step}.pth"))
+    torch.save(pos_linear_model, os.path.join(config.model_path, f"linear_prob/seed{config.seed}v2/ego_pos_{config.model}_{config.ego_future_step}.pth"))
 
 if __name__ == "__main__":
     args = parse_args()

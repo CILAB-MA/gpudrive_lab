@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--num-world', '-w', type=int, default=10)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/early_attn5000')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/old_v2/early_attn5000')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_gmm_all_data_20250304_1338.pth')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
