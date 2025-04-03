@@ -20,4 +20,5 @@ class ExperimentConfig:
     lr: float = 0.0005
     sample_per_epoch: int = 438763
     seed: int = 0
+    ego_future_step: int = 5
     aux_future_step: int = 5

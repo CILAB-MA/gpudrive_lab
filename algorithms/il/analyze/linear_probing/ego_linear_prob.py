@@ -129,7 +129,7 @@ def train():
         hidden_dim = 128
         
     pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=config.ego_future_step).to("cuda")
-    # head_linear_model = LinearProbAngle(hidden_dim, 64, future_step=config.aux_future_step).to("cuda")
+    # head_linear_model = LinearProbAngle(hidden_dim, 64, future_step=config.ego_future_step).to("cuda")
     
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=config.lr, eps=0.0001)
@@ -305,7 +305,7 @@ def train():
     # Save head
     save_dir = os.path.join(config.model_path, f"ego_linear_prob/{config.model_name}/seed{config.seed}v2/")
     os.makedirs(save_dir, exist_ok=True)
-    torch.save(pos_linear_model, os.path.join(save_dir, f"pos_{config.model}_{config.aux_future_step}.pth"))
+    torch.save(pos_linear_model, os.path.join(save_dir, f"pos_{config.model}_{config.ego_future_step}.pth"))
 
 if __name__ == "__main__":
     args = parse_args()

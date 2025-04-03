@@ -1,21 +1,21 @@
-program: algorithms/il/analyze/linaer_probing/linear_prob.py
+program: algorithms/il/analyze/linear_probing/linear_prob.py
 method: grid
-name: lp_other_100
+name: lp_other_500
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/model/early_attn_baseline_100_lp"
+    value: "/data/model/early_attn_all_baseline"
   model_name:
-    values: ["early_attn_train_trajectory_100_seed_42_0331_095427"]
+    values: ["early_attn_train_trajectory_500_seed_11_0402_030731"]
 
   # DATA
   data_path:
     value: "/data/tom_v5"
   train_data:
-    value: "train_trajectory_100.npz"
+    value: "train_trajectory_500.npz"
   test_data:
     value: "unseen_test_trajectory_200.npz"
   num_workers:
@@ -25,7 +25,7 @@ parameters:
   pred_len:
     value: 1
   aux_future_step:
-    values: [10, 20 , 30, 40]
+    values: [10, 20, 30, 40]
   model:
     values: ['early_lp', 'final_lp', 'baseline']
   # EXPERIMENT
@@ -38,4 +38,4 @@ parameters:
   sample_per_epoch:
     values: [438763]
   seed:
-    values: [42]
+    values: [11]
