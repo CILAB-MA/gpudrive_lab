@@ -65,7 +65,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         dataset,
         batch_size=config.batch_size,
         shuffle=isshuffle,
-        num_workers=os.cpu_count(),
+        num_workers=config.num_workers,
         prefetch_factor=4,
         pin_memory=True
     )
