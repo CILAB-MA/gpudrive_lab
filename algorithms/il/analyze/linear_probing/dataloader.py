@@ -46,7 +46,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         self.road_mask = new_road_mask.astype('bool')
         
         # linear probing
-        current_relative_pos = self._transform_relative_pos(aux_info, partner_info[..., -1:], ego_global_pos, ego_global_rot, future_step=aux_future_step)
+        current_relative_pos = self._transform_relative_pos(aux_info, ego_global_pos, ego_global_rot, future_step=aux_future_step)
         current_relative_pos[aux_mask] = 0
         self.other_pos = self._get_multi_class_pos(current_relative_pos)
         self.other_actions = self._get_multi_class_actions(aux_info[..., 4:7])
@@ -120,13 +120,11 @@ class OtherFutureDataset(torch.utils.data.Dataset):
 
         return aligned_future_acton_sum, combined_mask_bool
     
-    def _transform_relative_pos(self, aux_info, partner_rot, ego_global_pos, ego_global_rot, future_step):
+    def _transform_relative_pos(self, aux_info, ego_global_pos, ego_global_rot, future_step):
         """transform time t relative pos to current relative pos"""
         # 1. transform t-relative pos to t-global pos
         # get partner's relative pos and rot at time t
         t_partner_pos = aux_info[..., 1:3] * MAX_REL_AGENT_POS
-        t_partner_rot = np.zeros_like(partner_rot)
-        t_partner_rot[:, :-future_step] = partner_rot[:, future_step:]
         
         # get ego's global pos and rot at time t
         t_ego_global_pos = np.zeros_like(ego_global_pos)
@@ -134,9 +132,8 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         t_ego_global_pos[:, :-future_step] = ego_global_pos[:, future_step:]
         t_ego_global_rot[:, :-future_step] = ego_global_rot[:, future_step:]
         
-        theta = t_ego_global_rot + t_partner_rot.squeeze(-1)
-        t_partner_global_pos_x = t_ego_global_pos[..., 0, None] + t_partner_pos[..., 0] * np.cos(theta) - t_partner_pos[..., 1] * np.sin(theta)
-        t_partner_global_pos_y = t_ego_global_pos[..., 1, None] + t_partner_pos[..., 0] * np.sin(theta) + t_partner_pos[..., 1] * np.cos(theta)
+        t_partner_global_pos_x = t_ego_global_pos[..., 0, None] + t_partner_pos[..., 0] * np.cos(t_ego_global_rot) - t_partner_pos[..., 1] * np.sin(t_ego_global_rot)
+        t_partner_global_pos_y = t_ego_global_pos[..., 1, None] + t_partner_pos[..., 0] * np.sin(t_ego_global_rot) + t_partner_pos[..., 1] * np.cos(t_ego_global_rot)
         
         # 2. transform t-global pos to current relative pos
         delta_x = t_partner_global_pos_x - ego_global_pos[..., 0, None]
@@ -168,7 +165,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         x, y = pos[..., 0], pos[..., 1]
         
         # Define bins for discretization (-1 to 1 with 8 bins)
-        bins = np.linspace(-0.05, 0.05, 9)
+        bins = np.linspace(-0.1, 0.1, 9)
         
         # Digitize x and y into 8 categories (0 to 7)
         x_bins = np.digitize(x, bins) - 1
@@ -239,7 +236,7 @@ class OtherFutureDataset(torch.utils.data.Dataset):
         return batch
 
 class EgoFutureDataset(OtherFutureDataset):
-    def __init__(self, obs, actions, ego_global_pos, masks=None, partner_mask=None, road_mask=None, other_info=None,
+    def __init__(self, obs, actions, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None, other_info=None,
                  rollout_len=5, pred_len=1, ego_future_step=1):
         # obs
         obs_pad = np.zeros((obs.shape[0], rollout_len - 1, *obs.shape[2:]), dtype=np.float32)
@@ -269,7 +266,7 @@ class EgoFutureDataset(OtherFutureDataset):
         self.road_mask = np.concatenate([road_mask_pad, self.road_mask], axis=1).astype('bool')
         
         # linear probing
-        future_pos = self._transform_relative_pos(ego_global_pos, future_step=ego_future_step)
+        future_pos = self._transform_relative_pos(ego_global_pos, ego_global_rot, future_step=ego_future_step)
         self.future_pos = self._get_multi_class_pos(future_pos)
         future_actions_pad = np.zeros((actions.shape[0], ego_future_step, *actions.shape[2:]), dtype=np.float32)
         future_actions = np.concatenate([actions, future_actions_pad], axis=1)[:, ego_future_step:]
@@ -292,7 +289,7 @@ class EgoFutureDataset(OtherFutureDataset):
         return list(zip(valid_idx1, valid_idx2))
     
     @staticmethod
-    def _transform_relative_pos(ego_global_pos, future_step):
+    def _transform_relative_pos(ego_global_pos, ego_global_rot, future_step):
         """transform global pos to current relative pos"""
         current_relative_pos = np.zeros_like(ego_global_pos)
         ego_current_pos = ego_global_pos[:, :-future_step]
@@ -301,8 +298,16 @@ class EgoFutureDataset(OtherFutureDataset):
         delta_x = ego_future_pos[..., 0] - ego_current_pos[..., 0]
         delta_y = ego_future_pos[..., 1] - ego_current_pos[..., 1]
         
-        current_relative_pos_x = 2 * ((delta_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
-        current_relative_pos_y = 2 * ((delta_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        ego_current_rot = ego_global_rot[:, :-future_step]
+        
+        cos_theta = np.cos(ego_current_rot)
+        sin_theta = np.sin(ego_current_rot)
+        
+        rel_x = delta_x * cos_theta.squeeze(-1) + delta_y * sin_theta.squeeze(-1)
+        rel_y = -delta_x * sin_theta.squeeze(-1) + delta_y * cos_theta.squeeze(-1)
+        
+        current_relative_pos_x = 2 * ((rel_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos_y = 2 * ((rel_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
         current_relative_pos[:, :-future_step, :] = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
         
         return current_relative_pos

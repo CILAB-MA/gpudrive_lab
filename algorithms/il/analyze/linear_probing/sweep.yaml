@@ -1,6 +1,6 @@
 program: algorithms/il/analyze/linear_probing/linear_prob.py
 method: grid
-name: lp_other_500
+name: lp_other_100
 metric:
   goal: minimize
   name: eval/loss
@@ -9,17 +9,17 @@ parameters:
   model_path:
     value: "/data/model/early_attn_all_baseline"
   model_name:
-    values: ["early_attn_train_trajectory_500_seed_11_0402_030731"]
+    values: ["early_attn_train_trajectory_100_seed_11_0401_142501"]
 
   # DATA
   data_path:
     value: "/data/tom_v5"
   train_data:
-    value: "train_trajectory_500.npz"
+    value: "train_trajectory_100.npz"
   test_data:
     value: "unseen_test_trajectory_200.npz"
   num_workers:
-    value: 32
+    value: 8
   rollout_len:
     value: 5
   pred_len:

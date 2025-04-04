@@ -7,9 +7,9 @@ metric:
 parameters:
   # MODEL
   model_path:
-    value: "/data/model/early_attn_baseline_100_lp"
+    value: "/data/model/early_attn_all_baseline"
   model_name:
-    values: ["early_attn_train_trajectory_100_seed_3_0327_113415"]
+    values: ["early_attn_train_trajectory_100_seed_11_0401_142501"]
 
   # DATA
   data_path:
@@ -19,13 +19,13 @@ parameters:
   test_data:
     value: "unseen_test_trajectory_200.npz"
   num_workers:
-    value: 32
+    value: 8
   rollout_len:
     value: 5
   pred_len:
     value: 1
   ego_future_step:
-    values: [10, 20 , 30, 40]
+    values: [10, 20, 30, 40]
   model:
     values: ['early_lp', 'final_lp', 'baseline']
   # EXPERIMENT
@@ -38,4 +38,4 @@ parameters:
   sample_per_epoch:
     values: [438763]
   seed:
-    values: [42]
+    values: [11]
