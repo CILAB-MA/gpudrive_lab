@@ -115,7 +115,7 @@ def train():
     set_seed(config.seed)
     # Backbone and heads
     if config.model == 'baseline':
-        hidden_dim = 50 + 30 # partner info + ego info
+        hidden_dim = 30 # ego info
         backbone = None
     else:
         backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
