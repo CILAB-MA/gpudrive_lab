@@ -163,13 +163,13 @@ def train():
             partner_masks = partner_masks.to("cuda") if len(batch) > 3 else None
             road_masks = road_masks.to("cuda") if len(batch) > 3 else None
             all_masks= [cur_valid_mask, partner_masks, road_masks]
-            with torch.no_grad():
-                context, *_, = backbone.get_context(obs, all_masks)
 
             if config.model == 'baseline':
                 ego_obs = obs[..., :6].reshape(-1, 30)
                 lp_input = ego_obs
             else:
+                with torch.no_grad():
+                    context, *_, = backbone.get_context(obs, all_masks)
                 lp_input = layers[nth_layer][:,0,:]
 
             # get future pred pos and action
@@ -251,11 +251,11 @@ def train():
                 all_masks= [cur_valid_mask, partner_masks, road_masks]
                 
                 with torch.no_grad():
-                    context, *_, = backbone.get_context(obs, all_masks)
                     if config.model == 'baseline':
                         ego_obs = obs[..., :6].reshape(-1, 30)
                         lp_input = ego_obs
                     else:
+                        context, *_, = backbone.get_context(obs, all_masks)
                         lp_input = layers[nth_layer][:,0,:]
                     # get future pred pos and action
                     pred_pos = pos_linear_model(lp_input)
