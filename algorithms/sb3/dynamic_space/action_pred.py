@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 from algorithms.sb3.dynamic_space.model import *
+from algorithms.sb3.dynamic_space.config import *
+from algorithms.sb3.dynamic_space.dataloader import ExpertDataset
 import argparse
+import os
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -9,32 +12,15 @@ def parse_args():
     parser.add_argument('--device', '-d', default='cuda')
     parser.add_argument('--early-stop-num', '-e', default=4)
     args = parser.parse_args()
-    
     return args
 
-def train():
+def train(args):
     model_path = "/data/RL/model/pred_model"
-    env_config = EnvConfig(
-        dynamics_model='delta_local',
-        steer_actions=torch.round(
-            torch.linspace(-0.3, 0.3, 7), decimals=3
-        ),
-        accel_actions=torch.round(
-            torch.linspace(-6.0, 6.0, 7), decimals=3
-        ),
-        dx=torch.round(
-            torch.linspace(-6.0, 6.0, 100), decimals=3
-        ),
-        dy=torch.round(
-            torch.linspace(-6.0, 6.0, 100), decimals=3
-        ),
-        dyaw=torch.round(
-            torch.linspace(-3.14, 3.14, 300), decimals=3
-        ),
-    )
+    env_config = EnvConfig()
+    head_config = HeadConfig()
     # config rl 코드 보고 가져오기
-    bc_config = BehavCloningConfig()
-    pred_model = LateFusionBCNet()
+    bc_config = ExperimentConfig()
+    pred_model = LateFusionBCNet(env_config, bc_config, head_config)
 
     with np.load(os.path.join('/data/RL/data/train_trajectory_5000.npz')) as npz:
         train_dataset = ExpertDataset(**npz)

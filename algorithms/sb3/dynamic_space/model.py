@@ -3,8 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import List
-
-from networks.perm_eq_late_fusion import CustomLateFusionNet
+from abc import ABC, abstractmethod
 
 def init(module, weight_init, bias_init, gain=1):
     '''
@@ -15,14 +14,16 @@ def init(module, weight_init, bias_init, gain=1):
     return module
 
 class LateFusionBCNet(nn.Module):
-    def __init__(self, env_config, exp_config):
-        super(LateFusionBCNet, self).__init__(env_config, net_config)
-        self.num_stack = num_stack
+    def __init__(self, env_config, exp_config, head_config):
+        super(LateFusionBCNet, self).__init__()
+        self.num_stack = exp_config.num_stack
 
         self.ego_input_dim = 6
         self.ro_input_dim = 10
+        self.rg_input_dim = 10
         self.hidden_dim = 128
         self.hidden_num = 2
+        self.dropout = 0.0
         # Scene encoder
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim,
@@ -120,3 +121,70 @@ class LateFusionBCNet(nn.Module):
         mu = self.mu_head(context, deterministic)
         std = self.std_head(context, deterministic)
         return mu, std
+
+class GMM(nn.Module):
+    def __init__(self, network_type, input_dim, head_config, time_dim=1):
+        super(GMM, self).__init__()
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, head_config.head_dim),
+            nn.ReLU(),
+        )
+        
+        self.residual_block = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(head_config.head_dim, head_config.head_dim),
+                nn.ReLU(),
+            ) for _ in range(head_config.head_num_layers)
+        ])
+        self.relu = nn.ReLU()
+        self.head = nn.Linear(head_config.head_dim, head_config.n_components * (2 * head_config.action_dim + 1))
+        self.n_components = head_config.n_components
+        self.action_dim = head_config.action_dim
+        self.time_dim = time_dim
+        self.clip_value = head_config.clip_value
+        self.network_type = network_type
+
+    def get_gmm_params(self, x):
+        """
+        Get the parameters of the Gaussian Mixture Model
+        """
+        x = x.reshape(x.size(0), self.time_dim, x.size(-1))
+        x = self.input_layer(x)
+        
+        for layer in self.residual_block:
+            residual = x
+            x = layer(x)
+            x = x + residual
+        
+        params = self.head(x)
+        
+        means = params[..., :self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
+        covariances = params[..., self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
+        weights = params[..., -self.n_components:].view(-1, self.time_dim, self.n_components)
+        
+        covariances = torch.clamp(covariances, self.clip_value, 3.58352)
+        covariances = torch.exp(covariances)
+        weights = torch.softmax(weights, dim=-1)
+        self.component_probs = weights[0,0].detach() # To wandb log
+        
+        return means, covariances, weights, self.n_components
+
+    def get_component_probs(self):
+        return self.component_probs
+
+    def forward(self, x, deterministic=None):
+        """
+        Sample actions from the Gaussian Mixture Model
+        """
+        means, covariances, weights, components = self.get_gmm_params(x)
+
+        component_indices = torch.argmax(weights, dim=-1) if deterministic else dist.Categorical(weights).sample()
+        component_indices = component_indices.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 1, self.action_dim)
+        
+        sampled_means = torch.gather(means, 2, component_indices)
+        sampled_covariances = torch.gather(covariances, 2, component_indices)
+        
+        actions = sampled_means if deterministic else dist.MultivariateNormal(sampled_means, torch.diag_embed(sampled_covariances)).sample()
+        actions = actions.squeeze(2)
+
+        return actions
