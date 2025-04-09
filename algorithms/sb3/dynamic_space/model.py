@@ -48,7 +48,8 @@ class LateFusionBCNet(nn.Module):
             head_config=head_config,
             time_dim=1,
         )
-
+        self.ro_max = 127
+        self.rg_max = 200
     @abstractmethod
     def _build_network(self, input_dim: int) -> nn.Module:
         """Build a network with the specified architecture."""
@@ -68,7 +69,9 @@ class LateFusionBCNet(nn.Module):
 
         return network
 
-    def _unpack_obs(self, obs_flat, num_stack):
+
+
+    def _unpack_obs(self, obs_flat, num_stack=1):
         """
         Unpack the flattened observation into the ego state and visible state.
         Args:
@@ -102,7 +105,7 @@ class LateFusionBCNet(nn.Module):
 
     def forward(self, obs, deterministic=False):
         # Unpack observation
-        ego_state, road_objects, road_graph = self._unpack_obs(features)
+        ego_state, road_objects, road_graph = self._unpack_obs(obs)
         # Embed features
         ego_state = self.actor_ego_state_net(ego_state)
         road_objects = self.actor_ro_net(road_objects)

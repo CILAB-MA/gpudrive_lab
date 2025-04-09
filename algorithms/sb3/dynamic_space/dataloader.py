@@ -18,7 +18,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         return len(self.obs)
         
     def __getitem__(self, idx):
-        return self.obs[ind], self.mu[ind], self.std[ind], idx
+        return self.obs[idx], self.mu[idx], self.std[idx], idx
     
 
 if __name__ == "__main__":

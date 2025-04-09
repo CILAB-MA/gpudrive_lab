@@ -4,7 +4,19 @@ from algorithms.sb3.dynamic_space.model import *
 from algorithms.sb3.dynamic_space.config import *
 from algorithms.sb3.dynamic_space.dataloader import ExpertDataset
 import argparse
-import os
+import os, yaml
+from torch.utils.data import DataLoader
+from torch.optim import AdamW
+import wandb
+import logging
+from tqdm import tqdm
+from datetime import datetime
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -22,7 +34,7 @@ def train(args):
     bc_config = ExperimentConfig()
     pred_model = LateFusionBCNet(env_config, bc_config, head_config)
 
-    with np.load(os.path.join('/data/RL/data/train_trajectory_5000.npz')) as npz:
+    with np.load(os.path.join('/data/RL/data/test_trajectory_1000.npz')) as npz:
         train_dataset = ExpertDataset(**npz)
     train_loader = DataLoader(
         train_dataset,
@@ -41,33 +53,33 @@ def train(args):
     del test_dataset
     
     # Configure loss and optimizer
-    optimizer = Adam(bc_policy.parameters(), lr=bc_config.lr)
-
-    # Logging
-    with open("private.yaml") as f:
-        private_info = yaml.load(f, Loader=yaml.FullLoader)
-    wandb.login(key=private_info["wandb_key"])
+    optimizer = AdamW(pred_model.parameters(), lr=bc_config.lr, eps=0.0001)
     currenttime = datetime.now().strftime("%Y%m%d%H%M%S")
-    run_id = f"action_pred_20step{currenttime}"
-    wandb.init(
-        project=private_info['main_project'],
-        entity=private_info['entity'],
-        name=run_id,
-        id=run_id,
-        group=f"Pred Model",
-        config={**bc_config.__dict__, **env_config.__dict__},
-    )
+    # Logging
+    if args.use_wandb:
+        with open("private.yaml") as f:
+            private_info = yaml.load(f, Loader=yaml.FullLoader)
+        wandb.login(key=private_info["wandb_key"])
+        run_id = f"action_pred_20step{currenttime}"
+        wandb.init(
+            project=private_info['main_project'],
+            entity=private_info['entity'],
+            name=run_id,
+            id=run_id,
+            group=f"Pred Model",
+            config={**bc_config.__dict__, **env_config.__dict__},
+        )
     best_loss = 9999999
     early_stopping = 0
-    for epoch in tqdm(range(config.epochs), desc="Epochs", unit="epoch"):
-        bc_policy.train()
+    for epoch in tqdm(range(bc_config.epochs), desc="Epochs", unit="epoch"):
+        pred_model.train()
         losses = 0
         mu_losses = 0
         std_losses = 0
         for i, batch in enumerate(train_loader):
             obs, mu, std, _ = batch
             obs, mu, std = obs.to(args.device), mu.to(args.device), std.to(args.device) 
-            pred_mu, pred_std = bc_policy(obs) 
+            pred_mu, pred_std = pred_model(obs) 
             mu_loss = F.smooth_l1_loss(pred_mu, mu)
             std_loss = F.smooth_l1_loss(pred_std, std)
             tot_loss = mu_loss + std_loss
@@ -88,7 +100,7 @@ def train(args):
         if epoch % 5 == 0:
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
-            bc_policy.eval()
+            pred_model.eval()
             losses = 0
             mu_losses = 0
             std_losses = 0
@@ -96,7 +108,7 @@ def train(args):
                 with torch.no_grad():
                     obs, mu, std, _ = batch
                     obs, mu, std = obs.to(args.device), mu.to(args.device), std.to(args.device) 
-                    pred_mu, pred_std = bc_policy(obs) 
+                    pred_mu, pred_std = pred_model(obs) 
 
                     mu_loss = F.smooth_l1_loss(pred_mu, mu)
                     std_loss = F.smooth_l1_loss(pred_std, std)
@@ -113,7 +125,7 @@ def train(args):
                 wandb.log(log_dict, step=epoch)
 
             if test_loss < best_loss:
-                torch.save(bc_policy, f"{model_path}/pred_model.pth")
+                torch.save(pred_model, f"{model_path}/pred_model.pth")
                 best_loss = losses
                 earlt_stopping = 0
                 print(f'EPOCH {epoch} gets BEST!')
