@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from typing import List
 from abc import ABC, abstractmethod
+import torch.distributions as dist
 
 def init(module, weight_init, bias_init, gain=1):
     '''
@@ -13,6 +14,32 @@ def init(module, weight_init, bias_init, gain=1):
     bias_init(module.bias.data)
     return module
 
+class ContHead(nn.Module):
+    def __init__(self, input_dim, head_config):
+        super(ContHead, self).__init__()
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, head_config.head_dim),
+            nn.ReLU()
+        )
+        self.dx_head =nn.Sequential(
+                nn.Linear(head_config.head_dim, 1),
+            )
+        self.dy_head =nn.Sequential(
+                nn.Linear(head_config.head_dim, 1),
+            )
+        self.dyaw_head =nn.Sequential(
+                nn.Linear(head_config.head_dim, 1),
+            )
+
+    def forward(self, x, deterministic=None):
+        # TODO: residual dx, dy, dyaw block (to do fair comparison with GMM, Dist)
+        x = self.input_layer(x)
+        dx = self.dx_head(x)
+        dy = self.dy_head(x)
+        dyaw = self.dyaw_head(x)
+        mu = torch.cat([dx, dy, dyaw], dim=-1)
+        return mu
+
 class LateFusionBCNet(nn.Module):
     def __init__(self, env_config, exp_config, head_config):
         super(LateFusionBCNet, self).__init__()
@@ -20,7 +47,7 @@ class LateFusionBCNet(nn.Module):
 
         self.ego_input_dim = 6
         self.ro_input_dim = 10
-        self.rg_input_dim = 10
+        self.rg_input_dim = 13
         self.hidden_dim = 128
         self.hidden_num = 2
         self.dropout = 0.0
@@ -35,19 +62,27 @@ class LateFusionBCNet(nn.Module):
             input_dim=self.rg_input_dim
         )
 
-        self.mu_head = GMM(
-            network_type=self.__class__.__name__,
-            input_dim=128,
+        self.mu_head = ContHead(
+            input_dim=128 * 3,
             head_config=head_config,
-            time_dim=1,
         )
+        self.std_head = ContHead(
+            input_dim=128 * 3,
+            head_config=head_config,
+        )
+        # self.mu_head = GMM(
+        #     network_type=self.__class__.__name__,
+        #     input_dim=128 * 3,
+        #     head_config=head_config,
+        #     time_dim=1,
+        # )
 
-        self.std_head = GMM(
-            network_type=self.__class__.__name__,
-            input_dim=128,
-            head_config=head_config,
-            time_dim=1,
-        )
+        # self.std_head = GMM(
+        #     network_type=self.__class__.__name__,
+        #     input_dim=128 * 3,
+        #     head_config=head_config,
+        #     time_dim=1,
+        # )
         self.ro_max = 127
         self.rg_max = 200
     @abstractmethod
@@ -107,9 +142,9 @@ class LateFusionBCNet(nn.Module):
         # Unpack observation
         ego_state, road_objects, road_graph = self._unpack_obs(obs)
         # Embed features
-        ego_state = self.actor_ego_state_net(ego_state)
-        road_objects = self.actor_ro_net(road_objects)
-        road_graph = self.actor_rg_net(road_graph)
+        ego_state = self.ego_state_net(ego_state)
+        road_objects = self.road_object_net(road_objects)
+        road_graph = self.road_graph_net(road_graph)
         road_objects = F.max_pool1d(
             road_objects.permute(0, 2, 1), kernel_size=self.ro_max
         ).squeeze(-1)
@@ -118,9 +153,8 @@ class LateFusionBCNet(nn.Module):
         ).squeeze(-1)
 
         # Concatenate processed ego state and observation and pass through the output layer
-        out = self.actor_out_net(
-            torch.cat((ego_state, road_objects, road_graph), dim=1)
-        )
+        context = torch.cat((ego_state, road_objects, road_graph), dim=1)
+        
         mu = self.mu_head(context, deterministic)
         std = self.std_head(context, deterministic)
         return mu, std

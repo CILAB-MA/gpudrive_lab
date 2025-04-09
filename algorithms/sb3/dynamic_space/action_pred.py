@@ -32,14 +32,16 @@ def train(args):
     head_config = HeadConfig()
     # config rl 코드 보고 가져오기
     bc_config = ExperimentConfig()
-    pred_model = LateFusionBCNet(env_config, bc_config, head_config)
+    pred_model = LateFusionBCNet(env_config, bc_config, head_config).to(args.device)
 
-    with np.load(os.path.join('/data/RL/data/test_trajectory_1000.npz')) as npz:
+    with np.load(os.path.join('/data/RL/data/train_trajectory_5000.npz')) as npz:
         train_dataset = ExpertDataset(**npz)
     train_loader = DataLoader(
         train_dataset,
         batch_size=bc_config.batch_size,
-        shuffle=True,  # Break temporal structure
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True
     )
     del train_dataset
 
@@ -48,7 +50,9 @@ def train(args):
     test_loader = DataLoader(
         test_dataset,
         batch_size=bc_config.batch_size,
-        shuffle=True,  # Break temporal structure
+        shuffle=False,
+        num_workers=8,
+        pin_memory=True,  # Break temporal structure
     )
     del test_dataset
     
@@ -84,12 +88,12 @@ def train(args):
             std_loss = F.smooth_l1_loss(pred_std, std)
             tot_loss = mu_loss + std_loss
             optimizer.zero_grad()
-            tot_loss.mean().backward()
+            tot_loss.backward()
             optimizer.step()
             losses += tot_loss
             mu_losses += mu_loss
             std_losses += std_loss
-        if arg.use_wandb:
+        if args.use_wandb:
             log_dict = {
                 "train/loss": losses / (i + 1),
                 "train/mu_loss": mu_losses / (i + 1),
@@ -116,7 +120,7 @@ def train(args):
                     mu_losses += mu_loss
                     std_losses += std_loss
 
-            if arg.use_wandb:
+            if args.use_wandb:
                 log_dict = {
                     "eval/loss": losses / (i + 1),
                     "eval/mu_loss": mu_losses / (i + 1),
@@ -124,7 +128,7 @@ def train(args):
                 }
                 wandb.log(log_dict, step=epoch)
 
-            if test_loss < best_loss:
+            if losses < best_loss:
                 torch.save(pred_model, f"{model_path}/pred_model.pth")
                 best_loss = losses
                 earlt_stopping = 0
