@@ -22,7 +22,7 @@ if __name__ == '__main__':
 
     all_runs = []
     api = wandb.Api()
-    for idx, sweep_id in enumerate(sweep_ids):
+    for sweep_id in sweep_ids:
         sweep = api.sweep(f"{ENTITY}/{PROJECT}/{sweep_id}")
         
         for run in sweep.runs:
@@ -39,10 +39,7 @@ if __name__ == '__main__':
             elif args.linear_probing == 'partner':
                 future_step = "aux_future_step"
             eval_summary[future_step] = summary[future_step]
-            if idx == 0:
-                eval_summary["experiment"] = "baseline"
-            else:
-                eval_summary["experiment"] = "linear_probing"
+            eval_summary["experiment"] = summary['model']
             all_runs.append(eval_summary)
 
     df = pd.DataFrame(all_runs)

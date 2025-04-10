@@ -1,21 +1,21 @@
 program: algorithms/il/analyze/linaer_probing/ego_linear_prob.py
 method: grid
-name: lp_ego_100
+name: lp_ego_5000
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/model/early_attn_all_baseline"
+    value: "/data/model/early_attn_baseline_5000"
   model_name:
-    values: ["early_attn_train_trajectory_100_seed_11_0401_142501"]
+    values: ["early_attn_all_data_0403_132702"]
 
   # DATA
   data_path:
     value: "/data/tom_v5"
   train_data:
-    value: "train_trajectory_100.npz"
+    value: "train_trajectory_5000.npz"
   test_data:
     value: "unseen_test_trajectory_200.npz"
   num_workers:
