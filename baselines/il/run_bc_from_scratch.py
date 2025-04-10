@@ -51,7 +51,6 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--sweep-id', type=str, default=None)
-    parser.add_argument('--use-mask', action='store_true')
     parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
                                                                    'no_guide_weighted', 'guide_no_weighted'])
     args = parser.parse_args()
@@ -184,17 +183,17 @@ def train():
     with np.load(os.path.join(config.data_path, config.train_data_file)) as npz:
         train_expert_obs = [npz['obs']]
         train_expert_actions = [npz['actions']]
-        train_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and config.use_mask) else []
-        train_partner_mask = [npz['partner_mask']] if ('partner_mask' in npz.keys() and config.use_mask) else []
-        train_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
+        train_expert_masks = [npz['dead_mask']] if 'dead_mask' in npz.keys() else []
+        train_partner_mask = [npz['partner_mask']] if 'partner_mask' in npz.keys() else []
+        train_road_mask = [npz['road_mask']] if 'road_mask' in npz.keys() else []
         train_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
        
     with np.load(os.path.join(config.data_path, config.eval_data_file)) as npz:
         eval_expert_obs = [npz['obs']]
         eval_expert_actions = [npz['actions']]
-        eval_expert_masks = [npz['dead_mask']] if ('dead_mask' in npz.keys() and config.use_mask) else []
-        eval_partner_mask = [npz['partner_mask']] if ('partner_mask' in npz.keys() and config.use_mask) else []
-        eval_road_mask = [npz['road_mask']] if ('road_mask' in npz.keys() and config.use_mask) else []
+        eval_expert_masks = [npz['dead_mask']] if 'dead_mask' in npz.keys() else []
+        eval_partner_mask = [npz['partner_mask']] if 'partner_mask' in npz.keys() else []
+        eval_road_mask = [npz['road_mask']] if 'road_mask' in npz.keys() else []
         eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
         
     tsne_obs = eval_expert_obs[0][:10, 2:7].copy()

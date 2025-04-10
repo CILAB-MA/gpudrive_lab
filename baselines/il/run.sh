@@ -48,7 +48,7 @@ for ENV in "$@"; do
     # Python 실행 (각각 다른 GPU에 할당)
     CUDA_VISIBLE_DEVICES=$GPU wandb agent $ENTITY/$PROJECT/$SWEEP_ID &
 
-    # CUDA_VISIBLE_DEVICES=$GPU python /app/gpudrive_lab/baselines/il/run_bc_from_scratch.py --use-mask --use-wandb --sweep-id $SWEEP_ID -en "$ENV" &
+    # CUDA_VISIBLE_DEVICES=$GPU python /app/gpudrive_lab/baselines/il/run_bc_from_scratch.py --use-wandb --sweep-id $SWEEP_ID -en "$ENV" &
     
     sleep 60
 done

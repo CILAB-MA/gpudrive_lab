@@ -34,7 +34,7 @@ for ENV in "$@"; do
     echo "Assigning GPU $GPU to process with -en $ENV"
     
     # Python 실행 (각각 다른 GPU에 할당)
-    CUDA_VISIBLE_DEVICES=$GPU python /app/gpudrive_lab/baselines/il/run_bc_from_scratch.py --use-mask --use-wandb -en "$ENV" --sweep-id $SWEEP_ID &
+    CUDA_VISIBLE_DEVICES=$GPU python /app/gpudrive_lab/baselines/il/run_bc_from_scratch.py --use-wandb -en "$ENV" --sweep-id $SWEEP_ID &
     
     sleep 60
 done
