@@ -61,7 +61,6 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         expert_obs, expert_actions, ego_global_pos, ego_global_rot, expert_masks, partner_mask, road_mask, other_info,
         rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
     )
-    del dataset
     dataloader = DataLoader(
         dataset,
         batch_size=config.batch_size,
@@ -69,7 +68,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         num_workers=0,
         pin_memory=True
     )
-
+    del dataset
     return dataloader
 
 def register_all_layers_forward_hook(model):
