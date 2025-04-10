@@ -28,9 +28,9 @@ def parse_args():
     parser.add_argument('--exp-name', '-en', type=str, default='all_data')
     parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-wandb', action='store_true')
-    parser.add_argument('--use-mask', action='store_true')
     parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
                                                                    'no_guide_weighted', 'guide_no_weighted'])
+    parser.add_argument('--num-workers', '-nw', type=int, default=4)
     parser.add_argument('--ego-future-step', '-afs', type=int, default=30)
     parser.add_argument('--model', '-m', default='baseline', choices=['baseline', 'early_lp', 'final_lp'])
     args = parser.parse_args()
