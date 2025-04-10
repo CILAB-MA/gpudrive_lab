@@ -18,8 +18,6 @@ parameters:
     value: "train_trajectory_5000.npz"
   test_data:
     value: "unseen_test_trajectory_200.npz"
-  num_workers:
-    value: 8
   rollout_len:
     value: 5
   pred_len:

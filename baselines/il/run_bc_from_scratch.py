@@ -39,9 +39,10 @@ def parse_args():
     parser.add_argument('--loss-name', '-l', type=str, default='gmm', choices=['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm'])
     
     # DATA
-    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v4/')
+    parser.add_argument('--data-path', '-dp', type=str, default='/data/tom_v5/')
     parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
+    parser.add_argument('--num-workers', '-nw', type=int, default=4)
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
     parser.add_argument('--aux-future-step', '-afs', type=int, default=10)
@@ -78,6 +79,45 @@ def get_grad_norm(params, step=None):
                 grad_name = str(name)
 
     return max_grad_norm, grad_name
+
+def get_dataloader(data_path, data_file, config, isshuffle=True):
+    with np.load(os.path.join(data_path, data_file)) as npz:
+        expert_obs = npz['obs']
+        expert_actions = npz['actions']
+        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
+        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
+        road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
+        other_info = npz['other_info'] if ('other_info' in npz.keys() and config.use_tom) else None
+    dataset = ExpertDataset(
+        expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
+        rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
+    )
+    dataloader = DataLoader(
+        dataset,
+        batch_size=config.batch_size,
+        shuffle=isshuffle,
+        num_workers=config.num_workers,
+        prefetch_factor=4,
+        pin_memory=True
+    )
+    del dataset
+    return dataloader
+
+def get_tsne_data(data_path, data_file, config):
+    with np.load(os.path.join(data_path, data_file)) as npz:
+        tsne_obs = npz['obs'][:10, 2:7]
+        tsne_data_mask = npz['partner_mask'][:10, 6]
+        tsne_partner_mask = np.where(tsne_data_mask == 2, 1, 0).astype('bool')
+        tsne_road_mask = npz['road_mask'][:10, 6]
+    if config.use_wandb:
+        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs[0], tsne_data_mask[0])
+        wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
+        plt.close(raw_fig)
+    tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
+    tsne_partner_mask = torch.from_numpy(tsne_partner_mask).to(config.device)
+    tsne_road_mask = torch.from_numpy(tsne_road_mask).to(config.device)
+    
+    return tsne_obs, tsne_partner_mask, tsne_road_mask, tsne_indices
 
 def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     total_samples = 0
@@ -153,7 +193,8 @@ def train():
     else:
         config = ExperimentConfig()
         config.__dict__.update(vars(args))
-    set_seed(config.seed)    
+    set_seed(config.seed)
+    
     # Initialize model and optimizer
     bc_policy = MODELS[config.model_name](env_config, net_config, head_config, config.loss_name, config.num_stack,
                                           config.use_tom).to(config.device)
@@ -170,95 +211,11 @@ def train():
         wandb_tags.append(f"non_trainable_params_{non_trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
     
-    # Get state action pairs
-    train_expert_obs, train_expert_actions = [], []
-    eval_expert_obs, eval_expert_actions, = [], []
+    expert_data_loader = get_dataloader(config.data_path, config.train_data_file, config)
+    eval_expert_data_loader = get_dataloader(config.data_path, config.eval_data_file, config, isshuffle=False)
+    tsne_obs, tsne_partner_mask, tsne_road_mask, tsne_indices = get_tsne_data(config.data_path, config.eval_data_file, config)
     
-    # Additional data depends on model
-    train_expert_masks, eval_expert_masks = [], []
-    train_other_info, eval_other_info = [], []
-    train_road_mask, eval_road_mask = [], []
-    
-    # Load cached data
-    with np.load(os.path.join(config.data_path, config.train_data_file)) as npz:
-        train_expert_obs = [npz['obs']]
-        train_expert_actions = [npz['actions']]
-        train_expert_masks = [npz['dead_mask']] if 'dead_mask' in npz.keys() else []
-        train_partner_mask = [npz['partner_mask']] if 'partner_mask' in npz.keys() else []
-        train_road_mask = [npz['road_mask']] if 'road_mask' in npz.keys() else []
-        train_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
-       
-    with np.load(os.path.join(config.data_path, config.eval_data_file)) as npz:
-        eval_expert_obs = [npz['obs']]
-        eval_expert_actions = [npz['actions']]
-        eval_expert_masks = [npz['dead_mask']] if 'dead_mask' in npz.keys() else []
-        eval_partner_mask = [npz['partner_mask']] if 'partner_mask' in npz.keys() else []
-        eval_road_mask = [npz['road_mask']] if 'road_mask' in npz.keys() else []
-        eval_other_info = [npz['other_info']] if ('other_info' in npz.keys() and config.use_tom) else []
-        
-    tsne_obs = eval_expert_obs[0][:10, 2:7].copy()
-    tsne_data_mask = eval_partner_mask[0][:10, 6].copy()
-    tsne_partner_mask = np.where(tsne_data_mask == 2, 1, 0).astype('bool')
-    tsne_road_mask = eval_road_mask[0][:10, 6].copy()
-    # Training loop
-    if config.use_wandb:
-        raw_fig, tsne_indices = visualize_partner_obs_final(tsne_obs[0], tsne_data_mask[0])
-        wandb.log({"embedding/relative_positions_plot": wandb.Image(raw_fig)}, step=0)
-        plt.close(raw_fig)
-    tsne_obs = torch.from_numpy(tsne_obs).to(config.device)
-    tsne_partner_mask = torch.from_numpy(tsne_partner_mask).to(config.device)
-    tsne_road_mask = torch.from_numpy(tsne_road_mask).to(config.device)
-
-    # Combine data (no changes)
-    num_cpus = os.cpu_count()
-    train_expert_obs = np.concatenate(train_expert_obs)
-    train_expert_actions = np.concatenate(train_expert_actions)
-    train_expert_masks = np.concatenate(train_expert_masks) if len(train_expert_masks) > 0 else None
-    train_partner_mask = np.concatenate(train_partner_mask) if len(train_partner_mask) > 0 else None
-    train_road_mask = np.concatenate(train_road_mask) if len(train_road_mask) > 0 else None
-    train_other_info = np.concatenate(train_other_info) if len(train_other_info) > 0 else None
-    train_dataset = ExpertDataset(
-            train_expert_obs, train_expert_actions, 
-            train_expert_masks, train_partner_mask, train_road_mask, train_other_info, 
-            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
-        )
-    num_train_sample = len(train_dataset)
-    print(f'NUM SAMPLES: {num_train_sample}')
-    expert_data_loader = DataLoader(
-        train_dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=int(num_cpus / 2),
-        prefetch_factor=4,
-        pin_memory=True
-    )
-    del train_expert_obs
-    del train_expert_actions
-    del train_expert_masks
-
-    eval_expert_obs = np.concatenate(eval_expert_obs)
-    eval_expert_actions = np.concatenate(eval_expert_actions)
-    eval_expert_masks = np.concatenate(eval_expert_masks) if len(eval_expert_masks) > 0 else None
-    eval_partner_mask = np.concatenate(eval_partner_mask) if len(eval_partner_mask) > 0 else None
-    eval_road_mask = np.concatenate(eval_road_mask) if len(eval_road_mask) > 0 else None
-    eval_other_info = np.concatenate(eval_other_info) if len(eval_other_info) > 0 else None
-    
-    eval_expert_data_loader = DataLoader(
-        ExpertDataset(
-            eval_expert_obs, eval_expert_actions,
-            eval_expert_masks, eval_partner_mask, eval_road_mask, other_info=eval_other_info,
-            rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step
-        ),
-        batch_size=config.batch_size,
-        shuffle=False,
-        num_workers=int(num_cpus / 2),
-        prefetch_factor=4,
-        pin_memory=True
-    )
-
-    del eval_expert_obs
-    del eval_expert_actions
-    del eval_expert_masks
+    num_train_sample = len(expert_data_loader.dataset)
     best_loss = 9999999
     early_stopping = 0
     gradient_steps = 0
@@ -365,7 +322,7 @@ def train():
                 if config.use_wandb:
                     with torch.no_grad():
                         others_tsne, other_distance, other_speed, other_weights = bc_policy.get_tsne(tsne_obs, tsne_partner_mask, tsne_road_mask)
-                    fig1, _ = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_data_mask, tsne_partner_mask)
+                    fig1, _ = visualize_embedding(others_tsne, other_distance, other_speed, tsne_indices, tsne_partner_mask, tsne_partner_mask)
                     wandb.log({"embedding/tsne_subplots": wandb.Image(fig1)}, step=gradient_steps)
                     plt.close(fig1)
                     log_dict = {

@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--use-tom', '-ut', default=None, choices=[None, 'guide_weighted', 'no_guide_no_weighted',
                                                                    'no_guide_weighted', 'guide_no_weighted'])
+    parser.add_argument('--num-workers', '-nw', type=int, default=4)
     parser.add_argument('--aux-future-step', '-afs', type=int, default=30)
     parser.add_argument('--model', '-m', default='baseline', choices=['baseline', 'early_lp', 'final_lp'])
     args = parser.parse_args()
@@ -64,7 +65,8 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         dataset,
         batch_size=config.batch_size,
         shuffle=isshuffle,
-        num_workers=0,
+        num_workers=config.num_workers,
+        prefetch_factor=4,
         pin_memory=True
     )
     del dataset

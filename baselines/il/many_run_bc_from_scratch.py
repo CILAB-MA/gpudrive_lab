@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument('--data-path', '-dp', type=str, default='train_trajectory_10000_v2')
     parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_1000.npz')
+    parser.add_argument('--num-workers', '-nw', type=int, default=4)
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
     parser.add_argument('--aux-future-step', '-afs', type=int, default=10)
@@ -107,79 +108,79 @@ def run_one_loader(train_loader, bc_policy, optimizer, config):
     road_ratios = 0
     max_losses = []
     for i, batch in enumerate(train_loader):
-            batch_size = batch[0].size(0)
-            
-            if len(batch) == 9:
-                obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, data_idx = batch
-            elif len(batch) == 7:
-                obs, expert_action, masks, ego_masks, partner_masks, road_masks, data_idx = batch 
-            elif len(batch) == 4:
-                obs, expert_action, masks, data_idx = batch
-            else:
-                obs, expert_action, data_idx = batch
-            
-            obs, expert_action = obs.to(config.device), expert_action.to(config.device)
-            masks = masks.to(config.device) if len(batch) > 2 else None
-            ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
-            partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
-            road_masks = road_masks.to(config.device) if len(batch) > 3 else None
-            if config.use_tom != None:
-                other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
-            all_masks= [masks, ego_masks, partner_masks, road_masks]
-            # Forward pass
-            if config.use_tom != None:
-                context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
-                pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)                
-                aux_task = ['action', 'pos', 'heading', 'speed']
-                aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
-                aux_losses = torch.zeros(4).to(config.device)
-                for aux_ind, (aux, feat_dim) in enumerate(zip(aux_task, aux_task_ind)):
-                    aux_info  = [aux, other_weights[:, aux_ind], config.use_tom]
-                    if 'no_guide' in config.use_tom:
-                        other_input = other_embeds
-                    else:
-                        other_input = other_embeds[..., aux_ind * 32: (aux_ind + 1) * 32]
-                    tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
-                                    aux_info=aux_info)
-                    aux_losses[aux_ind] = tom_loss
-                    loss = pred_loss + 0.1 * tom_loss
-            else:
-                context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
-                pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
-                loss = pred_loss
-            
-            # To write data idx that has the highest loss
-            if config.use_wandb:
-                max_loss, max_loss_idx = torch.max(pred_loss_wandb, dim=-1)
-                max_loss_idx = data_idx[max_loss_idx]
-                max_losses.append((max_loss.item(), (max_loss_idx.detach().cpu().numpy())))
-            
-            loss = loss.mean()
-            partner_ratios += all_ratio[0]
-            road_ratios += all_ratio[1]
-            # Backward pass
-            optimizer.zero_grad()
-            loss.backward()
+        batch_size = batch[0].size(0)
+        
+        if len(batch) == 9:
+            obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, data_idx = batch
+        elif len(batch) == 7:
+            obs, expert_action, masks, ego_masks, partner_masks, road_masks, data_idx = batch 
+        elif len(batch) == 4:
+            obs, expert_action, masks, data_idx = batch
+        else:
+            obs, expert_action, data_idx = batch
+        
+        obs, expert_action = obs.to(config.device), expert_action.to(config.device)
+        masks = masks.to(config.device) if len(batch) > 2 else None
+        ego_masks = ego_masks.to(config.device) if len(batch) > 3 else None
+        partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
+        road_masks = road_masks.to(config.device) if len(batch) > 3 else None
+        if config.use_tom != None:
+            other_info = other_info.to(config.device).transpose(1, 2).reshape(batch_size, 127, -1) if len(batch) > 6 else None
+        all_masks= [masks, ego_masks, partner_masks, road_masks]
+        # Forward pass
+        if config.use_tom != None:
+            context, all_ratio, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks[1:])
+            pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)                
+            aux_task = ['action', 'pos', 'heading', 'speed']
+            aux_task_ind = [(4, 7), (1, 3), (3, 4), (0, 1)]
+            aux_losses = torch.zeros(4).to(config.device)
+            for aux_ind, (aux, feat_dim) in enumerate(zip(aux_task, aux_task_ind)):
+                aux_info  = [aux, other_weights[:, aux_ind], config.use_tom]
+                if 'no_guide' in config.use_tom:
+                    other_input = other_embeds
+                else:
+                    other_input = other_embeds[..., aux_ind * 32: (aux_ind + 1) * 32]
+                tom_loss = LOSS['aux'](bc_policy, other_input, other_info[..., feat_dim[0]:feat_dim[1]], aux_mask, 
+                                aux_info=aux_info)
+                aux_losses[aux_ind] = tom_loss
+                loss = pred_loss + 0.1 * tom_loss
+        else:
+            context, all_ratio, *_ = bc_policy.get_context(obs, all_masks[1:])
+            pred_loss, pred_loss_wandb = LOSS[config.loss_name](bc_policy, context, expert_action, all_masks)
+            loss = pred_loss
+        
+        # To write data idx that has the highest loss
+        if config.use_wandb:
+            max_loss, max_loss_idx = torch.max(pred_loss_wandb, dim=-1)
+            max_loss_idx = data_idx[max_loss_idx]
+            max_losses.append((max_loss.item(), (max_loss_idx.detach().cpu().numpy())))
+        
+        loss = loss.mean()
+        partner_ratios += all_ratio[0]
+        road_ratios += all_ratio[1]
+        # Backward pass
+        optimizer.zero_grad()
+        loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 20)
-            max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
-            max_norms += max_norm
-            max_names.append(max_name)
+        torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 20)
+        max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
+        max_norms += max_norm
+        max_names.append(max_name)
 
-            optimizer.step()
+        optimizer.step()
 
-            with torch.no_grad():
-                pred_actions = bc_policy.get_action(context, deterministic=True)
-                component_probs = bc_policy.head.get_component_probs().cpu().numpy()
-                action_loss = torch.abs(pred_actions - expert_action)
-                dx_loss = action_loss[..., 0].mean().item()
-                dy_loss = action_loss[..., 1].mean().item()
-                dyaw_loss = action_loss[..., 2].mean().item()
-                dx_losses += dx_loss
-                dy_losses += dy_loss
-                dyaw_losses += dyaw_loss
-                
-            losses += pred_loss.mean().item()
+        with torch.no_grad():
+            pred_actions = bc_policy.get_action(context, deterministic=True)
+            component_probs = bc_policy.head.get_component_probs().cpu().numpy()
+            action_loss = torch.abs(pred_actions - expert_action)
+            dx_loss = action_loss[..., 0].mean().item()
+            dy_loss = action_loss[..., 1].mean().item()
+            dyaw_loss = action_loss[..., 2].mean().item()
+            dx_losses += dx_loss
+            dy_losses += dy_loss
+            dyaw_losses += dyaw_loss
+            
+        losses += pred_loss.mean().item()
     return losses, dx_losses, dy_losses, dyaw_losses, max_norms, component_probs, max_losses, i
 
 def train():
@@ -256,8 +257,6 @@ def train():
     tsne_road_mask = torch.from_numpy(tsne_road_mask).to(config.device)
 
     # Combine data (no changes)
-    num_cpus = os.cpu_count()
-
     eval_expert_obs = np.concatenate(eval_expert_obs)
     eval_expert_actions = np.concatenate(eval_expert_actions)
     eval_expert_masks = np.concatenate(eval_expert_masks) if len(eval_expert_masks) > 0 else None
@@ -273,7 +272,7 @@ def train():
         ),
         batch_size=config.batch_size,
         shuffle=False,
-        num_workers=int(num_cpus / 2),
+        num_workers=config.num_workers,
         prefetch_factor=4,
         pin_memory=True
     )
@@ -308,7 +307,8 @@ def train():
                 train_dataset,
                 batch_size=config.batch_size,
                 shuffle=True,
-                num_workers=0,
+                num_workers=config.num_workers,
+                prefetch_factor=4,
                 pin_memory=True,
             )
             print(f"Data loading time: {time.time() - data_load_start:.4f} sec")
