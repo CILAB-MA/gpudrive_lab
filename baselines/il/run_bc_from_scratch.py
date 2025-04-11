@@ -130,9 +130,6 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     for i, batch in enumerate(eval_expert_data_loader):
         batch_size = batch[0].size(0)
         total_samples += batch_size
-        if total_samples > num_train_sample / 10:
-            i -= 1
-            break
         if len(batch) == 9:
             obs, expert_action, masks, ego_masks, partner_masks, road_masks, other_info, aux_mask, _ = batch  
         elif len(batch) == 7:

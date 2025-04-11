@@ -1,6 +1,6 @@
 program: baselines/il/run_bc_from_scratch.py
 method: grid
-name: 500scenes
+name: Full_Test
 metric:
   goal: minimize
   name: eval/loss
@@ -15,11 +15,11 @@ parameters:
   batch_size:
     values: [512]
   total_gradient_steps:
-    values: [100000]
+    values: [4000000]
   eval_freq:
-    values: [1000]
+    values: [5000]
   log_freq:
-    values: [100]
+    values: [4000000]
   lr:
     values: [0.0005]
   sample_per_epoch:
@@ -27,14 +27,13 @@ parameters:
   seed:
     values: [3, 11, 17 ,42]
   early_stop_num:
-    values: [3]
+    values: [4000000]
   data_path:
-    values: ['/data/'] # for 10,0000
-  train_data_file:
-    values: ['train_trajectory_500.npz']
+    values: ['/scratch/cilab/team_gpudrive/tom_v5/train_subset_v2'] # for 10,0000
   eval_data_file:
-    values: ['test_trajectory_200.npz']
-  
+    values: ['../test_trajectory_2000.npz']
+  data_num:
+    values: [14] #14 is full
   # NETWORKCONFIG
   network_dim:
     values: [128]
