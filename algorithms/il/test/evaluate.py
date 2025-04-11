@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('--num-world', '-w', type=int, default=10)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/new_aux_horizon')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/old_v2/new_aux_horizon')
     parser.add_argument('--model-name', '-mn', type=str, default='aux_attn_gmm_guide_weight_20250217_1245.pth')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
@@ -84,9 +84,21 @@ def run(args):
     # To make video with expert trajectories footprint
     if render_config.draw_expert_footprint:
         obs = env.reset()
+        alive_agent_mask = env.cont_agent_mask.clone()
         expert_actions, _, _ = env.get_expert_actions()
+        infos = env.get_infos()
+        exp_goal_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to(args.device)
+
         for time_step in range(env.episode_len):
             env.step_dynamics(expert_actions[:, :, time_step, :])
+            infos = env.get_infos()
+            print(time_step, alive_agent_mask.sum())
+            controlled_agent_info = infos[alive_agent_mask]
+            # Record when agent status changed(goal or collided)
+            goal_achieved = controlled_agent_info[:, 3]
+            goal_mask = (goal_achieved > 0) & (exp_goal_timesteps == -1)
+
+            exp_goal_timesteps[goal_mask] = time_step
             obs = env.get_obs()
             dones = env.get_dones()
             for world_render_idx in range(NUM_WORLDS):
@@ -104,7 +116,7 @@ def run(args):
     dist_metrics = torch.zeros_like(init_goal_dist)
     infos = env.get_infos()
     collision_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to(args.device)
-    goal_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to(args.device)
+    goal_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.float32).to(args.device)
     off_road_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to(args.device)
 
     for time_step in range(env.episode_len):
@@ -132,7 +144,7 @@ def run(args):
         off_road_mask = (off_road > 0) & (off_road_timesteps == -1)
 
         collision_timesteps[collision_mask] = time_step
-        goal_timesteps[goal_mask] = time_step
+        goal_timesteps[goal_mask] = time_step / exp_goal_timesteps[goal_mask]
         off_road_timesteps[off_road_mask] = time_step
 
         road_masks = road_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
@@ -233,6 +245,7 @@ def run(args):
     collision_rate = off_road_rate + veh_coll_rate
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
     print(f'Success World idx : ', torch.where(goal_achieved == 1)[0].tolist())
+    print(f'Goal Reached Time : {goal_time_avg}')
     if args.make_csv:
         csv_path = f"{args.model_path}/result_{args.partner_portion_test}.csv"
         if args.shortest_path_test:
