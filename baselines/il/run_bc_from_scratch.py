@@ -43,6 +43,8 @@ def parse_args():
     parser.add_argument('--train-data-file', '-td', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--eval-data-file', '-ed', type=str, default='test_trajectory_200.npz')
     parser.add_argument('--num-workers', '-nw', type=int, default=4)
+    parser.add_argument('--prefetch-factor', '-pf', type=int, default=4)
+    parser.add_argument('--pin-memory', '-pm', action='store_true')
     parser.add_argument('--rollout-len', '-rl', type=int, default=5)
     parser.add_argument('--pred-len', '-pl', type=int, default=1)
     parser.add_argument('--aux-future-step', '-afs', type=int, default=10)
@@ -97,8 +99,8 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         batch_size=config.batch_size,
         shuffle=isshuffle,
         num_workers=config.num_workers,
-        prefetch_factor=4,
-        pin_memory=True
+        prefetch_factor=config.prefetch_factor,
+        pin_memory=config.pin_memory
     )
     del dataset
     return dataloader
