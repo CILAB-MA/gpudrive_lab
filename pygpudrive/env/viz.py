@@ -100,7 +100,7 @@ class PyGameVisualizer:
                 self.footprints = np.zeros((gpudrive.episodeLen, self.num_worlds, gpudrive.kMaxAgentCount, 2))
             else:
                 self.footprints = None
-            if self.render_config.draw_other_aux:
+            if self.render_config.draw_other_lp:
                 self.ego_aux = np.zeros((self.num_worlds, gpudrive.episodeLen, 3))
                 self.other_aux = np.zeros((self.num_worlds, gpudrive.episodeLen, 128, 3))
             else:
@@ -682,9 +682,9 @@ class PyGameVisualizer:
                         color,
                     )
 
-            if self.render_config.draw_other_aux:
+            if self.render_config.draw_other_lp:
                 partner_color = partner_color[1:]
-                self.draw_other_auxiliary(world_render_idx, time_step, agent_response_types, partner_color)
+                self.draw_other_probing(world_render_idx, time_step, agent_response_types, partner_color)
             
             if self.render_config.draw_ego_attention:
                 self.attn_surfs = [self.surf.copy() for _ in range(self.ego_attn_score.shape[1])]
@@ -983,10 +983,10 @@ class PyGameVisualizer:
     def saveAuxPred(self, aux_pred):
         setattr(self, "aux_pred", aux_pred)
 
-    def draw_other_auxiliary(self, world_render_idx, time_step, agent_response_types, partner_color):
+    def draw_other_probing(self, world_render_idx, time_step, agent_response_types, partner_color):
         for future_step, aux_pred in self.aux_pred.items():
             grid, ego_pos, ego_rot = self.get_ego_info(world_render_idx)
-            self.draw_other_future(world_render_idx, aux_pred, time_step, 2*future_step, agent_response_types, partner_color, grid, ego_pos, ego_rot)
+            self.draw_other_future(world_render_idx, aux_pred, time_step, future_step, agent_response_types, partner_color, grid, ego_pos, ego_rot)
     
     def get_ego_info(self, world_render_idx):
         """Get the ego grid on the surface."""
@@ -1101,23 +1101,22 @@ class PyGameVisualizer:
             return bin_centers[discrete_action]
         
         @staticmethod
-        def _draw_gt_pos(surf, partner_color, grid, controlled_agent_id, partner_ids, partner_pos, future_step):
+        def _draw_pos(surf, partner_color, grid, controlled_agent_id, partner_ids, partner_pos, future_step, is_label=True):
             def blend_with_white(color, ratio):
                 r, g, b = color
                 r = int(r + (255 - r) * ratio)
                 g = int(g + (255 - g) * ratio)
                 b = int(b + (255 - b) * ratio)
                 return (r, g, b)
-            
             fade_ratio = {
                 10: 0.0,
                 20: 0.3,
                 30: 0.6,
                 40: 0.8
             }
-
             grid = np.array(grid)
-            
+            overlay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+
             for id, partner_id in enumerate(controlled_agent_id):
                 if partner_id in partner_ids:
                     pos = partner_pos[partner_id]
@@ -1125,28 +1124,30 @@ class PyGameVisualizer:
                     point = Point(pos[0], pos[1])
                     for i in range(8):
                         for j in range(8):
-                            c1 = grid[i, j]
-                            c2 = grid[i, j + 1]
-                            c3 = grid[i + 1, j + 1]
-                            c4 = grid[i + 1, j]
-                            
+                            c1, c2 = grid[i, j], grid[i, j + 1]
+                            c3, c4 = grid[i + 1, j + 1], grid[i + 1, j]
                             polygon = Polygon([c1, c2, c3, c4])
-                            
+
                             if polygon.contains(point):
                                 cx = (c1[0] + c2[0] + c3[0] + c4[0]) / 4
                                 cy = (c1[1] + c2[1] + c3[1] + c4[1]) / 4
                                 w = (np.linalg.norm(np.array(c1) - np.array(c2)) + np.linalg.norm(np.array(c4) - np.array(c3))) / 2
                                 h = (np.linalg.norm(np.array(c1) - np.array(c4)) + np.linalg.norm(np.array(c2) - np.array(c3))) / 2
-                                square = [
-                                    (cx - 0.1 * w, cy - 0.1 * h),
-                                    (cx + 0.1 * w, cy - 0.1 * h),
-                                    (cx + 0.1 * w, cy + 0.1 * h),
-                                    (cx - 0.1 * w, cy + 0.1 * h)
-                                ]
+
                                 faded_color = blend_with_white(partner_color[id], fade_ratio[future_step])
-                                
-                                pygame.draw.polygon(surf, faded_color, square, width=0)
+                                alpha = 180  # 반투명
+                                radius = int(min(w, h) * 0.2)
+
+                                if is_label:
+                                    pygame.draw.circle(overlay, faded_color + (alpha,), (int(cx), int(cy)), radius, width=0)
+                                else:
+                                    offset = radius
+                                    pygame.draw.line(overlay, faded_color + (alpha,), (cx - offset, cy - offset), (cx + offset, cy + offset), width=2)
+                                    pygame.draw.line(overlay, faded_color + (alpha,), (cx - offset, cy + offset), (cx + offset, cy - offset), width=2)
                                 break
+
+            surf.blit(overlay, (0, 0))
+
 
         # 1. Get the global future positions of the other agents
         try:
@@ -1174,46 +1175,12 @@ class PyGameVisualizer:
         other_global_pos = np.stack([other_global_x, other_global_y], axis=-1)
         
         # 2. Get the future rotation of the other agents
-        aux_pred_rot = aux_pred['action'].cpu().detach().numpy()
-        other_rot = _recover_action_from_discrete(aux_pred_rot[world_render_idx])
-        other_rot = other_rot + ego_rot
+        # aux_pred_rot = aux_pred['action'].cpu().detach().numpy()
+        # other_rot = _recover_action_from_discrete(aux_pred_rot[world_render_idx])
+        # other_rot = other_rot + ego_rot
         
         # 3. Draw the future ground truth positions of the other agents
-        _draw_gt_pos(self.surf, partner_color, grid, controlled_agent_id, alive_partner_ids, other_future_pos, future_step)
-        
-        # 3. Draw the future rotations of the other agents on their global positions
-        for i, partner_id in enumerate(controlled_agent_id):
-            if partner_id in alive_partner_ids:
-                color = partner_color[i]
-                
-                pos = other_global_pos[partner_id]
-                pos = self.scale_coords(pos, world_render_idx)
-                rot = other_rot[partner_id]
-
-                # draw arrow body
-                arrow_length = 20
-                end_x = pos[0] + arrow_length * np.cos(rot)
-                end_y = pos[1] + arrow_length * np.sin(rot)
-
-                end_pos = (int(end_x), int(end_y))
-                start_pos = (int(pos[0]), int(pos[1]))
-
-                pygame.draw.line(self.surf, color, start_pos, end_pos, 4)
-
-                # draw arrow head
-                arrow_head_len = 6
-                arrow_angle = np.pi / 6
-
-                left_x = end_x - arrow_head_len * np.cos(rot - arrow_angle)
-                left_y = end_y - arrow_head_len * np.sin(rot - arrow_angle)
-                right_x = end_x - arrow_head_len * np.cos(rot + arrow_angle)
-                right_y = end_y - arrow_head_len * np.sin(rot + arrow_angle)
-
-                pygame.draw.line(self.surf, color, end_pos, (int(left_x), int(left_y)), 4)
-                pygame.draw.line(self.surf, color, end_pos, (int(right_x), int(right_y)), 4)
-                
-                # draw future step number
-                font = pygame.font.SysFont(None, 20)
-                step_text = font.render(str(future_step), True, (0, 0, 0))
-                text_rect = step_text.get_rect(center=end_pos)
-                self.surf.blit(step_text, text_rect)
+        _draw_pos(self.surf, partner_color, grid, controlled_agent_id, alive_partner_ids, 
+            other_future_pos, future_step, is_label=True)
+        _draw_pos(self.surf, partner_color, grid, controlled_agent_id, alive_partner_ids, 
+            other_global_pos, future_step, is_label=False)
