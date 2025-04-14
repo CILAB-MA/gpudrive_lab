@@ -304,7 +304,7 @@ def train():
                 )
     
     # Save head
-    save_dir = os.path.join(config.model_path, f"ego_linear_prob/{config.model_name}/seed{config.seed}v2/")
+    save_dir = os.path.join(config.model_path, f"ego_linear_prob/{config.model_name}/seed{config.seed}/")
     os.makedirs(save_dir, exist_ok=True)
     torch.save(pos_linear_model, os.path.join(save_dir, f"pos_{config.model}_{config.ego_future_step}.pth"))
 

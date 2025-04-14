@@ -209,8 +209,8 @@ class RenderConfig:
     color_scheme: str = "light"
     draw_expert_footprint: bool = False
     draw_only_ego_footprint: bool = False
-    draw_ego_attention: bool = False
-    draw_other_aux: bool = False
+    draw_ego_importance: bool = False # draw importance weights (e.g. attention weight, lp loss)
+    draw_other_lp: bool = False # draw the linear probing results
 
     def __str__(self) -> str:
         """Returns a string representation of the rendering configuration."""
