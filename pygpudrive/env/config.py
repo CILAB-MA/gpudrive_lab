@@ -1,9 +1,9 @@
 # pylint: skip-file
 """Configuration classes and enums for GPUDrive Environments."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 import torch
 
 import gpudrive
@@ -211,6 +211,8 @@ class RenderConfig:
     draw_only_ego_footprint: bool = False
     draw_ego_importance: bool = False # draw importance weights (e.g. attention weight, lp loss)
     draw_other_lp: bool = False # draw the linear probing results
+    draw_other_idx: List[int] = field(default_factory=lambda: [1])
+    draw_lp_label: bool = False # draw the linear probing label
 
     def __str__(self) -> str:
         """Returns a string representation of the rendering configuration."""

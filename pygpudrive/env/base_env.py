@@ -274,6 +274,9 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
             raise ValueError(
                 "Expert footprint rendering is only supported in Pygame absolute mode."
             )
+    def get_response_type_tensor(self):
+        return self.sim.response_type_tensor().to_torch()
+
     def save_aux(self, world_render_idx=0, time_step=0):
         """Saves the ego aux of the environment.
 
@@ -311,22 +314,25 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
                 "Attention objects rendering is only supported in Pygame absolute mode."
             )
             
-    def save_aux_pred(self, aux_dict):
-        """Saves the auxiliary predictions of the environment.
+    def save_lp_pred(self, ego_dict, other_dict, ego_prime_dict, intervention_idx):
+        """Saves the linear probing predictions of the environment for intervention experiment.
 
         Args:
-            aux_dict: Dictionary containing auxiliary predictions.
+            ego_dict: Dictionary containing auxiliary predictions.
+            other_dict: Dictionary containing auxiliary predictions.
+            ego_prime_dict: Dictionary containing auxiliary predictions.
+            intervention_idx: other's idx for intervention
 
         Returns:
             Any: Rendered view of the world, or None if an invalid index is specified.
         """
-        if not self.render_config.draw_other_aux:
+        if not self.render_config.draw_other_lp:
             return None
         
         if self.render_config.render_mode in {
             RenderMode.PYGAME_ABSOLUTE,
         }:
-            return self.visualizer.saveAuxPred(aux_dict)
+            return self.visualizer.saveLpPred(ego_dict, other_dict, ego_prime_dict, intervention_idx)
         else:
             raise ValueError(
                 "Auxiliary predictions rendering is only supported in Pygame absolute mode."
