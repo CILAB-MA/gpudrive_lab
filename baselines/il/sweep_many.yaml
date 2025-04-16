@@ -1,13 +1,13 @@
-program: baselines/il/run_bc_aux.py
+program: baselines/il/many_run_bc_from_scratch.py
 method: grid
-name: aux_1000_test
+name: test_many
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # ARGS
   model_name:
-    values: ["aux_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+    values: ["early_attn"] # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
   loss_name:
     value: "gmm" # ['l1', 'mse', 'twohot', 'nll', 'gmm', 'new_gmm']
 
@@ -17,21 +17,21 @@ parameters:
   total_gradient_steps:
     values: [100000]
   eval_freq:
-    values: [5000]
+    values: [1000]
   log_freq:
-    values: [100000]
+    values: [100]
   lr:
     values: [0.0005]
   sample_per_epoch:
     values: [438763]
   seed:
-    values: [3, 11, 17 ,42]
+    values: [3]
   early_stop_num:
-    values: [100000]
+    values: [3]
   data_path:
-    values: ['/data/tom_v5/'] # for 10,0000
+    values: ['/data/tom_v5'] # for 10,0000
   train_data_file:
-    values: ['train_trajectory_1000.npz']
+    values: ['train_trajectory_500.npz']
   test_data_file:
     values: ['test_trajectory_200.npz']
   
@@ -63,6 +63,6 @@ parameters:
   
   # AUXCONFIG
   use_tom:
-    values: ["no_guide_no_weighted"] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+    values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
   aux_future_step:
-    values: [20] # null, 1, 5, 10, 20, 30
+    values: [null] # null, 1, 5, 10, 20, 30

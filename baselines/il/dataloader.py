@@ -2,10 +2,11 @@ import torch
 import numpy as np
 from torch.utils.data import DataLoader, IterableDataset
 import random
+from pygpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class ExpertDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
-                 rollout_len=5, pred_len=1, aux_future_step=None):
+                 rollout_len=5, pred_len=1, aux_future_step=None, ego_global_pos=None, ego_global_rot=None):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -34,6 +35,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         partner_info = obs[..., 6:1276].reshape(B, T, 127, 10)[..., :4]
         self.aux_mask = None
         self.other_info = None
+        self.other_pos = None
         if other_info is not None:
             # todo: concat remove need
             aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, 
@@ -44,6 +46,10 @@ class ExpertDataset(torch.utils.data.Dataset):
             aux_mask[aux_action_mask] = True
             self.aux_mask = aux_mask.astype('bool')
             self.other_info = aux_info
+            current_relative_pos = self._transform_relative_pos(aux_info, ego_global_pos, ego_global_rot, future_step=aux_future_step)
+            current_relative_pos[self.aux_mask] = 0
+            self.other_pos = self._get_multi_class_pos(current_relative_pos)
+
         new_shape = (B, T + rollout_len - 1, 127)
         new_partner_mask = np.full(new_shape, 2, dtype=np.float32)
         new_partner_mask[:, rollout_len - 1:] = partner_mask
@@ -61,7 +67,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
         self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask',
-                         'other_info', 'aux_mask']
+                         'other_pos', 'aux_mask']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -131,7 +137,58 @@ class ExpertDataset(torch.utils.data.Dataset):
         combined_mask_bool = partner_mask_bool | aligned_future_mask_bool
 
         return aligned_future_acton_sum, combined_mask_bool
+    
+    @staticmethod
+    def _get_multi_class_pos(pos):
+        """
+        Convert continuous pos to multi-class discrete pos based on x, y.
+        """
+        x, y = pos[..., 0], pos[..., 1]
         
+        # Define bins for discretization (-1 to 1 with 8 bins)
+        bins = np.linspace(-0.1, 0.1, 9)
+        
+        # Digitize x and y into 8 categories (0 to 7)
+        x_bins = np.digitize(x, bins) - 1
+        y_bins = np.digitize(y, bins) - 1
+        
+        # Ensure values are within valid range (0 to 7)
+        x_bins = np.clip(x_bins, 0, 7)
+        y_bins = np.clip(y_bins, 0, 7)
+        
+        discrete_pos = x_bins * 8 + y_bins
+        return discrete_pos
+    
+    def _transform_relative_pos(self, aux_info, ego_global_pos, ego_global_rot, future_step):
+        """transform time t relative pos to current relative pos"""
+        # 1. transform t-relative pos to t-global pos
+        # get partner's relative pos and rot at time t
+        t_partner_pos = aux_info[..., 1:3] * MAX_REL_AGENT_POS
+        
+        # get ego's global pos and rot at time t
+        t_ego_global_pos = np.zeros_like(ego_global_pos)
+        t_ego_global_rot = np.zeros_like(ego_global_rot)
+        t_ego_global_pos[:, :-future_step] = ego_global_pos[:, future_step:]
+        t_ego_global_rot[:, :-future_step] = ego_global_rot[:, future_step:]
+        
+        t_partner_global_pos_x = t_ego_global_pos[..., 0, None] + t_partner_pos[..., 0] * np.cos(t_ego_global_rot) - t_partner_pos[..., 1] * np.sin(t_ego_global_rot)
+        t_partner_global_pos_y = t_ego_global_pos[..., 1, None] + t_partner_pos[..., 0] * np.sin(t_ego_global_rot) + t_partner_pos[..., 1] * np.cos(t_ego_global_rot)
+        
+        # 2. transform t-global pos to current relative pos
+        delta_x = t_partner_global_pos_x - ego_global_pos[..., 0, None]
+        delta_y = t_partner_global_pos_y - ego_global_pos[..., 1, None]
+        
+        cos_theta = np.cos(-ego_global_rot)
+        sin_theta = np.sin(-ego_global_rot)
+        
+        current_relative_pos_x = delta_x * cos_theta + delta_y * sin_theta
+        current_relative_pos_y = -delta_x * sin_theta + delta_y * cos_theta
+        current_relative_pos_x = 2 * ((current_relative_pos_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos_y = 2 * ((current_relative_pos_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+        
+        return current_relative_pos
+    
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
         idx1 = int(idx1)
@@ -147,7 +204,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
-                    elif var_name in ['other_info', 'aux_mask']:
+                    elif var_name in ['other_pos', 'aux_mask']:
                         data = self.__dict__[var_name][idx1, idx2]
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
