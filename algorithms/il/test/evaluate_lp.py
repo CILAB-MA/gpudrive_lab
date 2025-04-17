@@ -25,18 +25,19 @@ def parse_args():
     parser.add_argument('--device', '-d', type=str, default='cuda', choices=['cpu', 'cuda'],)
     parser.add_argument('--num-stack', '-s', type=int, default=5)
     parser.add_argument('--start-idx', '-st', type=int, default=0)
-    parser.add_argument('--num-world', '-w', type=int, default=2)
+    parser.add_argument('--num-world', '-w', type=int, default=5)
     parser.add_argument('--seed', type=int, default=44)
     # EXPERIMENT
     parser.add_argument('--dataset', type=str, default='valid', choices=['train', 'valid'],)
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model/early_attn_all_baseline_0407')
+    parser.add_argument('--model-path', '-mp', type=str, default='/results/model/early_attn_all_baseline_0407')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_all_data_0403_132702')
     parser.add_argument('--make-image', '-mv', action='store_true')
-    parser.add_argument('--image-path', '-vp', type=str, default='/data/intervention/test')
+    parser.add_argument('--image-path', '-vp', type=str, default='/results/intervention/test')
 
     # INTERVENTION
-    parser.add_argument('--intervention-idx', '-o', type=list, default=[10] * 2) # intervention partner idx
-    parser.add_argument('--intervention-label', '-l', type=int, default=10) # change position label
+    parser.add_argument('--intervention-idx', '-i', type=list, default=[2, 2, 10, 2, 1]) # intervention partner idx
+    parser.add_argument('--scene-idx', '-si', type=list, default=[282, 287, 330, 335, 349]) # intervention partner idx
+    parser.add_argument('--intervention-label', '-l', type=list, default=[10] * 5) # change position label
     args = parser.parse_args()
     return args
 
@@ -64,10 +65,11 @@ def run(args):
     ROLLOUT_LEN = 5
 
     # Initialize configurations
-    scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
+    scene_config = SceneConfig(f"/results/formatted_json_v2_no_tl_{args.dataset}/",
                                num_scenes=NUM_WORLDS,
                                start_idx=args.start_idx,
-                               discipline=SelectionDiscipline.RANGE_N)
+                               discipline=SelectionDiscipline.CUSTOM_N,
+                               custom_idx=args.scene_idx)
     
     env_config = EnvConfig(
         dynamics_model="delta_local",
@@ -143,7 +145,7 @@ def run(args):
     frames = [[] for _ in range(NUM_WORLDS)]
     expert_actions, _, _ = env.get_expert_actions()
     infos = env.get_infos()
-
+    intervention_label = torch.from_numpy(np.array(args.intervention_label)).to(args.device)
     for time_step in range(env.episode_len):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to(args.device)
         
@@ -174,7 +176,7 @@ def run(args):
             ego_lp_prime_dict = defaultdict(dict)
             for (ego_name, ego_head) , (other_name, other_head) in zip(ego_lp_heads.items(), other_lp_heads.items()):
                 other_pred = other_head.predict(ro_attn_layers['0'][:,1:,:]) # todo: '0' -> lp layer
-                other_pred_weight = other_head.head.weight[args.intervention_label] # todo: thsi should be list! e.g.) 3. 10. 5. 7
+                other_pred_weight = other_head.head.weight[intervention_label[is_world_alive]] # todo: thsi should be list! e.g.) 3. 10. 5. 7
                 ego_pred = ego_head.predict(ro_attn_layers['0'][:,0,:]) # todo: '0' -> lp layer
                 ego_pred_prime = ego_head.predict(ro_attn_layers['0'][:,0,:] + other_pred_weight) # todo: '0' -> lp layer
                 ego_world = torch.zeros((NUM_WORLDS, 1)).long().to(args.device)
