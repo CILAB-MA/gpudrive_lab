@@ -25,7 +25,7 @@ parameters:
   sample_per_epoch:
     values: [438763]
   seed:
-    values: [3, 11, 17 ,42]
+    values: [11, 17]
   early_stop_num:
     values: [100000]
   data_path:
