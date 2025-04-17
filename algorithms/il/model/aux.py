@@ -167,34 +167,13 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         # Aux head
         self.use_tom = use_tom
         aux_input_dim = self.hidden_dim if 'no_guide' in use_tom else int(self.hidden_dim / 4)
-        self.aux_speed_head = AuxHead(
+        self.aux_head = AuxHead(
             input_dim=aux_input_dim,
             head_config=head_config,
             num_ro=self.ro_max,
-            aux_action_dim=1
+            aux_dim=64
         )
         
-        self.aux_pos_head = AuxHead(
-            input_dim=aux_input_dim,
-            head_config=head_config,
-            num_ro=self.ro_max,
-            aux_action_dim=2
-        )
-        
-        self.aux_heading_head = AuxHead(
-            input_dim=aux_input_dim,
-            head_config=head_config,
-            num_ro=self.ro_max,
-            aux_action_dim=1
-        )
-        
-        self.aux_action_head = AuxHead(
-            input_dim=aux_input_dim,
-            head_config=head_config,
-            num_ro=self.ro_max,
-            aux_action_dim=3
-        )
-
         # Scene encoder
         self.ego_state_net = self._build_network(
             input_dim=self.ego_input_dim * num_stack,
@@ -208,7 +187,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
         
         # Attention
         self.fusion_attn = SelfAttentionBlock(
-            num_layers=1,
+            num_layers=3,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
@@ -217,7 +196,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
             separate_attn_weights=False
         )
         self.ro_attn = SelfAttentionBlock(
-            num_layers=1,
+            num_layers=2,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,
@@ -226,7 +205,7 @@ class LateFusionAttnAuxNet(CustomLateFusionNet):
             separate_attn_weights=False
         )
         self.rg_attn = SelfAttentionBlock(
-            num_layers=1,
+            num_layers=2,
             num_heads=4,
             num_channels=net_config.network_dim,
             num_qk_channels=net_config.network_dim,

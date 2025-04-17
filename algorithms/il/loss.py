@@ -17,7 +17,7 @@ def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
         expert_actions[..., 2] /= np.pi 
     elif aux_task == 'pos':
         partner_masks = masks
-        pred_actions = model.aux_pos_head(context, partner_masks)
+        pred_actions = model.aux_head(context, partner_masks)
     elif aux_task == 'heading':
         partner_masks = masks
         pred_actions = model.aux_heading_head(context, partner_masks)
@@ -32,7 +32,7 @@ def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
     
     pred_actions = pred_actions[~partner_masks]
     expert_actions = expert_actions[~partner_masks]
-    loss = F.smooth_l1_loss(pred_actions, expert_actions, reduction='none')
+    loss = F.cross_entropy(pred_actions, expert_actions, reduction='none')
     if 'no_weight' not in aux_style:
         attn_weights = attn_weights / (attn_weights.sum(dim=-1, keepdim=True) + 1e-6)
         count_pos = (attn_weights > 0).sum(dim=-1, keepdim=True).float()
