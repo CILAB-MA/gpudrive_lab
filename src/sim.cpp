@@ -235,7 +235,7 @@ inline void collectPartnerObsSystem(Engine &ctx,
     // Fill the zero padding for the rest of the array
     for (CountT agentIdx = ctx.data().numAgents - 1; agentIdx < consts::kMaxAgentCount - 1; agentIdx++)
     {
-        partner_obs.obs[agentIdx] = PartnerObservation::zero();
+        partner_obs.obs[agentIdx] = PartnerObservation::zero_nonexist();
     }
 }
 
