@@ -1,0 +1,42 @@
+
+# ARGS
+model_name: "early_attn" # ['bc', 'late_fusion', 'attention', 'wayformer'. 'early_attn', 'aux_fusion', 'aux_attn']
+
+# EXPERIMENT
+device: 'cuda'
+batch_size: 512
+total_gradient_steps: 100_000
+eval_freq: 1000
+lr: 0.0005
+sample_per_epoch: 438763
+seed: 3
+early_stop_num: 100_000
+base_path: '/data/full_version'
+model_path: 'model'
+data_path: 'data'
+num_scene: 1000
+# DATA CONFIG
+num_workers: 8
+prefetch_factor: 4
+pin_memory: True
+rollout_len: 5
+pred_len: 1
+
+# NETWORKCONFIG
+network_dim: 128
+network_num_layers: 4
+act_func: 'tanh'
+dropout: 0.0
+num_layer: [3, 2] # idx 0 is fusion_attn, idx 1 is self_attn
+num_head: 4
+# HEADCONFIG
+head_dim: 128
+head_num_layers: 2
+action_dim: 3
+n_components: 6
+time_dim: 1
+clip_value: -20.0
+
+# AUXCONFIG
+use_tom: null # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted
+aux_future_step: null # null, 1, 5, 10, 20, 30
