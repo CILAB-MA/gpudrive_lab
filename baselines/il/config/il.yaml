@@ -6,7 +6,7 @@ model_name: "early_attn" # ['bc', 'late_fusion', 'attention', 'wayformer'. 'earl
 device: 'cuda'
 batch_size: 512
 total_gradient_steps: 100_000
-eval_freq: 1000
+eval_freq: 5000
 lr: 0.0005
 sample_per_epoch: 438763
 seed: 3
