@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: port_1000_test
+name: port_1000_aux_test
 metric:
   goal: minimize
   name: eval/loss
@@ -15,6 +15,6 @@ parameters:
     values: [100000]
   # AUXCONFIG
   use_tom:
-    values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+    values: ["no_guide_no_weighted"] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
   aux_future_step:
-    values: [null] # null, 1, 5, 10, 20, 30
+    values: [20] # null, 1, 5, 10, 20, 30
