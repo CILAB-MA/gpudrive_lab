@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 from baselines.il.config.config import EnvConfig
 from baselines.il.il_utils import *
 from box import Box
-from functools import partial
 # GPUDrive
 from gpudrive.integrations.il.dataloader import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
