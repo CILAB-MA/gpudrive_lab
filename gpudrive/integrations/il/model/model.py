@@ -22,7 +22,12 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
         self.road_graph_net = self._build_network(
             input_dim=self.rg_input_dim * num_stack,
         )
-        
+        if use_tom:
+            self.aux_head = nn.Sequential(
+                nn.Linear(exp_config.network_dim, exp_config.network_dim),
+                nn.ReLU(),
+                nn.Linear(exp_config.network_dim, 64)
+            )
         # Attention
         self.fusion_attn = SelfAttentionBlock(
             num_layers=exp_config.num_layer[0],
