@@ -27,7 +27,9 @@ network_dim: 128
 network_num_layers: 4
 act_func: 'tanh'
 dropout: 0.0
-num_layer: [3, 2] # idx 0 is fusion_attn, idx 1 is self_attn
+num_layer:
+  - 3
+  - 2 # idx 0 is fusion_attn, idx 1 is self_attn
 num_head: 4
 # HEADCONFIG
 head_dim: 128

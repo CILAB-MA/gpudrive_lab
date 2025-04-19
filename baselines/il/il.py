@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from baselines.il.config.config import EnvConfig
 from baselines.il.il_utils import *
 from box import Box
-
+from functools import partial
 # GPUDrive
 from gpudrive.integrations.il.dataloader import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
@@ -148,7 +148,7 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     tom_losses = tom_losses / (i + 1) 
     return test_loss, dx_loss, dy_loss, dyaw_loss, tom_losses
 
-def train(exp_config):
+def train(exp_config=None):
     env_config = EnvConfig()
     current_time = datetime.now().strftime("%m%d_%H%M%S")
     if args.use_wandb:
@@ -156,22 +156,23 @@ def train(exp_config):
         # Tag Update
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(current_time)
-        for key, value in wandb.config.items():
-            wandb_tags.append(f"{key}_{value}")
+        wandb_tags.append('full_paper')
         wandb.run.tags = tuple(wandb_tags)
         # Config Update
         for key, value in vars(args).items():
             if key not in wandb.config:
                 wandb.config[key] = value
         config = wandb.config
-        wandb.run.name = f"{config.model_name}_{config.loss_name}_{config.exp_name}"
+        wandb_dict = {}
+        for k, v in dict(config).items():
+            if isinstance(v, dict) and "listitems" in v and isinstance(v["listitems"], list):
+                wandb_dict[k] = v['listitems']
+            else:    
+                wandb_dict[k] = v    
+        exp_config = Box(wandb_dict)
+        wandb.run.name = f"{exp_config.model_name}_{exp_config.seed}"
         wandb.run.save()
-        # NetConfig, HeadConfig Update (if sweep parameter is used)
-        for key, value in config.items():
-            if key in exp_config.__dict__.keys():
-                setattr(exp_config, key, value)
-    else:
-        exp_config.update(vars(args))
+    exp_config.update(vars(args))
     set_seed(exp_config.seed)
     # Initialize model and optimizer
     bc_policy = MODELS[exp_config.model_name](env_config, exp_config).to(exp_config.device)
@@ -198,6 +199,7 @@ def train(exp_config):
     early_stopping = 0
     gradient_steps = 0
     model_path = f"{exp_config.model_path}/{exp_config.name}" if exp_config.use_wandb else exp_config.model_path
+    model_path = os.path.join(exp_config.base_path, model_path)
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     pbar = tqdm(total=exp_config.total_gradient_steps, desc="Gradient Steps", ncols=100)
@@ -309,12 +311,21 @@ def train(exp_config):
                     # "gmm/min_component_probs": min(component_probs),
                 }
             wandb.log(log_dict, step=gradient_steps)
+wandb.finish()
 
 if __name__ == "__main__":
     args = parse_args()
     with open('baselines/il/config/il.yaml', "r") as f:
         exp_config = Box(yaml.safe_load(f))
     if args.use_wandb:
+        with open("baselines/il/sweep.yaml") as f:
+            sweep_config = yaml.safe_load(f)
+            sweep_params = sweep_config.setdefault("parameters", {})
+            for k, v in exp_config.items():
+                if k not in sweep_params:
+                    sweep_params[k] = dict()
+                    sweep_params[k]['value'] = v
+            sweep_params['name'] = dict(value=sweep_config['name'])
         with open("private.yaml") as f:
             private_info = yaml.load(f, Loader=yaml.FullLoader)
         wandb.login(key=private_info["wandb_key"])
@@ -322,7 +333,7 @@ if __name__ == "__main__":
         if args.sweep_id is not None:
             wandb.agent(args.sweep_id, function=train, project=private_info['main_project'], entity=private_info['entity'])
         else:
-            sweep_id = wandb.sweep(exp_config, project=private_info['main_project'], entity=private_info['entity'])
+            sweep_id = wandb.sweep(sweep_config, project=private_info['main_project'], entity=private_info['entity'])
             wandb.agent(sweep_id, function=train)
     else:
         train(exp_config)

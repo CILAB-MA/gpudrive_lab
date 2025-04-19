@@ -1,13 +1,11 @@
-def flatten_parameters(parameters):
+def flatten_sweep_parameters(param_dict):
     flattened = {}
-    for key, val in parameters.items():
-        if isinstance(val, dict):
-            if 'value' in val:
-                flattened[key] = val['value']
-            elif 'values' in val:
-                flattened[key] = val['values'][0] if val['values'] else None
-            else:
-                raise ValueError(f"Unknown format for key '{key}': {val}")
+    for k, v in param_dict.items():
+        if isinstance(v, dict):
+            if "value" in v:
+                flattened[k] = [v["value"]]
+            elif "values" in v:
+                flattened[k] = v["values"]
         else:
-            raise ValueError(f"Expected dict for key '{key}', got {type(val)}")
+            flattened[k] = [v]
     return flattened

@@ -1,0 +1,20 @@
+program: baselines/il/il.py
+method: grid
+name: port_1000_test
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  model_name:
+    values: ["early_attn"]
+  seed:
+    values: [3, 11, 17, 42]
+  num_scene:
+    values: [1000]
+  total_gradient_steps:
+    values: [100000]
+  # AUXCONFIG
+  use_tom:
+    values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+  aux_future_step:
+    values: [null] # null, 1, 5, 10, 20, 30
