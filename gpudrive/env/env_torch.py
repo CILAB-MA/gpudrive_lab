@@ -1465,81 +1465,58 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
 if __name__ == "__main__":
 
-    env_config = EnvConfig(
-        dynamics_model="delta_local",
-    )
+    NUM_WORLDS = 2
+    TOTAL_NUM_WORLDS = 4
+    
+    env_config = EnvConfig()
     render_config = RenderConfig()
 
     # Create data loader
     train_loader = SceneDataLoader(
         root="data/processed/examples",
-        batch_size=2,
-        dataset_size=100,
-        sample_with_replacement=True,
-        shuffle=False,
+        batch_size=NUM_WORLDS,
+        dataset_size=TOTAL_NUM_WORLDS,
     )
 
     # Make env
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
-        max_cont_agents=64,  # Number of agents to control
-        device="cpu",
+        max_cont_agents=128,  # Number of agents to control
+        device="cuda",
     )
 
-    control_mask = env.cont_agent_mask
-
-    # Rollout
-    obs = env.reset()
-
-    sim_frames = []
-    agent_obs_frames = []
-
-    expert_actions, _, _, _ = env.get_expert_actions()
-
-    env_idx = 0
-
-    for t in range(10):
-        print(f"Step: {t}")
-
-        # Step the environment
+    for idx, batch in enumerate(train_loader):
+        env.swap_data_batch(batch)
+        obs = env.reset()
+        frames = {f"env_{i}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS)}
         expert_actions, _, _, _ = env.get_expert_actions()
-        env.step_dynamics(expert_actions[:, :, t, :])
+        for t in range(env.episode_len):
+            print(f"Step: {t}")
 
-        highlight_agent = torch.where(env.cont_agent_mask[env_idx, :])[0][
-            -1
-        ].item()
+            # Step the environment
+            expert_actions, _, _, _ = env.get_expert_actions()
+            env.step_dynamics(expert_actions[:, :, t, :])
 
-        # Make video
-        sim_states = env.vis.plot_simulator_state(
-            env_indices=[env_idx],
-            zoom_radius=50,
-            time_steps=[t],
-            center_agent_indices=[highlight_agent],
-        )
+            # Make video
+            sim_states = env.vis.plot_simulator_state(
+                env_indices=list(range(NUM_WORLDS)),
+                time_steps=[t]*NUM_WORLDS,
+            )
 
-        agent_obs = env.vis.plot_agent_observation(
-            env_idx=env_idx,
-            agent_idx=highlight_agent,
-            figsize=(10, 10),
-        )
+            for i in range(NUM_WORLDS):
+                frames[f"env_{i + idx*NUM_WORLDS}"].append(img_from_fig(sim_states[i]))
 
-        sim_frames.append(img_from_fig(sim_states[0]))
-        agent_obs_frames.append(img_from_fig(agent_obs))
+            obs = env.get_obs()
+            reward = env.get_rewards()
+            done = env.get_dones()
+            info = env.get_infos()
 
-        obs = env.get_obs()
-        reward = env.get_rewards()
-        done = env.get_dones()
-        info = env.get_infos()
-
-        if done[0, highlight_agent].bool():
-            break
+            if done.all():
+                for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS):
+                    media.write_video(
+                        f"sim_video_{i}.gif", np.array(frames[f"env_{i}"]), fps=60, codec="gif"
+                    )
+                break
 
     env.close()
-
-    media.write_video(
-        "sim_video.gif", np.array(sim_frames), fps=10, codec="gif"
-    )
-    media.write_video(
-        "obs_video.gif", np.array(agent_obs_frames), fps=10, codec="gif"
-    )
