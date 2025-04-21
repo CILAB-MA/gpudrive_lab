@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 import torch
 
 import madrona_gpudrive
@@ -153,7 +153,8 @@ class SelectionDiscipline(Enum):
     PAD_N = 2
     EXACT_N = 3
     K_UNIQUE_N = 4
-
+    RANGE_N = 5
+    CUSTOM_N = 6
 
 @dataclass
 class SceneConfig:
@@ -175,6 +176,8 @@ class SceneConfig:
     discipline: SelectionDiscipline = SelectionDiscipline.PAD_N
     k_unique_scenes: Optional[int] = None
     seed: Optional[int] = None
+    start_idx: Optional[int] = 0
+    custom_idx: List[int] = None
 
 
 class RenderMode(Enum):
