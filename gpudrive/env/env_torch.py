@@ -59,7 +59,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.world_time_steps = torch.zeros(
             self.num_worlds, dtype=torch.short, device=self.device
         )
-        self.num_stack = config.num_stack
 
         # Initialize reward weights tensor if using reward_conditioned
         self.reward_weights_tensor = None
@@ -102,7 +101,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.observation_space = Box(
             low=-1.0,
             high=1.0,
-            shape=(self.get_obs(reset=True).shape[-1],),
+            shape=(self.get_obs(self.cont_agent_mask).shape[-1],),
         )
 
         self.single_observation_space = gymnasium.spaces.Box(
@@ -438,7 +437,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 # render_init=self.render_config.render_init,
             )
 
-        return self.get_obs(mask, reset=True)
+        return self.get_obs(mask)
 
     def get_dones(self):
         return (
@@ -771,9 +770,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         self.reward_weights_tensor[:, :, 0],
                         self.reward_weights_tensor[:, :, 1],
                         self.reward_weights_tensor[:, :, 2],
-                    ],
-                    dim=-1
-                )
+                    ]
+                ).permute(1, 2, 0)
 
             else:
                 return torch.stack(
@@ -784,9 +782,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         ego_state.rel_goal_x,
                         ego_state.rel_goal_y,
                         ego_state.is_collided,
-                    ],
-                    dim=-1
-                )
+                    ]
+                ).permute(1, 2, 0)
 
         else:
             if self.config.reward_type == "reward_conditioned":
@@ -801,9 +798,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         self.reward_weights_tensor[mask][:, 0],
                         self.reward_weights_tensor[mask][:, 1],
                         self.reward_weights_tensor[mask][:, 2],
-                    ],
-                    dim=-1
-                )
+                    ]
+                ).permute(1, 0)
             else:
                 return torch.stack(
                     [
@@ -813,9 +809,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         ego_state.rel_goal_x,
                         ego_state.rel_goal_y,
                         ego_state.is_collided,
-                    ],
-                    dim=-1
-                )
+                    ]
+                ).permute(1, 0)
 
     def _get_partner_obs(self, mask=None):
         """Get partner observations."""
@@ -848,7 +843,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 dim=-1,
             ).flatten(start_dim=2)
 
-    def _get_road_map_obs(self, mask=None) -> torch.Tensor:
+    def _get_road_map_obs(self, mask=None):
         """Get road map observations."""
         if not self.config.road_map_obs:
             return torch.Tensor().to(self.device)
@@ -886,7 +881,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 dim=-1,
             ).flatten(start_dim=2)
 
-    def _get_lidar_obs(self, mask=None) -> torch.Tensor:
+    def _get_lidar_obs(self, mask=None):
         """Get lidar observations."""
 
         if not self.config.lidar_obs:
@@ -914,7 +909,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 dim=-1,
             ).flatten(start_dim=2)
 
-    def _get_bev_obs(self, mask=None) -> torch.Tensor:
+    def _get_bev_obs(self, mask=None):
         """Get BEV segmentation map observation.
 
         Returns:
@@ -935,7 +930,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         else:
             return bev.bev_segmentation_map.flatten(start_dim=2)
 
-    def _get_vbd_obs(self, mask=None) -> torch.Tensor:
+    def _get_vbd_obs(self, mask=None):
         """
         Get ego-centric VBD trajectory observations for controlled agents using matrix operations.
 
@@ -1160,7 +1155,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Reshape back to original format
         return traj_features.reshape(original_shape)
 
-    def get_obs(self, mask=None, reset=False):
+    def get_obs(self, mask=None):
         """Get observation: Combine different types of environment information into a single tensor.
         Returns:
             torch.Tensor: (num_worlds, max_agent_count, num_features)
@@ -1196,53 +1191,14 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 ),
                 dim=-1,
             )
-            
-        # Observation stacking
-        if reset:
-            stacked_obs = torch.zeros_like(obs).repeat(1, 1, self.num_stack - 1) if self.num_stack > 1 else torch.empty_like(obs)[..., 0:0]
-        else:
-            stacked_obs = self.stacked_obs[..., obs.shape[-1]:]
-        
-        self.stacked_obs = torch.cat([stacked_obs, obs], dim=-1)
-        return self.stacked_obs.clone()
+
+        return obs
 
     def get_controlled_agents_mask(self):
         """Get the control mask. Shape: [num_worlds, max_agent_count]"""
         return (
             self.sim.controlled_state_tensor().to_torch().clone() == 1
         ).squeeze(axis=2)
-       
-    def get_partner_mask(self):
-        """Get the partner mask. Shape: [num_worlds, max_agent_count, max_agent_count - 1, 1]"""
-        if not self.config.partner_obs:
-            return torch.Tensor().to(self.device)
-
-        partner_obs = PartnerObs.from_tensor(
-            partner_obs_tensor=self.sim.partner_observations_tensor(),
-            backend=self.backend,
-            device=self.device,
-        )
-        
-        partner_ids = partner_obs.ids.squeeze(-1)
-        partner_mask = torch.where(partner_ids >= 0, 0, partner_ids) # 0> : alive, -1 : static, -2 : non-exist
-        
-        return partner_mask
-
-    def get_road_mask(self):
-        """Get the road mask. Shape: [num_worlds, max_agent_count, kMaxAgentMapObservationsCount]"""
-        if not self.config.road_map_obs:
-            return torch.Tensor().to(self.device)
-
-        roadgraph = LocalRoadGraphPoints.from_tensor(
-            local_roadgraph_tensor=self.sim.agent_roadmap_tensor(),
-            backend=self.backend,
-            device=self.device
-        )
-        
-        road_ids = roadgraph.id
-        road_mask = (road_ids == -1)
-        
-        return road_mask
 
     def advance_sim_with_log_playback(self, init_steps=0):
         """Advances the simulator by stepping the objects with the logged human trajectories.
@@ -1509,65 +1465,81 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 
 if __name__ == "__main__":
 
-    NUM_WORLDS = 2
-    TOTAL_NUM_WORLDS = 4
-    
     env_config = EnvConfig(
-        num_stack=5,
+        dynamics_model="delta_local",
     )
     render_config = RenderConfig()
 
     # Create data loader
     train_loader = SceneDataLoader(
         root="data/processed/examples",
-        batch_size=NUM_WORLDS,
-        dataset_size=TOTAL_NUM_WORLDS,
+        batch_size=2,
+        dataset_size=100,
+        sample_with_replacement=True,
+        shuffle=False,
     )
 
     # Make env
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
-        max_cont_agents=128,  # Number of agents to control
-        device="cuda",
-        action_type="continuous",
+        max_cont_agents=64,  # Number of agents to control
+        device="cpu",
     )
 
-    for idx, batch in enumerate(train_loader):
-        env.swap_data_batch(batch)
-        obs = env.reset()
-        partner_mask = env.get_partner_mask()
-        road_mask = env.get_road_mask()
-        frames = {f"env_{i}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS)}
+    control_mask = env.cont_agent_mask
+
+    # Rollout
+    obs = env.reset()
+
+    sim_frames = []
+    agent_obs_frames = []
+
+    expert_actions, _, _, _ = env.get_expert_actions()
+
+    env_idx = 0
+
+    for t in range(10):
+        print(f"Step: {t}")
+
+        # Step the environment
         expert_actions, _, _, _ = env.get_expert_actions()
-        for t in range(env.episode_len):
-            print(f"Step: {t}")
+        env.step_dynamics(expert_actions[:, :, t, :])
 
-            # Step the environment
-            expert_actions, _, _, _ = env.get_expert_actions()
-            env.step_dynamics(expert_actions[:, :, t, :])
+        highlight_agent = torch.where(env.cont_agent_mask[env_idx, :])[0][
+            -1
+        ].item()
 
-            # Make video
-            sim_states = env.vis.plot_simulator_state(
-                env_indices=list(range(NUM_WORLDS)),
-                time_steps=[t]*NUM_WORLDS,
-            )
+        # Make video
+        sim_states = env.vis.plot_simulator_state(
+            env_indices=[env_idx],
+            zoom_radius=50,
+            time_steps=[t],
+            center_agent_indices=[highlight_agent],
+        )
 
-            for i in range(NUM_WORLDS):
-                frames[f"env_{i + idx*NUM_WORLDS}"].append(img_from_fig(sim_states[i]))
+        agent_obs = env.vis.plot_agent_observation(
+            env_idx=env_idx,
+            agent_idx=highlight_agent,
+            figsize=(10, 10),
+        )
 
-            obs = env.get_obs()
-            partner_mask = env.get_partner_mask()
-            road_mask = env.get_road_mask()
-            reward = env.get_rewards()
-            done = env.get_dones()
-            info = env.get_infos()
+        sim_frames.append(img_from_fig(sim_states[0]))
+        agent_obs_frames.append(img_from_fig(agent_obs))
 
-            if done.all():
-                for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS):
-                    media.write_video(
-                        f"sim_video_{i}.gif", np.array(frames[f"env_{i}"]), fps=60, codec="gif"
-                    )
-                break
+        obs = env.get_obs()
+        reward = env.get_rewards()
+        done = env.get_dones()
+        info = env.get_infos()
+
+        if done[0, highlight_agent].bool():
+            break
 
     env.close()
+
+    media.write_video(
+        "sim_video.gif", np.array(sim_frames), fps=10, codec="gif"
+    )
+    media.write_video(
+        "obs_video.gif", np.array(agent_obs_frames), fps=10, codec="gif"
+    )
