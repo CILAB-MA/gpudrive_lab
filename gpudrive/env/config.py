@@ -30,6 +30,7 @@ class EnvConfig:
     partner_obs: bool = True  # Include partner vehicle info in observations
     bev_obs: bool = False  # Include rasterized Bird's Eye View observations centered on ego vehicle
     norm_obs: bool = True  # Normalize observations
+    num_stack: int = 1 # Number of frames to stack in observations
 
     # Maximum number of controlled agents in the scene
     max_controlled_agents: int = madrona_gpudrive.kMaxAgentCount

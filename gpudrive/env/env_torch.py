@@ -59,6 +59,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.world_time_steps = torch.zeros(
             self.num_worlds, dtype=torch.short, device=self.device
         )
+        self.num_stack = config.num_stack
 
         # Initialize reward weights tensor if using reward_conditioned
         self.reward_weights_tensor = None
@@ -101,7 +102,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.observation_space = Box(
             low=-1.0,
             high=1.0,
-            shape=(self.get_obs(self.cont_agent_mask).shape[-1],),
+            shape=(self.get_obs(reset=True).shape[-1],),
         )
 
         self.single_observation_space = gymnasium.spaces.Box(
@@ -437,7 +438,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 # render_init=self.render_config.render_init,
             )
 
-        return self.get_obs(mask)
+        return self.get_obs(mask, reset=True)
 
     def get_dones(self):
         return (
@@ -770,8 +771,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         self.reward_weights_tensor[:, :, 0],
                         self.reward_weights_tensor[:, :, 1],
                         self.reward_weights_tensor[:, :, 2],
-                    ]
-                ).permute(1, 2, 0)
+                    ],
+                    dim=-1
+                )
 
             else:
                 return torch.stack(
@@ -782,8 +784,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         ego_state.rel_goal_x,
                         ego_state.rel_goal_y,
                         ego_state.is_collided,
-                    ]
-                ).permute(1, 2, 0)
+                    ],
+                    dim=-1
+                )
 
         else:
             if self.config.reward_type == "reward_conditioned":
@@ -798,8 +801,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         self.reward_weights_tensor[mask][:, 0],
                         self.reward_weights_tensor[mask][:, 1],
                         self.reward_weights_tensor[mask][:, 2],
-                    ]
-                ).permute(1, 0)
+                    ],
+                    dim=-1
+                )
             else:
                 return torch.stack(
                     [
@@ -809,8 +813,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                         ego_state.rel_goal_x,
                         ego_state.rel_goal_y,
                         ego_state.is_collided,
-                    ]
-                ).permute(1, 0)
+                    ],
+                    dim=-1
+                )
 
     def _get_partner_obs(self, mask=None):
         """Get partner observations."""
@@ -843,7 +848,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 dim=-1,
             ).flatten(start_dim=2)
 
-    def _get_road_map_obs(self, mask=None):
+    def _get_road_map_obs(self, mask=None) -> torch.Tensor:
         """Get road map observations."""
         if not self.config.road_map_obs:
             return torch.Tensor().to(self.device)
@@ -881,7 +886,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 dim=-1,
             ).flatten(start_dim=2)
 
-    def _get_lidar_obs(self, mask=None):
+    def _get_lidar_obs(self, mask=None) -> torch.Tensor:
         """Get lidar observations."""
 
         if not self.config.lidar_obs:
@@ -909,7 +914,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 dim=-1,
             ).flatten(start_dim=2)
 
-    def _get_bev_obs(self, mask=None):
+    def _get_bev_obs(self, mask=None) -> torch.Tensor:
         """Get BEV segmentation map observation.
 
         Returns:
@@ -930,7 +935,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         else:
             return bev.bev_segmentation_map.flatten(start_dim=2)
 
-    def _get_vbd_obs(self, mask=None):
+    def _get_vbd_obs(self, mask=None) -> torch.Tensor:
         """
         Get ego-centric VBD trajectory observations for controlled agents using matrix operations.
 
@@ -1155,7 +1160,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Reshape back to original format
         return traj_features.reshape(original_shape)
 
-    def get_obs(self, mask=None):
+    def get_obs(self, mask=None, reset=False):
         """Get observation: Combine different types of environment information into a single tensor.
         Returns:
             torch.Tensor: (num_worlds, max_agent_count, num_features)
@@ -1191,8 +1196,15 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 ),
                 dim=-1,
             )
-
-        return obs
+            
+        # Observation stacking
+        if reset:
+            stacked_obs = torch.zeros_like(obs).repeat(1, 1, self.num_stack - 1) if self.num_stack > 1 else torch.empty_like(obs)[..., 0:0]
+        else:
+            stacked_obs = self.stacked_obs[..., obs.shape[-1]:]
+        
+        self.stacked_obs = torch.cat([stacked_obs, obs], dim=-1)
+        return self.stacked_obs.clone()
 
     def get_controlled_agents_mask(self):
         """Get the control mask. Shape: [num_worlds, max_agent_count]"""
@@ -1468,7 +1480,9 @@ if __name__ == "__main__":
     NUM_WORLDS = 2
     TOTAL_NUM_WORLDS = 4
     
-    env_config = EnvConfig()
+    env_config = EnvConfig(
+        num_stack=5,
+    )
     render_config = RenderConfig()
 
     # Create data loader
@@ -1484,6 +1498,7 @@ if __name__ == "__main__":
         data_loader=train_loader,
         max_cont_agents=128,  # Number of agents to control
         device="cuda",
+        action_type="continuous",
     )
 
     for idx, batch in enumerate(train_loader):
