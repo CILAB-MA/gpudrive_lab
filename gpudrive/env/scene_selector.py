@@ -66,6 +66,11 @@ def select_scenes(config):
             selected_scenes = repeat_to_N(
                 random_sample(config.k_unique_scenes)
             )
+        case SelectionDiscipline.RANGE_N:
+            selected_scenes = all_scenes[config.start_idx : config.start_idx + config.num_scenes]
+        case SelectionDiscipline.CUSTOM_N:
+            selected_scenes = [all_scenes[idx] for idx in config.custom_idx] 
+
     if (
         not any(scene.startswith("tfrecord") for scene in selected_scenes)
         or len(selected_scenes) == 0
