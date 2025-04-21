@@ -1211,6 +1211,38 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         return (
             self.sim.controlled_state_tensor().to_torch().clone() == 1
         ).squeeze(axis=2)
+       
+    def get_partner_mask(self):
+        """Get the partner mask. Shape: [num_worlds, max_agent_count, max_agent_count - 1, 1]"""
+        if not self.config.partner_obs:
+            return torch.Tensor().to(self.device)
+
+        partner_obs = PartnerObs.from_tensor(
+            partner_obs_tensor=self.sim.partner_observations_tensor(),
+            backend=self.backend,
+            device=self.device,
+        )
+        
+        partner_ids = partner_obs.ids.squeeze(-1)
+        partner_mask = torch.where(partner_ids >= 0, 0, partner_ids) # 0> : alive, -1 : static, -2 : non-exist
+        
+        return partner_mask
+
+    def get_road_mask(self):
+        """Get the road mask. Shape: [num_worlds, max_agent_count, kMaxAgentMapObservationsCount]"""
+        if not self.config.road_map_obs:
+            return torch.Tensor().to(self.device)
+
+        roadgraph = LocalRoadGraphPoints.from_tensor(
+            local_roadgraph_tensor=self.sim.agent_roadmap_tensor(),
+            backend=self.backend,
+            device=self.device
+        )
+        
+        road_ids = roadgraph.id
+        road_mask = (road_ids == -1)
+        
+        return road_mask
 
     def advance_sim_with_log_playback(self, init_steps=0):
         """Advances the simulator by stepping the objects with the logged human trajectories.
@@ -1504,6 +1536,8 @@ if __name__ == "__main__":
     for idx, batch in enumerate(train_loader):
         env.swap_data_batch(batch)
         obs = env.reset()
+        partner_mask = env.get_partner_mask()
+        road_mask = env.get_road_mask()
         frames = {f"env_{i}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS)}
         expert_actions, _, _, _ = env.get_expert_actions()
         for t in range(env.episode_len):
@@ -1523,6 +1557,8 @@ if __name__ == "__main__":
                 frames[f"env_{i + idx*NUM_WORLDS}"].append(img_from_fig(sim_states[i]))
 
             obs = env.get_obs()
+            partner_mask = env.get_partner_mask()
+            road_mask = env.get_road_mask()
             reward = env.get_rewards()
             done = env.get_dones()
             info = env.get_infos()
