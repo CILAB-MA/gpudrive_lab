@@ -71,7 +71,7 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         if (dead_agent_mask == True).all():
             off_road = infos.off_road[cont_agent_mask]
             veh_collision = infos.collided[cont_agent_mask]
-            off_road = infos.goal_achieved[cont_agent_mask]
+            goal_achieved = infos.goal_achieved[cont_agent_mask]
 
             off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
             veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
@@ -135,19 +135,17 @@ def save_global_pos_and_rot(env, save_path, save_index=0):
             )
         infos = env.get_infos()
         if (dead_agent_mask == True).all():
-            controlled_agent_info = infos[cont_agent_mask]
-            off_road = controlled_agent_info[:, 0]
-            veh_collision = controlled_agent_info[:, 1]
-            goal_achieved = controlled_agent_info[:, 3]
+            off_road = infos.off_road[cont_agent_mask]
+            veh_collision = infos.collided[cont_agent_mask]
+            goal_achieved = infos.goal_achieved[cont_agent_mask]
+
             off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
             veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
             goal_rate = goal_achieved.sum().float() / cont_agent_mask.sum().float()
-            
+            collision_rate = off_road_rate + veh_coll_rate
             collision = (veh_collision + off_road > 0)
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
             print(f'Save number w/o collision {len(expert_global_pos_lst[~collision])} / {len(expert_global_pos_lst)}')
-            
-            progress_bar.close()
             break
 
     expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
@@ -166,7 +164,7 @@ if __name__ == "__main__":
     parser.add_argument('--save_path', type=str, default='/')
     parser.add_argument('--save_index', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--function', type=str, default='save_trajectory_and_three_mask_by_scenes', 
+    parser.add_argument('--function', type=str, default='save_global_pos_and_rot', 
                         choices=[
                             'save_trajectory_and_three_mask_by_scenes',
                             'save_global_pos_and_rot'])
