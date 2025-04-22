@@ -1224,7 +1224,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         
         partner_ids = partner_obs.ids.squeeze(-1)
-        partner_mask = torch.where(partner_ids >= 0, 0, partner_ids) # 0> : alive, -1 : static, -2 : non-exist
+        partner_mask = torch.where(
+            partner_ids == -1, 1, torch.where(partner_ids == -2, 2, 0)  # 0: partner, 1: static, 2: non-exist
+        ) 
         
         return partner_mask
 
