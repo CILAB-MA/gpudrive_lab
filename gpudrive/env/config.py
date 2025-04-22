@@ -30,6 +30,7 @@ class EnvConfig:
     partner_obs: bool = True  # Include partner vehicle info in observations
     bev_obs: bool = False  # Include rasterized Bird's Eye View observations centered on ego vehicle
     norm_obs: bool = True  # Normalize observations
+    num_stack: int = 1 # Number of frames to stack in observations
 
     # Maximum number of controlled agents in the scene
     max_controlled_agents: int = madrona_gpudrive.kMaxAgentCount
@@ -55,7 +56,7 @@ class EnvConfig:
 
     # Dynamics model
     dynamics_model: str = (
-        "classic"  # Options: "classic", "bicycle", "delta_local", or "state"
+        "delta_local"  # Options: "classic", "bicycle", "delta_local", or "state"
     )
 
     # Action space settings (if discretized)
@@ -69,10 +70,10 @@ class EnvConfig:
     head_tilt_actions: torch.Tensor = torch.Tensor([0])
 
     # Delta Local dynamics model
-    dx: torch.Tensor = torch.round(torch.linspace(-2.0, 2.0, 20), decimals=3)
-    dy: torch.Tensor = torch.round(torch.linspace(-2.0, 2.0, 20), decimals=3)
+    dx: torch.Tensor = torch.round(torch.linspace(-6.0, 6.0, 20), decimals=3)
+    dy: torch.Tensor = torch.round(torch.linspace(-6.0, 6.0, 20), decimals=3)
     dyaw: torch.Tensor = torch.round(
-        torch.linspace(-3.14, 3.14, 20), decimals=3
+        torch.linspace(-torch.pi, torch.pi, 20), decimals=3
     )
 
     # Global action space settings if StateDynamicsModel is used
@@ -89,7 +90,7 @@ class EnvConfig:
     vy: torch.Tensor = torch.round(torch.linspace(-10.0, 10.0, 10), decimals=3)
 
     # Collision behavior settings
-    collision_behavior: str = "remove"  # Options: "remove", "stop", "ignore"
+    collision_behavior: str = "ignore"  # Options: "remove", "stop", "ignore"
 
     # Scene configuration
     remove_non_vehicles: bool = True  # Remove non-vehicle entities from scene

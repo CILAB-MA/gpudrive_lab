@@ -12,7 +12,7 @@ deterministic: false
 render_sim_state: true
 
 # Environment settings
-max_controlled_agents: 64 
+max_controlled_agents: 128
 ego_state: true
 road_map_obs: true
 partner_obs: true

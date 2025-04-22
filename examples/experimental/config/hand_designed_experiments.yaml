@@ -15,7 +15,7 @@ render_sim_state: true
 zoom_radius: 90
 
 # Environment settings
-max_controlled_agents: 64 
+max_controlled_agents: 128 
 ego_state: true
 road_map_obs: true
 partner_obs: true
