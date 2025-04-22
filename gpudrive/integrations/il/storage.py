@@ -15,12 +15,10 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         env (GPUDriveTorchEnv): Initialized environment class.
     """
     obs = env.reset()
-    expert_actions, _, _ = env.get_expert_actions() # (num_worlds, num_agents, episode_len, action_dim)
+    expert_actions, _, _, _  = env.get_expert_actions() # (num_worlds, num_agents, episode_len, action_dim)
     road_mask = env.get_road_mask()
-    other_info = env.get_other_infos(0)
     partner_mask = env.get_partner_mask()
-    partner_id = env.get_partner_id().unsqueeze(-1)
-    other_infos = torch.cat([other_info, partner_id], dim=-1)
+    # partner_id = env.get_partner_id().unsqueeze(-1)
     device = env.device
     
     cont_agent_mask = env.cont_agent_mask.to(device)  # (num_worlds, num_agents)
@@ -33,7 +31,6 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
     expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_other_info_lst = torch.zeros((alive_agent_num, env.episode_len, 127, 4), device=device) # after 1-step (pos (2), heading (1), vel value(1)), actions (3), mask (1)
     
     # Initialize dead agent mask
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
@@ -45,7 +42,6 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                 expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
                 expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
                 expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
-                expert_other_info_lst[idx][time_step] = other_infos[world_idx, agent_idx]
                 expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
 
@@ -57,17 +53,14 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         obs = env.get_obs() 
         road_mask = env.get_road_mask()
-        if time_step + 1 != env.episode_len:
-            other_info = env.get_other_infos(time_step + 1)
         partner_mask = env.get_partner_mask()
-        partner_id = env.get_partner_id().unsqueeze(-1)
-        other_infos = torch.cat([other_info, partner_id], dim=-1)
+        # partner_id = env.get_partner_id().unsqueeze(-1)
         infos = env.get_infos()
         # Check mask
         partner_mask_bool = (partner_mask == 2)
         action_valid_mask = torch.where(partner_mask == 0, 1, 0).bool()
-        total_other_agent_obs = obs[..., 6:1276].reshape(-1, 128, 127, 10)
-        total_road_obs = obs[..., 1276:].reshape(-1, 128, 200, 13)
+        total_other_agent_obs = obs[..., 6:128 * 6].reshape(-1, 128, 127, 6)
+        total_road_obs = obs[..., 128 * 6:].reshape(-1, 128, 200, 13)
         sum_alive_partner = torch.logical_or((total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 0), (total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 1)).sum().item()
         sum_alive_road = torch.logical_or((total_road_obs[~road_mask].sum(dim=-1) == 0), (total_road_obs[~road_mask].sum(dim=-1) == 1)).sum().item()
         sum_dead_partner = torch.logical_and((total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 0), (total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 1)).sum().item()
@@ -76,10 +69,10 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
         # print("Checking dead but, sum is not 0 and 1 ->", sum_dead_partner, sum_dead_road)
 
         if (dead_agent_mask == True).all():
-            controlled_agent_info = infos[cont_agent_mask]
-            off_road = controlled_agent_info[:, 0]
-            veh_collision = controlled_agent_info[:, 1]
-            goal_achieved = controlled_agent_info[:, 3]
+            off_road = infos.off_road[cont_agent_mask]
+            veh_collision = infos.collided[cont_agent_mask]
+            off_road = infos.goal_achieved[cont_agent_mask]
+
             off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
             veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
             goal_rate = goal_achieved.sum().float() / cont_agent_mask.sum().float()
@@ -94,7 +87,6 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
     expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
     expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
     expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
-    expert_other_info_lst = expert_other_info_lst[~collision].to('cpu')
     
     os.makedirs(save_path, exist_ok=True)
     np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
@@ -102,12 +94,11 @@ def save_trajectory_and_three_mask_by_scenes(env, save_path, save_index=0):
                         actions=expert_actions_lst,
                         dead_mask=expert_dead_mask_lst,
                         partner_mask=expert_partner_mask_lst,
-                        road_mask=expert_road_mask_lst,
-                        other_info=expert_other_info_lst)
+                        road_mask=expert_road_mask_lst)
 
 def save_global_pos_and_rot(env, save_path, save_index=0):
     _ = env.reset()
-    expert_actions, _, _ = env.get_expert_actions()
+    expert_actions, _, _, _ = env.get_expert_actions()
     device = env.device
     
     cont_agent_mask = env.cont_agent_mask.to(device)  # (num_worlds, num_agents)
@@ -175,7 +166,7 @@ if __name__ == "__main__":
     parser.add_argument('--save_path', type=str, default='/')
     parser.add_argument('--save_index', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='train', choices=['train', 'valid'],)
-    parser.add_argument('--function', type=str, default='save_global_pos_and_rot', 
+    parser.add_argument('--function', type=str, default='save_trajectory_and_three_mask_by_scenes', 
                         choices=[
                             'save_trajectory_and_three_mask_by_scenes',
                             'save_global_pos_and_rot'])
@@ -202,7 +193,7 @@ if __name__ == "__main__":
     print('Scene Loader')
     # Create data loader
     train_loader = SceneDataLoader(
-        root=f"/data/formatted_json_v2_no_tl_{args.dataset}/",
+        root="data/processed/examples", #f"/data/formatted_json_v2_no_tl_{args.dataset}/",
         batch_size=args.batch_size,
         dataset_size=args.dataset_size,
         sample_with_replacement=True,
