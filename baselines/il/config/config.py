@@ -26,7 +26,7 @@ class EnvConfig:
     norm_obs: bool = True  # Normalize observations
 
     # Maximum number of controlled agents in the scene
-    max_controlled_agents: int = 128
+    max_controlled_agents: int = 64
     num_worlds: int = 1  # Number of worlds in the environment
 
     # NOTE: If disable_classic_obs is True, ego_state, road_map_obs,
