@@ -1,5 +1,5 @@
 # Overrides default environment configs (see pygpudrive/env/config.py)
-max_controlled_agents: 64 # Maximum number of agents controlled by the model. Make sure this aligns with the variable kMaxAgentCount in src/consts.hpp
+max_controlled_agents: 128 # Maximum number of agents controlled by the model. Make sure this aligns with the variable kMaxAgentCount in src/consts.hpp
 ego_state: true
 road_map_obs: true
 partner_obs: true

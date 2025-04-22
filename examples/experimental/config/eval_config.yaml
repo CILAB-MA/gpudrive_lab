@@ -6,7 +6,7 @@ train_dir: data/processed/training
 test_dir: data/processed/validation 
 
 num_worlds: 50 # Number of parallel environments for evaluation
-max_controlled_agents: 64 # Maximum number of agents controlled by the model.
+max_controlled_agents: 128 # Maximum number of agents controlled by the model.
 ego_state: true
 road_map_obs: true
 partner_obs: true

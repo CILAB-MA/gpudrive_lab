@@ -817,7 +817,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                     dim=-1
                 )
 
-    def _get_partner_obs(self, mask=None):
+    def _get_partner_obs(self, mask=None) -> torch.Tensor:
         """Get partner observations."""
 
         if not self.config.partner_obs:

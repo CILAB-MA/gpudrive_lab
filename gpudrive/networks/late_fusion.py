@@ -80,8 +80,8 @@ class NeuralNet(
         hidden_dim=128,
         dropout=0.00,
         act_func="tanh",
-        max_controlled_agents=64,
-        obs_dim=2984,  # Size of the flattened observation vector (hardcoded)
+        max_controlled_agents=128,
+        obs_dim=3368,  # Size of the flattened observation vector (hardcoded)
         config=None,  # Optional config
     ):
         super().__init__()
