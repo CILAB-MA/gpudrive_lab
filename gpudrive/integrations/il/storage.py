@@ -208,7 +208,7 @@ if __name__ == "__main__":
     )
     print('Launch Env')
     num_iter = int(args.dataset_size // args.batch_size)
-    for i in range(num_iter):
+    for i in tqdm(range(num_iter)):
         print(env.data_batch)
         if args.function == 'save_trajectory_and_three_mask_by_scenes':
             save_trajectory_and_three_mask_by_scenes(env, args.save_path, args.save_index)
