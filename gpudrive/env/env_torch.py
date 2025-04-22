@@ -1528,7 +1528,7 @@ if __name__ == "__main__":
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
-        max_cont_agents=128,  # Number of agents to control
+        max_cont_agents=64,  # Number of agents to control
         device="cuda",
         action_type="continuous",
     )
