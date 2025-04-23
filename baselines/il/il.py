@@ -187,8 +187,8 @@ def train(exp_config=None):
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb_tags.append(f"non_trainable_params_{non_trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
-    train_data_file = os.path.join(exp_config.base_path, exp_config.data_path, f"train_trajectory_{exp_config.num_scene}.npz")
-    eval_data_file = os.path.join(exp_config.base_path, exp_config.data_path, f"test_trajectory_200.npz")
+    train_data_file = os.path.join(exp_config.base_path, exp_config.data_path, f"training_trajectory_{exp_config.num_scene}.npz")
+    eval_data_file = os.path.join(exp_config.base_path, exp_config.data_path, f"validation_trajectory_2500.npz")
     expert_data_loader = get_dataloader(exp_config.data_path, train_data_file, exp_config)
     eval_expert_data_loader = get_dataloader(exp_config.data_path, eval_data_file, exp_config,
                                             isshuffle=False)
@@ -282,8 +282,9 @@ def train(exp_config=None):
                             "eval/dx_loss": dx_loss,
                             "eval/dy_loss": dy_loss,
                             "eval/dyaw_loss": dyaw_loss,
-                            "eval/tom_loss": tom_loss,
                         }
+                    if exp_config.use_tom:
+                        log_dict['eval/tom_loss'] = tom_loss
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
                     torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_seed_{exp_config.seed}_{current_time}.pth")
@@ -303,12 +304,13 @@ def train(exp_config=None):
                     "train/dx_loss": dx_losses / (n + 1),
                     "train/dy_loss": dy_losses / (n + 1),
                     "train/dyaw_loss": dyaw_losses / (n + 1),
-                    "train/tom_loss": tom_losses / (n + 1),
                     "train/max_grad_norm": max_norms / (n + 1),
                     # "gmm/max_component_probs": max(component_probs),
                     # "gmm/median_component_probs": np.median(component_probs),
                     # "gmm/min_component_probs": min(component_probs),
                 }
+            if exp_config.use_tom:
+                log_dict['train/tom_loss'] = tom_losses / (n + 1)
             wandb.log(log_dict, step=gradient_steps)
 wandb.finish()
 
