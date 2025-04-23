@@ -30,7 +30,7 @@ class ExpertDataset(torch.utils.data.Dataset):
 
         # partner_mask
         self.aux_valid_mask = None
-        partner_info = obs[..., 6:1276].reshape(B, T, 127, 10)[..., :4]
+        partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
         self.aux_mask = None
         self.other_info = None
         self.other_pos = None

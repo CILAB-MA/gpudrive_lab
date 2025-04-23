@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: port_1000_aux_test
+name: net_size
 metric:
   goal: minimize
   name: eval/loss
@@ -8,13 +8,20 @@ parameters:
   model_name:
     values: ["early_attn"]
   seed:
-    values: [3, 11, 17, 42]
+    values: [3]
   num_scene:
     values: [1000]
   total_gradient_steps:
     values: [100000]
+  # ILCONFIG
+  num_head:
+    values: [4, 6]
+  network_dim:
+    values: [128, 256]
+  num_layer:
+    values: [[3, 2], [4, 3]]
   # AUXCONFIG
   use_tom:
-    values: ["no_guide_no_weighted"] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+    values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
   aux_future_step:
-    values: [20] # null, 1, 5, 10, 20, 30
+    values: [null] # null, 1, 5, 10, 20, 30

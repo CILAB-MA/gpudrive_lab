@@ -11,9 +11,9 @@ lr: 0.0005
 sample_per_epoch: 438763
 seed: 3
 early_stop_num: 100_000
-base_path: '/data/full_version'
+base_path: '/data'
 model_path: 'model'
-data_path: 'data'
+data_path: 'processed/final'
 num_scene: 1000
 # DATA CONFIG
 num_workers: 8
