@@ -91,6 +91,7 @@ class MatplotlibVisualizer:
             self.controlled_agent_mask.shape[1],
             backend=self.backend,
         )
+        self.log_trajectory.pos_xy = self.log_trajectory.pos_xy.to(self.device)
 
     def plot_simulator_state(
         self,
@@ -1574,3 +1575,9 @@ class MatplotlibVisualizer:
         ax.set_yticks([])
 
         return fig
+
+    def _plot_attention_weight():
+        pass
+    
+    def _plot_partner_auxilary():
+        pass
