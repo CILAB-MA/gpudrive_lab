@@ -158,9 +158,9 @@ def process_directory(dataset_dir, num_workers=None):
 def process_all_directories(num_workers=None):
     """Process all dataset directories (training, testing, validation)."""
     directories = [
-        "data/processed/training",
-        "data/processed/testing",
-        "data/processed/validation"
+        "/data/data/training",
+        "/data/data/testing",
+        "/data/data/validation"
     ]
     
     total_valid = 0
