@@ -104,13 +104,14 @@ def save_trajectory(env, save_path, save_index=0):
     expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
     expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
     os.makedirs(save_path, exist_ok=True)
+    os.makedirs(save_path + '/global', exist_ok=True)
     np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
                         obs=expert_trajectory_lst,
                         actions=expert_actions_lst,
                         dead_mask=expert_dead_mask_lst,
                         partner_mask=expert_partner_mask_lst,
                         road_mask=expert_road_mask_lst)
-    np.savez_compressed(f"{save_path}/global_trajectory_{save_index}.npz", 
+    np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
                         ego_global_pos=expert_global_pos_lst,
                         ego_global_rot=expert_global_rot_lst)
 
