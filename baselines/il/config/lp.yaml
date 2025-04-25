@@ -1,0 +1,15 @@
+model_path: "/data/full_version/model/net_size"
+rollout_len: 5
+pred_len: 1
+base_path: '/data/full_version'
+model_name: 'early_attn_seed_3_0423_021412'
+data_path: 'processed/final'
+seed: 3
+total_gradient_steps: 10_000
+eval_freq: 1000
+future_step: 5
+num_scene: 1000
+num_workers: 8
+prefetch_factor: 4
+pin_memory: True
+lr: 0.0015

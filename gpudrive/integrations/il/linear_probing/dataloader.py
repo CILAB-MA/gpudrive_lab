@@ -2,10 +2,10 @@ import torch
 import numpy as np
 from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
-class ExpertDataset(torch.utils.data.Dataset):
-    def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None,
-                 rollout_len=5, pred_len=1, aux_future_step=None, ego_global_pos=None, ego_global_rot=None,
-                 use_tom=False):
+
+class FutureDataset(torch.utils.data.Dataset):
+    def __init__(self, obs, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None,
+                 rollout_len=5, pred_len=1, future_step=1):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -14,77 +14,56 @@ class ExpertDataset(torch.utils.data.Dataset):
         new_obs[:, rollout_len - 1:] = obs # This is more cheaper than concatenate
         self.obs = new_obs
 
-        # actions
-        self.actions = actions
-        
         # masks
         valid_masks = 1 - masks
-        max_actions = np.max(actions, axis=-1)
-        min_actions = np.min(actions, axis=-1)
-        action_mask = (max_actions == 6) | (min_actions == -6) | (actions[..., -1] >= 3.14)  | (actions[..., -1] <= -3.14)
-        valid_masks[action_mask] = 0
         new_shape = (B, T + rollout_len - 1)
         new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
         new_valid_mask[:, rollout_len - 1:] = valid_masks
         self.valid_masks = new_valid_mask.astype('bool')
-        self.use_mask = True if self.valid_masks is not None else False
 
         # partner_mask
-        self.aux_valid_mask = None
         partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
-        self.aux_mask = None
-        self.other_info = None
-        self.other_pos = None
-        if use_tom:
-            # todo: concat remove need
-            aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, 
-                                                     future_timestep=aux_future_step)
-            max_aux_actions = np.max(aux_info[..., -4:], axis=-1)
-            min_aux_actions = np.min(aux_info[..., -4:], axis=-1)
-            aux_action_mask = (max_aux_actions == 6) | (min_aux_actions == -6) | (aux_info[..., -1] >= 3.14)  | (aux_info[..., -1] <= -3.14)
-            aux_mask[aux_action_mask] = True
-            self.aux_mask = aux_mask.astype('bool')
-            self.other_info = aux_info
-            current_relative_pos = self._transform_relative_pos(aux_info, ego_global_pos, ego_global_rot, future_step=aux_future_step)
-            current_relative_pos[self.aux_mask] = 0
-            self.other_pos = self._get_multi_class_pos(current_relative_pos)
-
+        aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, future_timestep=future_step)
+        self.aux_mask = aux_mask.astype('bool')
         new_shape = (B, T + rollout_len - 1, 127)
         new_partner_mask = np.full(new_shape, 2, dtype=np.float32)
         new_partner_mask[:, rollout_len - 1:] = partner_mask
         self.partner_mask = np.where(new_partner_mask == 2, 1, 0).astype('bool')
+
+        # future ego mask
+        future_valid_mask_pad = np.zeros((self.valid_masks.shape[0], ego_future_step, *self.valid_masks.shape[2:]), dtype=np.float32)
+        future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype('bool')[:, ego_future_step:]
+        self.future_valid_mask = self.valid_masks[:,rollout_len - 1:] & future_valid_masks
+
         # road_mask
         self.road_mask = road_mask
         new_shape = (B, T + rollout_len - 1, 200)
         new_road_mask = np.ones(new_shape)
         new_road_mask[:, rollout_len - 1:] = road_mask
-
         self.road_mask = new_road_mask.astype('bool')
-          
+        
+        # linear probing
+        current_relative_other_pos = self._transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step=future_step)
+        current_relative_pos[aux_mask] = 0
+        self.other_pos = self._get_multi_class_pos(current_relative_pos)
+
+        current_relative_ego_pos = self._transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
+        self.ego_pos = self._get_multi_class_pos(current_relative_ego_pos)
+        
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'actions', 'partner_mask', 'road_mask',
-                         'other_pos', 'aux_mask']
-
+        self.full_var = ['obs', 'valid_masks', 'partner_mask', 'road_mask',
+                         'aux_mask', 'future_valid_mask', 'other_pos']
     def __len__(self):
         return len(self.valid_indices)
 
-    def _compute_valid_indices(self):
-        N, T = self.valid_masks.shape
-        valid_time = np.arange(T - (self.rollout_len + self.pred_len - 2))
-        valid_idx1, valid_idx2 = np.where(self.valid_masks[:, valid_time + self.rollout_len + self.pred_len - 2] == 1)
-        valid_idx2 = valid_time[valid_idx2]
-        return list(zip(valid_idx1, valid_idx2))
-    
-    def _make_aux_info(self, partner_mask, info, partner_info, future_timestep):
+    def _make_aux_info(self, partner_mask, partner_info, future_timestep):
         partner_mask_bool = np.where(partner_mask == 0, 0, 1).astype(bool)
         action_valid_mask = np.where(partner_mask == 0, 1, 0).astype(bool)
-        info[..., :-1] *= action_valid_mask[..., np.newaxis]
-        current_info_id = info[:, :, :, -1]
-        all_infos = np.concatenate([partner_info, info], axis=-1)
-        other_info_pad = np.zeros((all_infos.shape[0], future_timestep, *all_infos.shape[2:]), dtype=np.float32)
+        #========================여기서부터 aux info 아이디 고정에 따라 다시 해야 함===============================
+        other_info_pad = np.zeros((partner_info.shape[0], future_timestep, *partner_info.shape[2:]), dtype=np.float32)
         partner_mask_pad = np.full((partner_mask.shape[0], future_timestep, *partner_mask.shape[2:]), 2, dtype=np.float32)
 
         future_mask = np.concatenate([partner_mask, partner_mask_pad], axis=1)
@@ -138,27 +117,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         return aligned_future_acton_sum, combined_mask_bool
     
     @staticmethod
-    def _get_multi_class_pos(pos):
-        """
-        Convert continuous pos to multi-class discrete pos based on x, y.
-        """
-        x, y = pos[..., 0], pos[..., 1]
-        
-        # Define bins for discretization (-1 to 1 with 8 bins)
-        bins = np.linspace(-0.1, 0.1, 9)
-        
-        # Digitize x and y into 8 categories (0 to 7)
-        x_bins = np.digitize(x, bins) - 1
-        y_bins = np.digitize(y, bins) - 1
-        
-        # Ensure values are within valid range (0 to 7)
-        x_bins = np.clip(x_bins, 0, 7)
-        y_bins = np.clip(y_bins, 0, 7)
-        
-        discrete_pos = x_bins * 8 + y_bins
-        return discrete_pos
-    
-    def _transform_relative_pos(self, aux_info, ego_global_pos, ego_global_rot, future_step):
+    def _transform_relative_other_pos(self, aux_info, ego_global_pos, ego_global_rot, future_step):
         """transform time t relative pos to current relative pos"""
         # 1. transform t-relative pos to t-global pos
         # get partner's relative pos and rot at time t
@@ -187,7 +146,86 @@ class ExpertDataset(torch.utils.data.Dataset):
         current_relative_pos = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
         
         return current_relative_pos
-    
+
+    @staticmethod
+    def _transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step):
+        """transform global pos to current relative pos"""
+        current_relative_pos = np.zeros_like(ego_global_pos)
+        ego_current_pos = ego_global_pos[:, :-future_step]
+        ego_future_pos = ego_global_pos[:, future_step:]
+        
+        delta_x = ego_future_pos[..., 0] - ego_current_pos[..., 0]
+        delta_y = ego_future_pos[..., 1] - ego_current_pos[..., 1]
+        
+        ego_current_rot = ego_global_rot[:, :-future_step]
+        
+        cos_theta = np.cos(ego_current_rot)
+        sin_theta = np.sin(ego_current_rot)
+        
+        rel_x = delta_x * cos_theta.squeeze(-1) + delta_y * sin_theta.squeeze(-1)
+        rel_y = -delta_x * sin_theta.squeeze(-1) + delta_y * cos_theta.squeeze(-1)
+        
+        current_relative_pos_x = 2 * ((rel_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos_y = 2 * ((rel_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+        current_relative_pos[:, :-future_step, :] = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+        
+        return current_relative_pos
+
+    def _compute_valid_indices(self):
+        N, T = self.valid_masks.shape
+        valid_time = np.arange(T - (self.rollout_len + self.pred_len - 2))
+        valid_idx1, valid_idx2 = np.where(self.valid_masks[:, valid_time + self.rollout_len + self.pred_len - 2] == 1)
+        valid_idx2 = valid_time[valid_idx2]
+        return list(zip(valid_idx1, valid_idx2))
+
+    @staticmethod
+    def _get_multi_class_pos(pos):
+        """
+        Convert continuous pos to multi-class discrete pos based on x, y.
+        """
+        x, y = pos[..., 0], pos[..., 1]
+        
+        # Define bins for discretization (-1 to 1 with 8 bins)
+        bins = np.linspace(-0.1, 0.1, 9)
+        
+        # Digitize x and y into 8 categories (0 to 7)
+        x_bins = np.digitize(x, bins) - 1
+        y_bins = np.digitize(y, bins) - 1
+        
+        # Ensure values are within valid range (0 to 7)
+        x_bins = np.clip(x_bins, 0, 7)
+        y_bins = np.clip(y_bins, 0, 7)
+        
+        discrete_pos = x_bins * 8 + y_bins
+        return discrete_pos
+
+    @staticmethod
+    def _get_multi_class_actions(actions):
+        """
+        Convert continuous actions to multi-class discrete actions based on dyaw.
+        """
+        dx = actions[..., 0]
+        dy = actions[..., 1]
+        dyaw = actions[..., 2]
+        
+        dx_bins = np.linspace(-3, 3, 5)  # 4 bins for dx
+        dy_bins = np.linspace(-3, 3, 5)  # 4 bins for dy
+        dyaw_bins = np.linspace(-np.pi / 4, np.pi / 4, 5)  # 4 bins for dyaw
+        
+        dx_bin = np.digitize(dx, dx_bins) - 1
+        dy_bin = np.digitize(dy, dy_bins) - 1
+        dyaw_bin = np.digitize(dyaw, dyaw_bins) - 1
+
+        # Ensure indices are within range
+        dx_bin = np.clip(dx_bin, 0, 4 - 1)
+        dy_bin = np.clip(dy_bin, 0, 4 - 1)
+        dyaw_bin = np.clip(dyaw_bin, 0, 4 - 1)
+
+        # Compute single discrete index
+        discrete_action = (dx_bin * 4 * 4) + (dy_bin * 4) + dyaw_bin
+
+        return discrete_action
+        
     def __getitem__(self, idx):
         idx1, idx2 = self.valid_indices[idx]
         idx1 = int(idx1)
@@ -199,36 +237,78 @@ class ExpertDataset(torch.utils.data.Dataset):
                 if self.__dict__[var_name] is not None:
                     if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
-                    elif var_name in ['actions']:
-                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
-                    elif var_name in ['other_pos', 'aux_mask']:
+                    elif var_name == 'valid_masks':
+                        data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
+                    elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask']:
                         data = self.__dict__[var_name][idx1, idx2]
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
                     batch = batch + (data, )
                     if var_name == 'valid_masks':
                         ego_mask_data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len]
-                        if ego_mask_data != True:
-                            print('Not valid data!!!')
-            batch = batch + (torch.tensor([idx1, idx2]),)
+                        batch = batch + (ego_mask_data, )
         else:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
                     data = self.__dict__[var_name][idx]
                     batch = batch + (data, )
         return batch
-    
+
 
 if __name__ == "__main__":
+    import numpy as np
     import os
     from torch.utils.data import DataLoader
-    data_name = [100, 500, 1000, 5000]
-    for data_num in data_name:
-        data = np.load(f"/data/tom_v5/train_trajectory_{data_num}.npz")
-        partner_masks = data['partner_mask'].reshape(-1, 127)
-        dead_mask = data['dead_mask'].reshape(-1)
-        filted_partner_masks = partner_masks[~dead_mask]
-        zero_count = np.sum(filted_partner_masks.sum(axis=-1) == (2 * 127))
-        total_count = len(filted_partner_masks)
-        ratio = np.round(zero_count / total_count, 3)
-        print(zero_count, total_count,  ratio)
+    import matplotlib.pyplot as plt
+    from algorithms.il.analyze.linear_probing.dataloader import OtherFutureDataset
+
+    data = np.load("/data/tom_v5/train_trajectory_100.npz")
+    global_data = np.load("/data/tom_v5/linear_probing/global_train_trajectory_100.npz")
+    
+    expert_data_loader = DataLoader(
+        EgoFutureDataset(
+            data['obs'], data['actions'], global_data['ego_global_pos'],
+            data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
+            rollout_len=5, pred_len=1, ego_future_step=40
+        ),
+        batch_size=256,
+        shuffle=True,
+        num_workers=4,
+    )
+    del data
+    del global_data
+
+    total_pos_counts = np.zeros(64, dtype=int)      # other_pos는 0~63
+    total_action_counts = np.zeros(64, dtype=int)   # other_actions는 0~63
+
+    
+    for batch in expert_data_loader:
+        _, _, future_pos, future_action, _, future_valid_mask, *_ = batch
+
+        pos_vals = future_pos[future_valid_mask].cpu().numpy().astype(int)
+        action_vals = future_action[future_valid_mask].cpu().numpy().astype(int)
+
+        total_pos_counts += np.bincount(pos_vals, minlength=64)
+        total_action_counts += np.bincount(action_vals, minlength=64)
+
+    # ego_future_pos 분포
+    plt.figure(figsize=(10, 4))
+    plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)
+    plt.xlabel("ego_future_pos (0~63)")
+    plt.ylabel("count")
+    plt.title("ego_future_pos distribution")
+    plt.xticks(range(0, 64, 4))
+    plt.grid(axis="y", linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    plt.savefig('ego future pos dist.png', dpi=300)
+
+    # ego_future_actions 분포
+    plt.figure(figsize=(16, 4))
+    plt.bar(range(64), total_action_counts, color='red', alpha=0.7)
+    plt.xlabel("ego_future_actions (0~63)")
+    plt.ylabel("count")
+    plt.title("ego_future_actions distribution")
+    plt.xticks(range(64))
+    plt.grid(axis="y", linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    plt.savefig('ego future action dist.png', dpi=300)
