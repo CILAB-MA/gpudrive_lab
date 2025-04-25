@@ -2,7 +2,8 @@ import torch
 import matplotlib
 
 matplotlib.use("Agg")
-from typing import Tuple, Optional, List, Dict, Any, Union
+from typing import Tuple, Optional, List, Dict, Any
+import io
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
@@ -10,6 +11,8 @@ from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 from matplotlib.colors import ListedColormap
+import matplotlib.cm as cm
+import matplotlib.image as mpimg
 from jaxlib.xla_extension import ArrayImpl
 import numpy as np
 import madrona_gpudrive
@@ -92,6 +95,7 @@ class MatplotlibVisualizer:
             backend=self.backend,
         )
         self.log_trajectory.pos_xy = self.log_trajectory.pos_xy.to(self.device)
+        self.log_trajectory.yaw = self.log_trajectory.yaw.to(self.device)
 
     def plot_simulator_state(
         self,
@@ -100,6 +104,8 @@ class MatplotlibVisualizer:
         center_agent_indices: Optional[List[int]] = None,
         zoom_radius: int = 100,
         plot_log_replay_trajectory: bool = False,
+        plot_importance_weight: bool = False,
+        plot_partner_linear_probing: bool = False,
         agent_positions: Optional[torch.Tensor] = None,
         backward_goals: bool = False,
         policy_masks: Optional[Dict[int,Dict[str,torch.Tensor]]] = None,
@@ -465,6 +471,16 @@ class MatplotlibVisualizer:
 
         for fig in figs:
             fig.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
+        
+        if plot_importance_weight:
+            figs = [
+                self._plot_importance_weight(
+                    fig=fig,
+                    env_idx=env_idx,
+                    response_type=self.response_type,
+                    agent_states=global_agent_states,
+                ) for env_idx, fig in enumerate(figs)
+            ]
 
         return figs
 
@@ -1576,8 +1592,96 @@ class MatplotlibVisualizer:
 
         return fig
 
-    def _plot_attention_weight():
-        pass
-    
-    def _plot_partner_auxilary():
+    def _plot_importance_weight(
+        self,
+        fig: matplotlib.figure.Figure,
+        env_idx: int,
+        response_type: Any,
+        agent_states: GlobalEgoState,
+    ):    
+        if self.render_3d:
+            raise NotImplementedError("3D rendering not supported for importance weight plotting.")
+        
+        ax_base = fig.axes[0]
+        xmin, xmax = ax_base.get_xlim()
+        ymin, ymax = ax_base.get_ylim()
+        
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=fig.dpi,
+                bbox_inches="tight", transparent=True)
+        buf.seek(0)
+        bg_img = mpimg.imread(buf)
+        
+        figs = []
+        num_imp_heads = self.importance_weight.shape[1] # (num_world, num_head, partner_num)
+        
+        for head_idx in range(num_imp_heads):
+            f_h, ax_h = plt.subplots(figsize=fig.get_size_inches(), dpi=fig.dpi)
+            
+            ax_h.imshow(bg_img, extent=[xmin, xmax, ymin, ymax], origin="upper")
+            ax_h.set_xlim(xmin, xmax); ax_h.set_ylim(ymin, ymax)
+            ax_h.set_xticks([]); ax_h.set_yticks([]); ax_h.set_axis_off()
+            
+            other_agents = (
+                response_type.static[env_idx, :] 
+                | (response_type.moving[env_idx, :] & ~self.controlled_agent_mask[env_idx, :])
+            )
+
+            pos_x = agent_states.pos_x[env_idx, other_agents]
+            pos_y = agent_states.pos_y[env_idx, other_agents]
+            rotation_angle = agent_states.rotation_angle[env_idx, other_agents]
+            vehicle_length = agent_states.vehicle_length[env_idx, other_agents]
+            vehicle_width = agent_states.vehicle_width[env_idx, other_agents]
+
+            valid_mask = (
+                (torch.abs(pos_x) < OUT_OF_BOUNDS)
+                & (torch.abs(pos_y) < OUT_OF_BOUNDS)
+                & (
+                    (vehicle_length > 0.5)
+                    & (vehicle_length < 15)
+                    & (vehicle_width > 0.5)
+                    & (vehicle_width < 15)
+                )
+            )
+
+            bboxes = np.stack(
+                (
+                    pos_x[valid_mask].numpy(),
+                    pos_y[valid_mask].numpy(),
+                    vehicle_length[valid_mask].numpy(),
+                    vehicle_width[valid_mask].numpy(),
+                    rotation_angle[valid_mask].numpy(),
+                ),
+                axis=1,
+            )
+            
+            importance_weight = self.importance_weight[env_idx, head_idx, other_agents][valid_mask].numpy()
+            importance_score = (importance_weight - importance_weight.min()) / (
+                importance_weight.max() - importance_weight.min()
+            )
+            viridis_color = cm.viridis(importance_score)[:, :3]
+
+            utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
+                ax=ax_h,
+                bboxes_s=bboxes,
+                colors=viridis_color,
+                alpha=1.0,
+                line_width_scale=1.0,
+                as_center_pts=False,
+                label=None,
+            )
+            
+            f_h.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
+            figs.append(f_h)
+        
+        return figs
+
+            
+    def _plot_partner_linear_probing(
+        self,
+        fig: matplotlib.figure.Figure,
+        env_idx: int,
+        response_type: Any,
+        agent_states: GlobalEgoState,
+    ):    
         pass
