@@ -1512,6 +1512,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
 if __name__ == "__main__":
 
     NUM_WORLDS = 2
+    NUM_IMPORTANCE_HEAD = 4
     TOTAL_NUM_WORLDS = 4
     
     env_config = EnvConfig(
@@ -1530,7 +1531,7 @@ if __name__ == "__main__":
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
-        max_cont_agents=128,  # Number of agents to control
+        max_cont_agents=1,  # Number of agents to control
         device="cuda",
         action_type="continuous",
     )
@@ -1540,7 +1541,7 @@ if __name__ == "__main__":
         obs = env.reset()
         partner_mask = env.get_partner_mask()
         road_mask = env.get_road_mask()
-        frames = {f"env_{i}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS)}
+        frames = {f"env_{i}_head_{j}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS) for j in range(NUM_IMPORTANCE_HEAD)}
         expert_actions, _, _, _ = env.get_expert_actions()
         for t in range(env.episode_len):
             print(f"Step: {t}")
@@ -1549,14 +1550,17 @@ if __name__ == "__main__":
             expert_actions, _, _, _ = env.get_expert_actions()
             env.step_dynamics(expert_actions[:, :, t, :])
 
+            setattr(env.vis, "importance_weight", torch.rand(NUM_WORLDS, 4, 128))
             # Make video
             sim_states = env.vis.plot_simulator_state(
                 env_indices=list(range(NUM_WORLDS)),
                 time_steps=[t]*NUM_WORLDS,
+                plot_importance_weight=True
             )
 
             for i in range(NUM_WORLDS):
-                frames[f"env_{i + idx*NUM_WORLDS}"].append(img_from_fig(sim_states[i]))
+                for j in range(NUM_IMPORTANCE_HEAD):
+                    frames[f"env_{i + idx*NUM_WORLDS}_head_{j}"].append(img_from_fig(sim_states[i][j]))
 
             obs = env.get_obs()
             partner_mask = env.get_partner_mask()
@@ -1567,9 +1571,10 @@ if __name__ == "__main__":
 
             if done.all():
                 for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS):
-                    media.write_video(
-                        f"sim_video_{i}.gif", np.array(frames[f"env_{i}"]), fps=60, codec="gif"
-                    )
+                    for j in range(NUM_IMPORTANCE_HEAD):
+                        media.write_video(
+                            f"sim_video_{i}_{j}.gif", np.array(frames[f"env_{i}_head_{j}"]), fps=60, codec="gif"
+                        )
                 break
 
     env.close()
