@@ -59,6 +59,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     dataset = FutureDataset(
         expert_obs, ego_global_pos, ego_global_rot, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, future_step=config.future_step,
+        exp=config.exp
     )
     dataloader = DataLoader(
         dataset,

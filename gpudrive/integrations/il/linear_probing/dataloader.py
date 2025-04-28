@@ -5,7 +5,7 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class FutureDataset(torch.utils.data.Dataset):
     def __init__(self, obs, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None,
-                 rollout_len=5, pred_len=1, future_step=1):
+                 rollout_len=5, pred_len=1, future_step=1, exp='other'):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -21,19 +21,21 @@ class FutureDataset(torch.utils.data.Dataset):
         new_valid_mask[:, rollout_len - 1:] = valid_masks
         self.valid_masks = new_valid_mask.astype('bool')
 
-        # partner_mask
-        partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
-        aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, future_timestep=future_step)
-        self.aux_mask = aux_mask.astype('bool')
+        if exp == 'other':
+            # future partner_mask
+            partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
+            aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, future_timestep=future_step)
+            self.aux_mask = aux_mask.astype('bool')
         new_shape = (B, T + rollout_len - 1, 127)
         new_partner_mask = np.full(new_shape, 2, dtype=np.float32)
         new_partner_mask[:, rollout_len - 1:] = partner_mask
         self.partner_mask = np.where(new_partner_mask == 2, 1, 0).astype('bool')
 
-        # future ego mask
-        future_valid_mask_pad = np.zeros((self.valid_masks.shape[0], ego_future_step, *self.valid_masks.shape[2:]), dtype=np.float32)
-        future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype('bool')[:, ego_future_step:]
-        self.future_valid_mask = self.valid_masks[:,rollout_len - 1:] & future_valid_masks
+        if exp == 'ego':
+            # future ego mask
+            future_valid_mask_pad = np.zeros((self.valid_masks.shape[0], future_step, *self.valid_masks.shape[2:]), dtype=np.float32)
+            future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype('bool')[:, future_step:]
+            self.future_valid_mask = self.valid_masks[:,rollout_len - 1:] & future_valid_masks
 
         # road_mask
         self.road_mask = road_mask
@@ -41,83 +43,42 @@ class FutureDataset(torch.utils.data.Dataset):
         new_road_mask = np.ones(new_shape)
         new_road_mask[:, rollout_len - 1:] = road_mask
         self.road_mask = new_road_mask.astype('bool')
-        
-        # linear probing
-        current_relative_other_pos = self._transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step=future_step)
-        current_relative_pos[aux_mask] = 0
-        self.other_pos = self._get_multi_class_pos(current_relative_pos)
-
-        current_relative_ego_pos = self._transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
-        self.ego_pos = self._get_multi_class_pos(current_relative_ego_pos)
-        
+        if exp == 'other':
+            # future other pos
+            current_relative_other_pos = self._transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step=future_step)
+            current_relative_other_pos[aux_mask] = 0
+            self.other_pos = self._get_multi_class_pos(current_relative_other_pos)
+        else:
+            # future ego pos
+            current_relative_ego_pos = self._transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
+            self.ego_pos = self._get_multi_class_pos(current_relative_ego_pos)
+            # ego? -> current_relative_pos[aux_mask] = 0
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'valid_masks', 'partner_mask', 'road_mask',
-                         'aux_mask', 'future_valid_mask', 'other_pos']
+        self.full_var = ['obs', 'valid_masks', 'partner_mask', 'road_mask']
+        if exp == 'other':
+            self.full_var += ['aux_mask', 'other_pos']
+        else:
+            self.full_var += ['future_valid_mask', 'ego_pos']
     def __len__(self):
         return len(self.valid_indices)
 
     def _make_aux_info(self, partner_mask, partner_info, future_timestep):
         partner_mask_bool = np.where(partner_mask == 0, 0, 1).astype(bool)
         action_valid_mask = np.where(partner_mask == 0, 1, 0).astype(bool)
-        #========================여기서부터 aux info 아이디 고정에 따라 다시 해야 함===============================
-        other_info_pad = np.zeros((partner_info.shape[0], future_timestep, *partner_info.shape[2:]), dtype=np.float32)
+        partner_info_pad = np.zeros((partner_info.shape[0], future_timestep, *partner_info.shape[2:]), dtype=np.float32)
         partner_mask_pad = np.full((partner_mask.shape[0], future_timestep, *partner_mask.shape[2:]), 2, dtype=np.float32)
 
         future_mask = np.concatenate([partner_mask, partner_mask_pad], axis=1)
         future_mask_bool = np.where(future_mask == 0, 0, 1).astype(bool)[:, future_timestep:]
-        other_info = np.concatenate([all_infos, other_info_pad], axis=1)[:, future_timestep:]
-        future_info_id = other_info[:, :, :, -1]
-        future_acton_sum = other_info[:, :, :, :-1]
-
-        future_info_id_masked = future_info_id * ~future_mask_bool - future_mask_bool
-        current_info_id_masked = current_info_id * ~partner_mask_bool - partner_mask_bool
-        future_info_id_masked = future_info_id_masked.astype(np.int64)
-        current_info_id_masked = current_info_id_masked.astype(np.int64)
-
-        aligned_future_acton_sum = np.zeros_like(future_acton_sum)
-
-        aligned_future_mask_bool = np.zeros_like(future_mask_bool, dtype=bool)
-
-        B, T, _ = future_info_id_masked.shape
-        for b in range(B):
-            for t in range(T):
-                future_ids_1d = future_info_id_masked[b, t]       
-                current_ids_1d = current_info_id_masked[b, t]    
-                future_acts_2d = future_acton_sum[b, t]           
-                future_mask_1d = future_mask_bool[b, t]
-                valid_mask = (future_ids_1d != -1)
-                valid_future_ids = future_ids_1d[valid_mask]
-                valid_future_acts = future_acts_2d[valid_mask]
-                valid_future_mask = future_mask_1d[valid_mask]
-                match_idx = np.searchsorted(valid_future_ids, current_ids_1d)
-
-                reordered_acts = np.zeros_like(future_acts_2d)
-                reordered_mask = np.ones_like(future_mask_1d, dtype=bool)
-                in_bounds = (match_idx >= 0) & (match_idx < len(valid_future_ids))
-                valid_positions = np.where(in_bounds)[0]
-
-                if len(valid_positions) == 0:
-                    aligned_future_acton_sum[b, t] = reordered_acts
-                    aligned_future_mask_bool[b, t] = reordered_mask
-                    continue
-                exact_match_array = (
-                    valid_future_ids[ match_idx[valid_positions] ] == current_ids_1d[valid_positions]
-                )
-                exact_match = np.zeros_like(in_bounds, dtype=bool)
-                exact_match[valid_positions] = exact_match_array
-                reordered_acts[exact_match] = valid_future_acts[ match_idx[exact_match] ]
-                reordered_mask[exact_match] = valid_future_mask[ match_idx[exact_match] ]
-                aligned_future_acton_sum[b, t] = reordered_acts
-                aligned_future_mask_bool[b, t] = reordered_mask
-        combined_mask_bool = partner_mask_bool | aligned_future_mask_bool
-
-        return aligned_future_acton_sum, combined_mask_bool
+        partner_info = np.concatenate([partner_info, partner_info_pad], axis=1)[:, future_timestep:]
+        combined_mask = np.logical_or(future_mask_bool, partner_mask_bool).astype('bool')
+        return partner_info, combined_mask
     
     @staticmethod
-    def _transform_relative_other_pos(self, aux_info, ego_global_pos, ego_global_rot, future_step):
+    def _transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step):
         """transform time t relative pos to current relative pos"""
         # 1. transform t-relative pos to t-global pos
         # get partner's relative pos and rot at time t
@@ -239,7 +200,7 @@ class FutureDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
-                    elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask']:
+                    elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask', 'ego_pos']:
                         data = self.__dict__[var_name][idx1, idx2]
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
@@ -260,19 +221,19 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
-    from algorithms.il.analyze.linear_probing.dataloader import OtherFutureDataset
 
-    data = np.load("/data/tom_v5/train_trajectory_100.npz")
-    global_data = np.load("/data/tom_v5/linear_probing/global_train_trajectory_100.npz")
+    data = np.load("/data/full_version/processed/final/training_trajectory_1000.npz")
+    global_data = np.load("/data/full_version/processed/final/global_training_trajectory_1000.npz")
     
     expert_data_loader = DataLoader(
-        EgoFutureDataset(
-            data['obs'], data['actions'], global_data['ego_global_pos'],
-            data['dead_mask'], data['partner_mask'], data['road_mask'], data['other_info'], 
-            rollout_len=5, pred_len=1, ego_future_step=40
+        FutureDataset(
+            data['obs'], global_data['ego_global_pos'], global_data['ego_global_rot'],
+            data['dead_mask'], data['partner_mask'], data['road_mask'], 
+            rollout_len=5, pred_len=1, future_step=40, exp='other'
         ),
         batch_size=256,
         shuffle=True,
+
         num_workers=4,
     )
     del data
@@ -283,13 +244,11 @@ if __name__ == "__main__":
 
     
     for batch in expert_data_loader:
-        _, _, future_pos, future_action, _, future_valid_mask, *_ = batch
+        obs, mask, valid_mask, partner_mask, road_mask, aux_mask, other_pos = batch
 
-        pos_vals = future_pos[future_valid_mask].cpu().numpy().astype(int)
-        action_vals = future_action[future_valid_mask].cpu().numpy().astype(int)
+        pos_vals = other_pos[aux_mask].cpu().numpy().astype(int)
 
         total_pos_counts += np.bincount(pos_vals, minlength=64)
-        total_action_counts += np.bincount(action_vals, minlength=64)
 
     # ego_future_pos 분포
     plt.figure(figsize=(10, 4))
@@ -301,14 +260,3 @@ if __name__ == "__main__":
     plt.grid(axis="y", linestyle="--", alpha=0.5)
     plt.tight_layout()
     plt.savefig('ego future pos dist.png', dpi=300)
-
-    # ego_future_actions 분포
-    plt.figure(figsize=(16, 4))
-    plt.bar(range(64), total_action_counts, color='red', alpha=0.7)
-    plt.xlabel("ego_future_actions (0~63)")
-    plt.ylabel("count")
-    plt.title("ego_future_actions distribution")
-    plt.xticks(range(64))
-    plt.grid(axis="y", linestyle="--", alpha=0.5)
-    plt.tight_layout()
-    plt.savefig('ego future action dist.png', dpi=300)
