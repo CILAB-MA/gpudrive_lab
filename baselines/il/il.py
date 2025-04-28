@@ -73,15 +73,14 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
         partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
         road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
-        other_info = npz['other_info'] if ('other_info' in npz.keys() and config.use_tom) else None
     ego_global_pos = None
     ego_global_rot = None
     if config.use_tom:
-        with np.load(os.path.join(data_path, "linear_probing", "global_" + data_file)) as global_npz:
+        with np.load(os.path.join(data_path, "global_" + data_file)) as global_npz:
             ego_global_pos = global_npz['ego_global_pos']
             ego_global_rot = global_npz['ego_global_rot']
     dataset = ExpertDataset(
-        expert_obs, expert_actions, expert_masks, partner_mask, road_mask, other_info,
+        expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step,
         ego_global_pos=ego_global_pos, ego_global_rot=ego_global_rot
     )
@@ -187,12 +186,13 @@ def train(exp_config=None):
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb_tags.append(f"non_trainable_params_{non_trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
-    train_data_file = os.path.join(exp_config.base_path, exp_config.data_path, f"training_trajectory_{exp_config.num_scene}.npz")
-    eval_data_file = os.path.join(exp_config.base_path, exp_config.data_path, f"validation_trajectory_2500.npz")
-    expert_data_loader = get_dataloader(exp_config.data_path, train_data_file, exp_config)
-    eval_expert_data_loader = get_dataloader(exp_config.data_path, eval_data_file, exp_config,
+    train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
+    train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
+    eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
+    eval_data_file =  f"validation_trajectory_2500.npz"
+    expert_data_loader = get_dataloader(train_data_path, train_data_file, exp_config)
+    eval_expert_data_loader = get_dataloader(eval_data_path, eval_data_file, exp_config,
                                             isshuffle=False)
-    
     num_train_sample = len(expert_data_loader.dataset)
     best_loss = 9999999
     early_stopping = 0

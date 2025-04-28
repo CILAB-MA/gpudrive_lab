@@ -3,8 +3,9 @@ import numpy as np
 from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class ExpertDataset(torch.utils.data.Dataset):
-    def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None, other_info=None,
-                 rollout_len=5, pred_len=1, aux_future_step=None, ego_global_pos=None, ego_global_rot=None):
+    def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None,
+                 rollout_len=5, pred_len=1, aux_future_step=None, ego_global_pos=None, ego_global_rot=None,
+                 use_tom=False):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -34,9 +35,9 @@ class ExpertDataset(torch.utils.data.Dataset):
         self.aux_mask = None
         self.other_info = None
         self.other_pos = None
-        if other_info is not None:
+        if use_tom:
             # todo: concat remove need
-            aux_info, aux_mask = self._make_aux_info(partner_mask, other_info, partner_info, 
+            aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, 
                                                      future_timestep=aux_future_step)
             max_aux_actions = np.max(aux_info[..., -4:], axis=-1)
             min_aux_actions = np.min(aux_info[..., -4:], axis=-1)

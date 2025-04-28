@@ -1,0 +1,28 @@
+program: baselines/il/linear_prob.py
+method: grid
+name: port_lp_test
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  # MODEL
+  model_path:
+    value: "/data/full_version/model/net_size"
+  model_name:
+    values: ["early_attn_seed_3_0423_021412"]
+  # DATA
+  future_step:
+    values: [5, 10, 15, 20]
+  exp:
+    values: ['ego', 'other']
+  model:
+    values: ['early_lp', 'final_lp', 'baseline']
+  # EXPERIMENT
+  batch_size:
+    values: [256]
+  total_gradient_steps:
+    values: [20_000]
+  lr:
+    values: [0.001]
+  seed:
+    values: [11]

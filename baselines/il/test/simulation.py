@@ -37,50 +37,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def run(args):
-    
-    # Configurations
-    NUM_WORLDS = args.num_world
-    NUM_PARTNER = 128
-    MAX_NUM_OBJECTS = 1
-    ROLLOUT_LEN = 5
-
-    # Initialize configurations
-    scene_config = SceneConfig(f"/data/formatted_json_v2_no_tl_{args.dataset}/",
-                               num_scenes=NUM_WORLDS,
-                               start_idx=args.start_idx,
-                               discipline=SelectionDiscipline.RANGE_N)
-    
-    env_config = EnvConfig(
-        dynamics_model="delta_local",
-        dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
-        dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
-        dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
-        collision_behavior='remove'
-
-    )
-    render_config = RenderConfig(
-        draw_obj_idx=True,
-        draw_expert_footprint=True,
-        draw_only_ego_footprint=True,
-        draw_ego_attention=True,
-    )
-    # Initialize environment
-    kwargs={
-        "config": env_config,
-        "scene_config": scene_config,
-        "render_config": render_config,
-        "max_cont_agents": MAX_NUM_OBJECTS,
-        "device": args.device,
-        "num_stack": args.num_stack
-    }
-    env = make(dynamics_id=DynamicsModel.DELTA_LOCAL, action_space=ActionSpace.CONTINUOUS, kwargs=kwargs)
-    print(f'model: {args.model_path}/{args.model_name}', )
-    bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to(args.device)
-    bc_policy.eval()
-
+def run(args, env):
     # To make video with expert trajectories footprint
-    if render_config.draw_expert_footprint:
+    if env.render_config.draw_expert_footprint:
         obs = env.reset()
         alive_agent_mask = env.cont_agent_mask.clone()
         expert_actions, _, _ = env.get_expert_actions()
@@ -109,7 +68,8 @@ def run(args):
     dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(NUM_WORLDS)]
     expert_actions, _, _ = env.get_expert_actions()
-    poss = obs[alive_agent_mask][:, 3876 * 4 + 3:3876 * 4 + 5]
+    obs_stack1_feat_size = int(obs.shape[-1] / 5)
+    poss = obs[alive_agent_mask][:, obs_stack1_feat_size * 4 + 3:obs_stack1_feat_size * 4 + 5]
     init_goal_dist = torch.linalg.norm(poss, dim=-1)
     dist_metrics = torch.zeros_like(init_goal_dist)
     infos = env.get_infos()
@@ -127,7 +87,7 @@ def run(args):
         ego_masks = ego_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN)
         partner_masks = partner_masks.reshape(NUM_WORLDS, NUM_PARTNER, ROLLOUT_LEN, -1)
         partner_mask_bool = partner_masks == 2
-        poss = obs[alive_agent_mask][:, 3876 * 4 + 3:3876 * 4 + 5]
+        poss = obs[alive_agent_mask][:, obs_stack1_feat_size * 4 + 3:obs_stack1_feat_size * 4 + 5]
         dist = torch.linalg.norm(poss, dim=-1)
         controlled_agent_info = infos[alive_agent_mask]
         alive_agents = infos[alive_agent_mask][:, :4].sum(-1) == 0
@@ -272,5 +232,95 @@ def run(args):
     return off_road_rate, veh_coll_rate, goal_rate, collision_rate
 
 if __name__ == "__main__":
-    args = parse_args()
-    run(args)
+    parser = argparse.ArgumentParser('Simulation experiment')
+    
+    parser.add_argument('--dataset-size', type=int, default=80000) # total_world
+    parser.add_argument('--batch-size', type=int, default=100) # num_world
+    # EXPERIMENT
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/new_aux_horizon')
+    parser.add_argument('--model-name', '-mn', type=str, default='aux_attn_gmm_guide_weight_20250217_1245.pth')
+    parser.add_argument('--make-video', '-mv', action='store_true')
+    parser.add_argument('--make-csv', '-mc', action='store_true')
+    parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
+    parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play'])
+    args = parser.parse_args()
+    # Configurations
+    num_cont_agents = 128 if args.sim_agent == 'self_play' else 1
+
+    print('Scene Loader')
+    # Create data loader
+    train_loader = SceneDataLoader(
+        root=f"/data/full_version/data/training/",
+        batch_size=args.batch_size,
+        dataset_size=args.dataset_size,
+        sample_with_replacement=False,
+        shuffle=False,
+    )
+    
+    env_config = EnvConfig(
+        dynamics_model="delta_local",
+        dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
+        dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
+        dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
+        collision_behavior='remove'
+        num_stack=5
+
+    )
+    render_config = RenderConfig(
+        draw_obj_idx=True,
+        draw_expert_footprint=True,
+        draw_only_ego_footprint=True,
+        draw_ego_attention=True,
+    )
+
+    # Make env
+    env = GPUDriveTorchEnv(
+        config=env_config,
+        data_loader=train_loader,
+        max_cont_agents=num_cont_agents,  # Number of agents to control
+        device="cuda",
+        render_config=render_config,
+        action_type="continuous",
+    )
+    print(f'model: {args.model_path}/{args.model_name}', )
+    bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to(args.device)
+    bc_policy.eval()
+    num_iter = int(args.dataset_size // args.batch_size)
+
+    # Train Scene
+    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
+    for i in tqdm(range(num_iter)):
+        print(env.data_batch)
+        run(args, env)
+        if i != num_iter - 1:
+            env.swap_data_batch()
+    env.close()
+
+    # Test Scene
+    test_loader = SceneDataLoader(
+        root=f"/data/full_version/data/testing/",
+        batch_size=args.batch_size,
+        dataset_size=10_000,
+        sample_with_replacement=False,
+        shuffle=False,
+    )
+    env = GPUDriveTorchEnv(
+        config=env_config,
+        data_loader=test_loader,
+        max_cont_agents=num_cont_agents,  # Number of agents to control
+        device="cuda",
+        render_config=render_config,
+        action_type="continuous",
+    )
+    # Test Scene
+    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
+    for i in tqdm(range(num_iter)):
+        print(env.data_batch)
+        run(args, env)
+        if i != num_iter - 1:
+            env.swap_data_batch()
+    env.close()
+    # integrate the result
+    csv_path = f"{model_path}/result_{args.partner_portion_test}.csv"
+
