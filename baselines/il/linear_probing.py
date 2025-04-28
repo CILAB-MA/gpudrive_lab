@@ -292,7 +292,7 @@ def train(exp_config=None):
                             "eval/pos_accuracy": pos_accuracys / (i + 1 - continue_num),
                             "eval/pos_loss": pos_losses / (i + 1 - continue_num),
                             "eval/pos_f1_macro": pos_f1_macros / (i + 1 - continue_num),
-                        }, step=epoch
+                        }, step=gradient_step
                     )
                 if pos_losses < best_loss:
                     save_dir = os.path.join(exp_config.model_path, f"{args.exp}_linear_prob/{exp_config.model_name}/seed{exp_config.seed}/")
@@ -306,7 +306,7 @@ def train(exp_config=None):
                     "train/pos_accuracy": pos_accuracys / (i + 1 - continue_num),
                     "train/pos_loss": pos_losses / (i + 1 - continue_num),
                     "train/pos_f1_macro": pos_f1_macros / (i + 1 - continue_num),
-                }, step=epoch
+                }, step=gradient_step
             )
         
     
