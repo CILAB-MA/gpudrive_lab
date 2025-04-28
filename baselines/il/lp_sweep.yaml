@@ -10,14 +10,9 @@ parameters:
     value: "/data/full_version/model/net_size"
   model_name:
     values: ["early_attn_seed_3_0423_021412"]
-
   # DATA
   data_path:
     value: "/data/tom_v5"
-  rollout_len:
-    value: 5
-  pred_len:
-    value: 1
   future_step:
     values: [5, 10, 15, 20]
   exp:
@@ -27,11 +22,9 @@ parameters:
   # EXPERIMENT
   batch_size:
     values: [256]
-  epochs:
-    values: [30]
+  total_gradient_steps:
+    values: [10_000]
   lr:
     values: [0.001]
-  sample_per_epoch:
-    values: [438763]
   seed:
     values: [11]
