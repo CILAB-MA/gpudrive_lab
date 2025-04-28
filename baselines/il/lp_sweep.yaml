@@ -21,7 +21,7 @@ parameters:
   batch_size:
     values: [256]
   total_gradient_steps:
-    values: [10_000]
+    values: [20_000]
   lr:
     values: [0.001]
   seed:
