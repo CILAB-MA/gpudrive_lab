@@ -11,8 +11,6 @@ parameters:
   model_name:
     values: ["early_attn_seed_3_0423_021412"]
   # DATA
-  data_path:
-    value: "/data/tom_v5"
   future_step:
     values: [5, 10, 15, 20]
   exp:
