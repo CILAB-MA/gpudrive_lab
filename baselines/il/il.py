@@ -297,7 +297,7 @@ def train(exp_config=None):
                         wandb.finish()
                         stop_training = True
                         break
-
+                bc_policy.train()                
         if exp_config.use_wandb:
             log_dict = {   
                     "train/loss": losses / (n + 1),
@@ -312,7 +312,7 @@ def train(exp_config=None):
             if exp_config.use_tom:
                 log_dict['train/tom_loss'] = tom_losses / (n + 1)
             wandb.log(log_dict, step=gradient_steps)
-wandb.finish()
+    wandb.finish()
 
 if __name__ == "__main__":
     args = parse_args()

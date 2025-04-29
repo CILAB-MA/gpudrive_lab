@@ -16,12 +16,12 @@ parameters:
   exp:
     values: ['ego', 'other']
   model:
-    values: ['early_lp', 'final_lp', 'baseline']
+    values: ['baseline', 'final_lp', 'early_lp']
   # EXPERIMENT
   batch_size:
     values: [256]
   total_gradient_steps:
-    values: [20_000]
+    values: [40_000]
   lr:
     values: [0.001]
   seed:

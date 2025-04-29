@@ -147,7 +147,7 @@ class FutureDataset(torch.utils.data.Dataset):
         x, y = pos[..., 0], pos[..., 1]
         
         # Define bins for discretization (-1 to 1 with 8 bins)
-        bins = np.linspace(-0.1, 0.1, 9)
+        bins = np.linspace(-0.05, 0.05, 9)
         
         # Digitize x and y into 8 categories (0 to 7)
         x_bins = np.digitize(x, bins) - 1
@@ -221,15 +221,16 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
-
+    exp = 'ego'
     data = np.load("/data/full_version/processed/final/training_trajectory_1000.npz")
+    # data = np.load("/data/ICRA_Workshop/tom_v5/train_trajectory_1000.npz")
     global_data = np.load("/data/full_version/processed/final/global_training_trajectory_1000.npz")
-    
+    # global_data = np.load("/data/ICRA_Workshop/tom_v5/linear_probing/global_train_trajectory_1000.npz")
     expert_data_loader = DataLoader(
         FutureDataset(
             data['obs'], global_data['ego_global_pos'], global_data['ego_global_rot'],
             data['dead_mask'], data['partner_mask'], data['road_mask'], 
-            rollout_len=5, pred_len=1, future_step=40, exp='other'
+            rollout_len=5, pred_len=1, future_step=5, exp=exp
         ),
         batch_size=256,
         shuffle=True,
@@ -245,7 +246,7 @@ if __name__ == "__main__":
     
     for batch in expert_data_loader:
         obs, mask, valid_mask, partner_mask, road_mask, aux_mask, other_pos = batch
-
+        aux_mask = ~aux_mask if exp == 'other' else aux_mask
         pos_vals = other_pos[aux_mask].cpu().numpy().astype(int)
 
         total_pos_counts += np.bincount(pos_vals, minlength=64)
@@ -253,10 +254,10 @@ if __name__ == "__main__":
     # ego_future_pos 분포
     plt.figure(figsize=(10, 4))
     plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)
-    plt.xlabel("ego_future_pos (0~63)")
+    plt.xlabel(f"{exp}_future_pos (0~63)")
     plt.ylabel("count")
-    plt.title("ego_future_pos distribution")
+    plt.title(f"{exp}_future_pos distribution")
     plt.xticks(range(0, 64, 4))
     plt.grid(axis="y", linestyle="--", alpha=0.5)
     plt.tight_layout()
-    plt.savefig('ego future pos dist.png', dpi=300)
+    plt.savefig(f'{exp} future pos dist.png', dpi=300)

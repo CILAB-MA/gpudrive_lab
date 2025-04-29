@@ -27,9 +27,6 @@ def parse_args():
     parser.add_argument('--sweep-id', type=str, default=None)
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--num-workers', '-nw', type=int, default=8)
-    parser.add_argument('--exp', '-e', type=str, default='other', choices=['other', 'ego'])
-    parser.add_argument('--future-step', '-fs', type=int, default=10)
-    parser.add_argument('--model', '-m', default='baseline', choices=['baseline', 'early_lp', 'final_lp'])
     args = parser.parse_args()
     
     return args
@@ -119,7 +116,7 @@ def train(exp_config=None):
     set_seed(exp_config.seed)
     # Backbone and heads
     if exp_config.model == 'baseline':
-        hidden_dim = 30 if args.exp == 'ego' else 60 # ego info
+        hidden_dim = 30 if exp_config.exp == 'ego' else 60 # ego info
         backbone = None
     else:
         backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
@@ -147,6 +144,7 @@ def train(exp_config=None):
     pbar = tqdm(total=exp_config.total_gradient_steps, desc="Gradient Steps", ncols=100)
     gradient_steps = 0
     best_loss = 9999999
+    print(f'EXP CONFIG {exp_config.keys()}')
     while gradient_steps < exp_config.total_gradient_steps:
         pos_linear_model.train()
 
@@ -190,16 +188,16 @@ def train(exp_config=None):
                     lp_input = layers[nth_layer][:,1:,:]
 
             # get future pred pos and action
-            if exp_config.exp == 'ego':
-                future_mask = future_mask.squeeze(1)
+            # if exp_config.exp == 'ego':
+            #     future_mask = future_mask.squeeze(1)
             pred_pos = pos_linear_model(lp_input)
             future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
             masked_pos = pred_pos[future_mask]
             
             # get future expert pos and action
             future_pos = future_pos.clone()
-            if exp_config.exp == 'ego':
-                future_pos = future_pos.squeeze(1)
+            # if exp_config.exp == 'ego':
+            #     future_pos = future_pos.squeeze(1)
             masked_pos_label = future_pos[future_mask]
 
             if future_mask.sum() == 0:
@@ -220,6 +218,7 @@ def train(exp_config=None):
             pos_f1_macro = f1_score(pos_class, masked_pos_label, average='macro')
 
             pos_accuracys += pos_acc
+            # print(f'pos acc {pos_acc}')
             pos_losses += pos_loss.item()
             pos_f1_macros += pos_f1_macro
             # Evaluation loop
@@ -229,7 +228,7 @@ def train(exp_config=None):
                 test_pos_losses = 0
                 test_pos_f1_macros = 0
                 test_continue_num = 0
-                for i, batch in enumerate(eval_expert_data_loader):
+                for j, batch in enumerate(eval_expert_data_loader):
                     obs, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
                     
                     obs = obs.to("cuda")
@@ -258,24 +257,19 @@ def train(exp_config=None):
 
                     # get future pred pos and action
                     pred_pos = pos_linear_model(lp_input)
-                    if exp_config.exp == 'ego':
-                        future_mask = future_mask.squeeze(1)
                     future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
                     masked_pos = pred_pos[future_mask]
                         
                     # get future expert action
-                    
                     future_pos = future_pos.clone()
-                    future_pos = future_pos.squeeze(1)
                     masked_pos_label = future_pos[future_mask]
                     
                     if future_mask.sum() == 0:
-                        continue_num += 1
+                        test_continue_num += 1
                         continue
                     
                     # compute loss
                     pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
-
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
                     masked_pos_label = masked_pos_label.detach().cpu().numpy()
@@ -287,17 +281,18 @@ def train(exp_config=None):
                 if exp_config.use_wandb:
                     wandb.log(
                         {
-                            "eval/pos_accuracy": test_pos_accuracys / (i + 1 - continue_num),
-                            "eval/pos_loss": test_pos_losses / (i + 1 - continue_num),
-                            "eval/pos_f1_macro": test_pos_f1_macros / (i + 1 - continue_num),
+                            "eval/pos_accuracy": test_pos_accuracys / (j + 1 - test_continue_num),
+                            "eval/pos_loss": test_pos_losses / (j + 1 - test_continue_num),
+                            "eval/pos_f1_macro": test_pos_f1_macros / (j + 1 - test_continue_num),
                         }, step=gradient_steps
                     )
                 if test_pos_losses < best_loss:
-                    save_dir = os.path.join(exp_config.model_path, f"{args.exp}_linear_prob/{exp_config.model_name}/seed{exp_config.seed}/")
+                    save_dir = os.path.join(exp_config.model_path, f"{exp_config.exp}_linear_prob/{exp_config.model_name}/seed{exp_config.seed}/")
                     os.makedirs(save_dir, exist_ok=True)
                     torch.save(pos_linear_model, os.path.join(save_dir, f"pos_{exp_config.model}_{exp_config.future_step}.pth"))
                     best_loss = test_pos_losses
                     print(f'STEP {gradient_steps} gets BEST!')
+                pos_linear_model.train()
         if exp_config.use_wandb:
             wandb.log(
                 {
