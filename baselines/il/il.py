@@ -29,7 +29,7 @@ MODELS = dict(early_attn=EarlyFusionAttnBCNet,)
 def parse_args():
     parser = argparse.ArgumentParser("Most of vars are in il.yaml. These are for different server.")
     # DATALOADER
-    parser.add_argument('--num-workers', '-nw', type=int, default=4)
+    parser.add_argument('--num-workers', '-nw', type=int, default=16)
     parser.add_argument('--prefetch-factor', '-pf', type=int, default=4)
     parser.add_argument('--pin-memory', '-pm', action='store_true')
     

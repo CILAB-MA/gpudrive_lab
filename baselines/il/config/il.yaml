@@ -11,7 +11,7 @@ lr: 0.0005
 sample_per_epoch: 438763
 seed: 3
 early_stop_num: 100_000
-base_path: '/data'
+base_path: '/data/full_version'
 model_path: 'model'
 data_path: 'processed/final'
 num_scene: 1000
@@ -32,7 +32,7 @@ num_layer:
   - 2 # idx 0 is fusion_attn, idx 1 is self_attn
 num_head: 4
 # HEADCONFIG
-head_dim: 128
+head_dim: 256
 head_num_layers: 2
 action_dim: 3
 n_components: 6
