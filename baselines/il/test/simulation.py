@@ -8,11 +8,9 @@ sys.path.append(os.getcwd())
 import argparse
 
 # GPUDrive
-from gpudrive.env.config import EnvConfig, RenderConfig, SceneConfig, SelectionDiscipline
-from gpudrive.env.config import DynamicsModel, ActionSpace
-
-from pygpudrive.registration import make
-
+from gpudrive.env.config import EnvConfig, SceneConfig, RenderConfig, SelectionDiscipline
+from gpudrive.env.env_torch import GPUDriveTorchEnv
+from gpudrive.env.dataset import SceneDataLoader
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
@@ -263,15 +261,11 @@ if __name__ == "__main__":
         dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
-        collision_behavior='remove'
+        collision_behavior='remove',
         num_stack=5
 
     )
     render_config = RenderConfig(
-        draw_obj_idx=True,
-        draw_expert_footprint=True,
-        draw_only_ego_footprint=True,
-        draw_ego_attention=True,
     )
 
     # Make env
