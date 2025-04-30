@@ -119,9 +119,9 @@ def train(exp_config=None):
         hidden_dim = 30 if exp_config.exp == 'ego' else 60 # ego info
         backbone = None
     else:
-        backbone = torch.load(f"{config.model_path}/{config.model_name}.pth", weights_only=False)
+        backbone = torch.load(f"{exp_config.model_path}/{exp_config.model_name}.pth", weights_only=False)
         backbone.eval()
-        if config.model == 'early_lp':
+        if exp_config.model == 'early_lp':
             layers = register_all_layers_forward_hook(backbone.fusion_attn)
             nth_layer = '2'
         else:
@@ -144,7 +144,7 @@ def train(exp_config=None):
     pbar = tqdm(total=exp_config.total_gradient_steps, desc="Gradient Steps", ncols=100)
     gradient_steps = 0
     best_loss = 9999999
-    print(f'EXP CONFIG {exp_config.keys()}')
+    print(f'EXP CONFIG {exp_config}')
     while gradient_steps < exp_config.total_gradient_steps:
         pos_linear_model.train()
 
@@ -168,7 +168,7 @@ def train(exp_config=None):
             future_mask = future_mask.to("cuda")
             partner_mask = partner_mask.to("cuda")
             road_mask = road_mask.to("cuda")
-            all_masks= [valid_mask, partner_mask, road_mask]
+            all_masks= [partner_mask, road_mask]
 
             if exp_config.model == 'baseline':
                 baseline_obs = obs[..., :6].reshape(-1, 30)
@@ -237,7 +237,7 @@ def train(exp_config=None):
                     future_mask = future_mask.to("cuda")
                     partner_mask = partner_mask.to("cuda")
                     road_mask = road_mask.to("cuda")
-                    all_masks= [valid_mask, partner_mask, road_mask]
+                    all_masks= [partner_mask, road_mask]
                     if exp_config.model == 'baseline':
                         baseline_obs = obs[..., :6].reshape(-1, 30)
                         if exp_config.exp == 'other':
@@ -250,7 +250,7 @@ def train(exp_config=None):
                     else:
                         with torch.no_grad():
                             context, *_, = backbone.get_context(obs, all_masks)
-                        if exp_config.exp == 'other':
+                        if exp_config.exp == 'ego':
                             lp_input = layers[nth_layer][:,0,:]
                         else:
                             lp_input = layers[nth_layer][:,1:,:]

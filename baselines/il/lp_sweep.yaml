@@ -1,6 +1,6 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: port_lp_test
+name: port_lp
 metric:
   goal: minimize
   name: eval/loss
@@ -16,7 +16,7 @@ parameters:
   exp:
     values: ['ego', 'other']
   model:
-    values: ['baseline', 'final_lp', 'early_lp']
+    values: ['final_lp', 'early_lp', 'baseline']
   # EXPERIMENT
   batch_size:
     values: [256]
