@@ -12,21 +12,19 @@ logging.getLogger(__name__)
 def arg_parse():
     parser = argparse.ArgumentParser()
     # MODEL
-    parser.add_argument('--sweep-name', '-sn', type=str, default='tom_03')
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/model')
-    parser.add_argument('--video-path', '-vp', type=str, default='/data/video')
-    parser.add_argument('--dataset-size', type=int, default=80000) # total_world
-    parser.add_argument('--batch-size', type=int, default=100) # num_world
+    parser.add_argument('--sweep-name', '-sn', type=str, default='net_size')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model')
+    parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/video')
+    parser.add_argument('--dataset-size', type=int, default=1000) # total_world
+    parser.add_argument('--batch-size', type=int, default=2) # num_world
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     # GPU SETTINGS
-    parser.add_argument('--gpu-id', '-g', type=int, default=1)
+    parser.add_argument('--gpu-id', '-g', type=int, default=0)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = arg_parse()
-    total_world_count = args.total_world_count
-    one_run_world_count = args.num_world
     models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
     for model in tqdm(models):

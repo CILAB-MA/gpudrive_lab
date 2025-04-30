@@ -1478,6 +1478,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             log_trajectory.pos_xy,
             log_trajectory.vel_xy,
             log_trajectory.yaw,
+            log_trajectory.valids
         )
 
     def get_env_filenames(self):
