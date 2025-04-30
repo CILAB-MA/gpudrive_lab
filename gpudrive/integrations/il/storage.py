@@ -15,7 +15,7 @@ def save_trajectory(env, save_path, save_index=0):
         env (GPUDriveTorchEnv): Initialized environment class.
     """
     obs = env.reset()
-    expert_actions, _, _, _  = env.get_expert_actions() # (num_worlds, num_agents, episode_len, action_dim)
+    expert_actions, _, _, _ , _ = env.get_expert_actions() # (num_worlds, num_agents, episode_len, action_dim)
     road_mask = env.get_road_mask()
     partner_mask = env.get_partner_mask()
     # partner_id = env.get_partner_id().unsqueeze(-1)
