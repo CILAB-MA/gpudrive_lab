@@ -1687,8 +1687,13 @@ class MatplotlibVisualizer:
                 as_center_pts=False,
                 label=None,
             )
+            utils.plot_bar_plot(
+                ax=ax_h,
+                importance_weight=importance_weight,
+                label=None,
+            )
             
-            f_h.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
+            # f_h.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
             figs.append(f_h)
         
         return figs
