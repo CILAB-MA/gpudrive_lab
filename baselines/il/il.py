@@ -29,7 +29,7 @@ MODELS = dict(early_attn=EarlyFusionAttnBCNet,)
 def parse_args():
     parser = argparse.ArgumentParser("Most of vars are in il.yaml. These are for different server.")
     # DATALOADER
-    parser.add_argument('--num-workers', '-nw', type=int, default=4)
+    parser.add_argument('--num-workers', '-nw', type=int, default=16)
     parser.add_argument('--prefetch-factor', '-pf', type=int, default=4)
     parser.add_argument('--pin-memory', '-pm', action='store_true')
     
@@ -297,7 +297,7 @@ def train(exp_config=None):
                         wandb.finish()
                         stop_training = True
                         break
-
+                bc_policy.train()                
         if exp_config.use_wandb:
             log_dict = {   
                     "train/loss": losses / (n + 1),
@@ -312,7 +312,7 @@ def train(exp_config=None):
             if exp_config.use_tom:
                 log_dict['train/tom_loss'] = tom_losses / (n + 1)
             wandb.log(log_dict, step=gradient_steps)
-wandb.finish()
+    wandb.finish()
 
 if __name__ == "__main__":
     args = parse_args()
