@@ -27,6 +27,10 @@ ROAD_GRAPH_FEAT_DIM = 13
 # Dataset constants
 LOG_TRAJECTORY_LEN = 91
 
-#BEV observation constants
+# BEV observation constants
 BEV_RASTERIZATION_RESOLUTION = 200
 NUM_MADRONA_ENTITY_TYPES = 11
+
+# Visualization constants
+GRID_CELL_COUNT = 9
+OUT_OF_BOUNDS = 1000

@@ -1517,7 +1517,7 @@ if __name__ == "__main__":
     TOTAL_NUM_WORLDS = 4
     
     env_config = EnvConfig(
-        num_stack=5,
+        num_stack=1,
     )
     render_config = RenderConfig()
 
@@ -1543,25 +1543,34 @@ if __name__ == "__main__":
         partner_mask = env.get_partner_mask()
         road_mask = env.get_road_mask()
         frames = {f"env_{i}_head_{j}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS) for j in range(NUM_IMPORTANCE_HEAD)}
-        expert_actions, _, _, _ = env.get_expert_actions()
+        expert_actions, _, _, _, _ = env.get_expert_actions()
         for t in range(env.episode_len):
             print(f"Step: {t}")
 
             # Step the environment
-            expert_actions, _, _, _ = env.get_expert_actions()
+            expert_actions, _, _, _, _ = env.get_expert_actions()
             env.step_dynamics(expert_actions[:, :, t, :])
 
             setattr(env.vis, "importance_weight", torch.rand(NUM_WORLDS, 4, 128))
+            setattr(env.vis, "ego_pred_pos", {10: torch.tensor([[36], [36], [36], [36]]), 20: torch.tensor([[37], [37], [37], [37]]), 30:torch.tensor([[38], [38], [38], [38]]), 40:torch.tensor([[39], [39], [39], [39]])})
+            setattr(env.vis, "ego_pred_prime", {10: torch.tensor([[28], [28], [28], [28]]), 20: torch.tensor([[29], [29], [29], [29]]), 30:torch.tensor([[30], [30], [30], [30]]), 40:torch.tensor([[31], [31], [31], [31]])})
+            setattr(env.vis, "other_pred", {10: torch.tensor([[20], [20], [20], [20]]), 20: torch.tensor([[21], [21], [21], [21]]), 30:torch.tensor([[22], [22], [22], [22]]), 40:torch.tensor([[23], [23], [23], [23]])})
+            setattr(env.vis, "intervention_idx", torch.tensor([79, 51, 0, 0]))
+            
             # Make video
             sim_states = env.vis.plot_simulator_state(
                 env_indices=list(range(NUM_WORLDS)),
                 time_steps=[t]*NUM_WORLDS,
-                plot_importance_weight=True
+                plot_importance_weight=True,
+                plot_linear_probing=False,
+                plot_linear_probing_label=False
             )
 
             for i in range(NUM_WORLDS):
                 for j in range(NUM_IMPORTANCE_HEAD):
-                    frames[f"env_{i + idx*NUM_WORLDS}_head_{j}"].append(img_from_fig(sim_states[i][j]))
+                    frames[f"env_{i + idx*NUM_WORLDS}_head_{j}"].append(
+                        img_from_fig(sim_states[i][j])
+                    )
 
             obs = env.get_obs()
             partner_mask = env.get_partner_mask()

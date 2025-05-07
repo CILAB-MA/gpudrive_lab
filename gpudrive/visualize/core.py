@@ -35,8 +35,13 @@ from gpudrive.visualize.color import (
     AGENT_COLOR_BY_STATE,
     AGENT_COLOR_BY_POLICY,
 )
-
-OUT_OF_BOUNDS = 1000
+from gpudrive.env.constants import (
+    LOG_TRAJECTORY_LEN,
+    MAX_REL_AGENT_POS,
+    MIN_REL_AGENT_POS,
+    OUT_OF_BOUNDS,
+    GRID_CELL_COUNT
+)
 
 
 class MatplotlibVisualizer:
@@ -105,7 +110,8 @@ class MatplotlibVisualizer:
         zoom_radius: int = 100,
         plot_log_replay_trajectory: bool = False,
         plot_importance_weight: bool = False,
-        plot_partner_linear_probing: bool = False,
+        plot_linear_probing: bool = False,
+        plot_linear_probing_label: bool = False,
         agent_positions: Optional[torch.Tensor] = None,
         backward_goals: bool = False,
         policy_masks: Optional[Dict[int,Dict[str,torch.Tensor]]] = None,
@@ -472,6 +478,17 @@ class MatplotlibVisualizer:
         for fig in figs:
             fig.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
         
+        if plot_linear_probing:
+            figs = [
+                self._plot_linear_probing(
+                    fig=fig,
+                    env_idx=env_idx,
+                    time_step=time_steps[env_idx],
+                    response_type=self.response_type,
+                    agent_states=global_agent_states,
+                    use_log_trajectory=plot_linear_probing_label,
+                ) for env_idx, fig in enumerate(figs)
+            ]
         if plot_importance_weight:
             figs = [
                 self._plot_importance_weight(
@@ -1670,18 +1687,152 @@ class MatplotlibVisualizer:
                 as_center_pts=False,
                 label=None,
             )
+            utils.plot_bar_plot(
+                ax=ax_h,
+                importance_weight=importance_weight,
+                label=None,
+            )
             
-            f_h.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
+            # f_h.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
             figs.append(f_h)
         
         return figs
 
-            
-    def _plot_partner_linear_probing(
+    def _plot_linear_probing(
         self,
         fig: matplotlib.figure.Figure,
         env_idx: int,
+        time_step: int,
         response_type: Any,
         agent_states: GlobalEgoState,
-    ):    
-        pass
+        use_log_trajectory: bool,
+    ):
+        """plot grid for ego and linear probing for the controlled agent,
+        
+        Args:
+            fig : fig to plot the importance weight
+            env_idx : environment index to select specific environment agents.
+            time_step: current time
+            response_type : mask to filter static agents.
+            agent_states : global agent states
+            use_log_trajectory: whether to use log trajectory for plotting
+        """
+        if self.render_3d:
+            raise NotImplementedError("3D rendering not supported for importance weight plotting.")
+        if self.controlled_agent_mask[env_idx, :].sum() != 1:
+            raise NotImplementedError("Only one controlled agent is supported for plot linear probing.")
+        
+        ax = fig.axes[0]
+        
+        # 1. plot a grid centered on the ego
+        controlled_agents = (
+            response_type.moving[env_idx, :] & self.controlled_agent_mask[env_idx, :]
+        )
+        if not controlled_agents.any():
+            return fig
+        
+        ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
+        ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
+        ego_rot = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
+        
+        grid_corners = np.linspace(0.1*MIN_REL_AGENT_POS, 0.1*MAX_REL_AGENT_POS, GRID_CELL_COUNT)
+        grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
+
+        grid_points = np.stack([grid_x.flatten(), grid_y.flatten()], axis=0)  # (2, N)
+
+        cos_theta = np.cos(ego_rot)
+        sin_theta = np.sin(ego_rot)
+        rotation_matrix = np.array([[cos_theta, -sin_theta],
+                                    [sin_theta,  cos_theta]]).squeeze(-1)  # (2, 2)
+
+        rotated_grid = rotation_matrix @ grid_points  # (2, N)
+
+        translated_grid_x = rotated_grid[0, :] + ego_pos_x
+        translated_grid_y = rotated_grid[1, :] + ego_pos_y
+
+        translated_grid_x = translated_grid_x.reshape(grid_x.shape)
+        translated_grid_y = translated_grid_y.reshape(grid_y.shape)
+
+        # plot the grid
+        for i in range(translated_grid_x.shape[0]):
+            fig.axes[0].plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1)
+        for j in range(translated_grid_x.shape[1]):
+            fig.axes[0].plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1)
+        
+        # plot the grid number
+        num_rows = translated_grid_x.shape[0] - 1
+        num_cols = translated_grid_x.shape[1] - 1
+        
+        for i in range(num_rows):
+            for j in range(num_cols):
+                idx = i * num_cols + j
+                ax.text(translated_grid_x[i, j], translated_grid_y[i, j], str(idx),
+                        rotation=np.rad2deg(ego_rot).item(), rotation_mode='anchor', fontsize=15, ha='left', va='bottom', color='black')
+        
+        # 2. plot the future trajectory (ego, ego_prime, partner) on grid
+        cell_centers_x = (translated_grid_x[:-1, :-1] + translated_grid_x[1:, 1:] +
+                  translated_grid_x[1:, :-1] + translated_grid_x[:-1, 1:]) / 4
+        cell_centers_y = (translated_grid_y[:-1, :-1] + translated_grid_y[1:, 1:] +
+                  translated_grid_y[1:, :-1] + translated_grid_y[:-1, 1:]) / 4
+        cell_centers = np.stack([cell_centers_x.flatten(), cell_centers_y.flatten()], axis=0)  # (2, N)
+        
+        ego_future_pos = []
+        ego_prime_future_pos = []
+        partner_future_pos = []
+        
+        for (future_step, ego_pred_poss), ego_pred_primes, other_preds, intervention_idx in zip(
+            self.ego_pred_pos.items(), self.ego_pred_prime.values(), self.other_pred.values(), self.intervention_idx
+        ):
+            ego_pred_pos = cell_centers[:, ego_pred_poss[env_idx]]
+            ego_pred_prime = cell_centers[:, ego_pred_primes[env_idx]]
+            other_pred = cell_centers[:, other_preds[env_idx]]
+            
+            ego_future_pos.append(ego_pred_pos)
+            ego_prime_future_pos.append(ego_pred_prime)
+            partner_future_pos.append(other_pred)
+
+        ego_future_pos = np.stack(ego_future_pos, axis=0)
+        ego_prime_future_pos = np.stack(ego_prime_future_pos, axis=0)
+        partner_future_pos = np.stack(partner_future_pos, axis=0)
+        
+        ax.plot(
+            ego_future_pos[:, 0], ego_future_pos[:, 1], color=REL_OBS_OBJ_COLORS["ego"], linestyle="--", linewidth=2
+        )
+        ax.plot(
+            ego_prime_future_pos[:, 0], ego_prime_future_pos[:, 1], color=REL_OBS_OBJ_COLORS["ego"], linestyle=":", linewidth=2
+        )
+        ax.plot(
+            partner_future_pos[:, 0], partner_future_pos[:, 1], color=REL_OBS_OBJ_COLORS["other_agents"], linestyle="--", linewidth=2
+        )
+        
+        # 3. plot the log trajectory of partner on grid
+        if use_log_trajectory:
+            partner_future_labels = []
+            intervention_idx = (agent_states.id[env_idx] == self.intervention_idx[env_idx]).nonzero().item()
+            
+            for future_step in self.other_pred.keys():
+                if (time_step + future_step) < LOG_TRAJECTORY_LEN:
+                    partner_future_label = self.log_trajectory.pos_xy[env_idx][intervention_idx][time_step + future_step]
+                    pos = np.array(partner_future_label)
+                    rel_pos = pos - np.array([ego_pos_x.item(), ego_pos_y.item()])
+                    inv_rotation_matrix = rotation_matrix.T
+                    grid_space_pos = inv_rotation_matrix @ rel_pos
+
+                    grid_resolution = abs(grid_corners[1] - grid_corners[0])
+                    min_corner = grid_corners[0]
+                    col_idx = int((grid_space_pos[0] - min_corner) / grid_resolution)
+                    row_idx = int((grid_space_pos[1] - min_corner) / grid_resolution)
+
+                    if 0 <= row_idx < num_rows and 0 <= col_idx < num_cols:
+                        cell_idx = row_idx * num_cols + col_idx
+                        partner_future_label = cell_centers[:, cell_idx]
+                        partner_future_labels.append(partner_future_label)
+            
+            if partner_future_labels:
+                partner_future_labels = np.stack(partner_future_labels, axis=0)
+                
+                ax.plot(
+                    partner_future_labels[:, 0], partner_future_labels[:, 1], color=REL_OBS_OBJ_COLORS["other_agents"], linestyle="-", linewidth=2
+                )            
+        
+        return fig

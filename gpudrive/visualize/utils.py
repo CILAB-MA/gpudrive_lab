@@ -601,3 +601,54 @@ def plot_numpy_bounding_boxes_multiple_policy_different_color(
                 linewidth=1.5 * line_width_scale,
                 label=label,
             )
+            
+def plot_bar_plot(
+    ax,
+    importance_weight: np.ndarray,
+    label: str | None = None,
+):
+    """Plots a color bar for the importance weights.
+    Args:
+        ax: Matplotlib Axes handle.
+        importance_weight: Importance weights to be visualized.
+        label: Optional label for the color bar.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib import cm, colors
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+    if importance_weight.size == 0:
+        return
+
+    imp_min, imp_max = float(importance_weight.min()), float(importance_weight.max())
+    imp_mean = float(importance_weight.mean())
+    if np.isclose(imp_min, imp_max):
+        imp_max += 1e-6
+
+    norm = colors.Normalize(vmin=imp_min, vmax=imp_max)
+    sm   = cm.ScalarMappable(cmap=cm.viridis, norm=norm)
+
+    bar_ax = inset_axes(
+        ax,
+        width="30%", height="2%",
+        loc="lower right",
+        bbox_to_anchor=(-0.05, 0.02, 1, 1),
+        bbox_transform=ax.transAxes,
+        borderpad=0,
+    )
+    bar_ax.set_zorder(5)
+
+    cbar = plt.colorbar(
+        sm,
+        cax=bar_ax,
+        orientation="horizontal",
+        ticks=[imp_min, imp_max],
+    )
+    cbar.ax.set_xticklabels([f"{imp_min:.2f}", f"{imp_max:.2f}"])
+    cbar.outline.set_visible(False)
+
+    bar_ax.axvline(imp_mean, color="red", linewidth=1.8, zorder=6)
+
+    bar_ax.tick_params(axis="both", length=0)
+    bar_ax.set_xlabel(label or "", fontsize=7, labelpad=2)
