@@ -5,7 +5,7 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class FutureDataset(torch.utils.data.Dataset):
     def __init__(self, obs, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None,
-                 rollout_len=5, pred_len=1, future_step=1, exp='other'):
+                 rollout_len=5, pred_len=1, future_step=1, exp='other', xy_range=None):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -36,7 +36,7 @@ class FutureDataset(torch.utils.data.Dataset):
             future_valid_mask_pad = np.zeros((self.valid_masks.shape[0], future_step, *self.valid_masks.shape[2:]), dtype=np.float32)
             future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype('bool')[:, future_step:]
             self.future_valid_mask = self.valid_masks[:,rollout_len - 1:] & future_valid_masks
-
+        
         # road_mask
         self.road_mask = road_mask
         new_shape = (B, T + rollout_len - 1, 200)
@@ -50,8 +50,10 @@ class FutureDataset(torch.utils.data.Dataset):
             self.other_pos = self._get_multi_class_pos(current_relative_other_pos)
         else:
             # future ego pos
-            current_relative_ego_pos = self._transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
-            self.ego_pos = self._get_multi_class_pos(current_relative_ego_pos)
+            current_relative_ego_pos = self._transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step,
+                                                                    )
+            self.ego_pos = self._get_multi_class_pos(current_relative_ego_pos, xy_range)
+
             # ego? -> current_relative_pos[aux_mask] = 0
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
@@ -140,18 +142,25 @@ class FutureDataset(torch.utils.data.Dataset):
         return list(zip(valid_idx1, valid_idx2))
 
     @staticmethod
-    def _get_multi_class_pos(pos):
+    def _get_multi_class_pos(pos, xy_range=None):
         """
         Convert continuous pos to multi-class discrete pos based on x, y.
         """
         x, y = pos[..., 0], pos[..., 1]
         
         # Define bins for discretization (-1 to 1 with 8 bins)
-        bins = np.linspace(-0.05, 0.05, 9)
-        
+        if xy_range is not None:
+            xrange = xy_range[0]
+            yrange = xy_range[1]
+            xbins = np.linspace(xrange[0], xrange[1], 9)
+            ybins = np.linspace(yrange[0], yrange[1], 9)
+        else:
+            xbins = np.linspace(-0.05, 0.05, 9)
+            ybins = np.linspace(-0.05, 0.05, 9)
+
         # Digitize x and y into 8 categories (0 to 7)
-        x_bins = np.digitize(x, bins) - 1
-        y_bins = np.digitize(y, bins) - 1
+        x_bins = np.digitize(x, xbins) - 1
+        y_bins = np.digitize(y, ybins) - 1
         
         # Ensure values are within valid range (0 to 7)
         x_bins = np.clip(x_bins, 0, 7)
@@ -222,6 +231,11 @@ if __name__ == "__main__":
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
     exp = 'ego'
+    future_step = 15
+    xy_range_dict={5: [(-0.0125, 0.0125), (-0.00625, 0.00625)],
+                 15: [(-0.0125, 0.025), (-0.00625, 0.00625)],
+                 25: [(-0.0175, 0.0375), (-0.0125, 0.0125)],
+                 35: [(-0.025, 0.05), (-0.025, 0.025)]} 
     data = np.load("/data/full_version/processed/final/training_trajectory_1000.npz")
     # data = np.load("/data/ICRA_Workshop/tom_v5/train_trajectory_1000.npz")
     global_data = np.load("/data/full_version/processed/final/global_training_trajectory_1000.npz")
@@ -230,7 +244,8 @@ if __name__ == "__main__":
         FutureDataset(
             data['obs'], global_data['ego_global_pos'], global_data['ego_global_rot'],
             data['dead_mask'], data['partner_mask'], data['road_mask'], 
-            rollout_len=5, pred_len=1, future_step=5, exp=exp
+            rollout_len=5, pred_len=1, future_step=future_step, exp=exp, 
+            xy_range=xy_range_dict[future_step]
         ),
         batch_size=256,
         shuffle=True,
@@ -251,13 +266,37 @@ if __name__ == "__main__":
 
         total_pos_counts += np.bincount(pos_vals, minlength=64)
 
-    # ego_future_pos 분포
-    plt.figure(figsize=(10, 4))
-    plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)
-    plt.xlabel(f"{exp}_future_pos (0~63)")
-    plt.ylabel("count")
-    plt.title(f"{exp}_future_pos distribution")
-    plt.xticks(range(0, 64, 4))
-    plt.grid(axis="y", linestyle="--", alpha=0.5)
+    # # ego_future_pos 분포
+    # plt.figure(figsize=(10, 4))
+    # plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)
+    # plt.xlabel(f"{exp}_future_pos (0~63)")
+    # plt.ylabel("count")
+    # plt.title(f"{exp}_future_pos distribution (future: {future_step})")
+    # plt.xticks(range(0, 64, 4))
+    # plt.grid(axis="y", linestyle="--", alpha=0.5)
+    # plt.tight_layout()
+    # plt.savefig(f'{exp} future pos dist.png', dpi=300)
+
+    import seaborn as sns
+
+    heatmap_data = total_pos_counts.reshape(8, 8)
+
+    heatmap_data = np.flipud(np.fliplr(heatmap_data))
+
+    index_matrix = np.arange(64).reshape(8, 8)
+    index_matrix = np.flipud(np.fliplr(index_matrix))  
+    plt.figure(figsize=(6, 6))
+    sns.heatmap(
+        heatmap_data, 
+        cmap="YlGnBu", 
+        annot=index_matrix, 
+        fmt='d', 
+        square=True,
+        cbar_kws={"label": "Count"}, 
+        linewidths=0.5
+    )
+    plt.title(f"{exp} Heatmap (Index Annoted, future: {future_step})")
+    plt.ylabel(f"{xy_range_dict[future_step][0][0]} ~ {xy_range_dict[future_step][0][1]}")
+    plt.xlabel(f"{xy_range_dict[future_step][1][0]} ~ {xy_range_dict[future_step][1][1]}")
     plt.tight_layout()
-    plt.savefig(f'{exp} future pos dist.png', dpi=300)
+    plt.savefig(f'{exp}_future_pos_heatmap_indexed.png', dpi=300)
