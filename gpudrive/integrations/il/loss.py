@@ -57,4 +57,5 @@ def focal_loss(model, context, expert_actions, gamma=2.0):
     pred_actions = model.get_action(context, deterministic=True)
     diff = torch.abs(pred_actions - expert_actions)
     weight = (1 - torch.exp(-diff)) ** gamma
-    return (weight * diff ** 2).mean()
+    loss = (weight * diff ** 2).mean()
+    return loss, loss.clone()

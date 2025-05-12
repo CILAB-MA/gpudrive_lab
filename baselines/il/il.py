@@ -20,7 +20,7 @@ from box import Box
 # GPUDrive
 from gpudrive.integrations.il.dataloader import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
-from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss
+from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss, focal_loss
 # from algorithms.il.utils import *
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ def get_grad_norm(params, step=None):
     return max_grad_norm, grad_name
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
-    with np.load(os.path.join(data_path, data_file)) as npz:
+    with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
         expert_obs = npz['obs']
         expert_actions = npz['actions']
         expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
@@ -134,7 +134,7 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
                 tom_loss = aux_loss(bc_policy, other_input, other_pos, aux_mask, 
                     aux_info=aux_info)
             # pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
-            pred_loss, _ = l1_loss(bc_policy, context, expert_action)
+            pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
             action_loss = torch.abs(pred_actions - expert_action)
@@ -262,7 +262,7 @@ def train(exp_config=None):
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
 
-            pred_loss, _ = l1_loss(bc_policy, context, expert_action)
+            pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             #pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
             
