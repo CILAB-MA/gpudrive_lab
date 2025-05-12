@@ -18,6 +18,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         min_actions = np.min(actions, axis=-1)
         action_mask = (max_actions == 6) | (min_actions == -6) | (actions[..., -1] >= 3.14)  | (actions[..., -1] <= -3.14)
         valid_masks[action_mask] = 0
+        B, T, _ = obs.shape
         new_shape = (B, T + rollout_len - 1)
         new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
         new_valid_mask[:, rollout_len - 1:] = valid_masks

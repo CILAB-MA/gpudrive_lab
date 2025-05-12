@@ -46,16 +46,16 @@ def gmm_loss(model, context, expert_actions):
     log_probs = torch.stack(log_probs, dim=-1)
     weighted_log_probs = log_probs + torch.log(weights + 1e-8)
     loss = -torch.logsumexp(weighted_log_probs, dim=-1)
-    return loss.mean(), loss.clone()
+    return loss.mean(), loss.detach()
 
 def l1_loss(model, context, expert_actions):
     pred_actions = model.get_action(context, deterministic=True)
     loss = F.smooth_l1_loss(pred_actions, expert_actions)
-    return loss, loss.clone()
+    return loss, loss.detach()
 
-def focal_loss(model, context, expert_actions, gamma=2.0):
+def focal_loss(model, context, expert_actions, alpha=1.0, gamma=2.0, eps=1e-6):
     pred_actions = model.get_action(context, deterministic=True)
     diff = torch.abs(pred_actions - expert_actions)
-    weight = (1 - torch.exp(-diff)) ** gamma
-    loss = (weight * diff ** 2).mean()
-    return loss, loss.clone()
+    weight = (diff + eps) ** gamma
+    loss = (alpha * weight * diff ** 2).mean()
+    return loss, loss.detach()

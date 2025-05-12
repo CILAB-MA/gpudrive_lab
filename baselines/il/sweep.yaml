@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: scale_up_focal
+name: scale_up_focal_v2
 metric:
   goal: minimize
   name: eval/loss

@@ -137,18 +137,18 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
-            action_loss = torch.abs(pred_actions - expert_action)
+            action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
             dx_std2_mask = expert_action[..., 0].abs() > 2.5 
             dy_std2_mask = expert_action[..., 1].abs() > 0.75 
             dyaw_std2_mask = expert_action[..., 2].abs() > 0.25
 
-            dx_loss = action_loss[..., 0].mean().item()
-            dy_loss = action_loss[..., 1].mean().item()
-            dyaw_loss = action_loss[..., 2].mean().item()
+            dx_loss = action_loss[..., 0].mean()
+            dy_loss = action_loss[..., 1].mean()
+            dyaw_loss = action_loss[..., 2].mean()
 
-            dx_std2_loss = action_loss[..., 0][dx_std2_mask].mean().item() if dx_std2_mask.sum() > 0 else 0
-            dy_std2_loss = action_loss[..., 1][dy_std2_mask].mean().item() if dy_std2_mask.sum() > 0 else 0
-            dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].mean().item() if dyaw_std2_mask.sum() > 0 else 0
+            dx_std2_loss = action_loss[..., 0][dx_std2_mask].mean() if dx_std2_mask.sum() > 0 else 0
+            dy_std2_loss = action_loss[..., 1][dy_std2_mask].mean() if dy_std2_mask.sum() > 0 else 0
+            dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].mean() if dyaw_std2_mask.sum() > 0 else 0
 
             dx_losses += dx_loss
             dy_losses += dy_loss
@@ -293,10 +293,10 @@ def train(exp_config=None):
             with torch.no_grad():
                 pred_actions = bc_policy.get_action(context, deterministic=True)
                 # component_probs = bc_policy.head.get_component_probs().cpu().numpy() # gmm record part is now deactivated
-                action_loss = torch.abs(pred_actions - expert_action)
-                dx_loss = action_loss[..., 0].mean().item()
-                dy_loss = action_loss[..., 1].mean().item()
-                dyaw_loss = action_loss[..., 2].mean().item()
+                action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
+                dx_loss = action_loss[..., 0].mean()
+                dy_loss = action_loss[..., 1].mean()
+                dyaw_loss = action_loss[..., 2].mean()
                 dx_losses += dx_loss
                 dy_losses += dy_loss
                 dyaw_losses += dyaw_loss
