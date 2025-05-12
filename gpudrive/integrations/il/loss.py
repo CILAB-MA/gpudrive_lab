@@ -47,3 +47,8 @@ def gmm_loss(model, context, expert_actions):
     weighted_log_probs = log_probs + torch.log(weights + 1e-8)
     loss = -torch.logsumexp(weighted_log_probs, dim=-1)
     return loss.mean(), loss.clone()
+
+def l1_loss(model, context, expert_actions):
+    pred_actions = model.get_action(context, deterministic=True)
+    loss = F.smooth_l1_loss(pred_actions, expert_actions)
+    return loss, loss.clone()

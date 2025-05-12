@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 import os, sys, torch
 torch.backends.cudnn.benchmark = True
 sys.path.append(os.getcwd())
@@ -19,7 +20,7 @@ from box import Box
 # GPUDrive
 from gpudrive.integrations.il.dataloader import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
-from gpudrive.integrations.il.loss import gmm_loss, aux_loss
+from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss
 # from algorithms.il.utils import *
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,12 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     dx_losses = 0
     dy_losses = 0
     dyaw_losses = 0
+    dx_std2_losses = 0
+    dy_std2_losses = 0
+    dyaw_std2_losses = 0
+    dx_std2_count = 0
+    dy_std2_count = 0
+    dyaw_std2_count = 0
     tom_losses = 0
     for i, batch in enumerate(eval_expert_data_loader):
         batch_size = batch[0].size(0)
@@ -126,16 +133,34 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
                     other_input = other_embeds # todo: [..., aux_ind * 32: (aux_ind + 1) * 32]
                 tom_loss = aux_loss(bc_policy, other_input, other_pos, aux_mask, 
                     aux_info=aux_info)
-            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            # pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            pred_loss, _ = l1_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
             action_loss = torch.abs(pred_actions - expert_action)
+            dx_std2_mask = expert_action[..., 0].abs() > 2.5 
+            dy_std2_mask = expert_action[..., 1].abs() > 0.75 
+            dyaw_std2_mask = expert_action[..., 2].abs() > 0.25
+
             dx_loss = action_loss[..., 0].mean().item()
             dy_loss = action_loss[..., 1].mean().item()
             dyaw_loss = action_loss[..., 2].mean().item()
+
+            dx_std2_loss = action_loss[..., 0][dx_std2_mask].mean().item() if dx_std2_mask.sum() > 0 else 0
+            dy_std2_loss = action_loss[..., 1][dy_std2_mask].mean().item() if dy_std2_mask.sum() > 0 else 0
+            dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].mean().item() if dyaw_std2_mask.sum() > 0 else 0
+
             dx_losses += dx_loss
             dy_losses += dy_loss
             dyaw_losses += dyaw_loss
+            dx_std2_losses += dx_std2_loss
+            dy_std2_losses += dy_std2_loss
+            dyaw_std2_losses += dyaw_std2_loss
+
+            dx_std2_count += dx_std2_mask.sum()
+            dy_std2_count += dy_std2_mask.sum()
+            dyaw_std2_count += dyaw_std2_mask.sum()
+
             losses += loss.mean().item()
             if config.use_tom:
                 tom_losses += tom_loss.mean().item()
@@ -144,7 +169,11 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     dy_loss = dy_losses / (i + 1) 
     dyaw_loss = dyaw_losses / (i + 1) 
     tom_losses = tom_losses / (i + 1) 
-    return test_loss, dx_loss, dy_loss, dyaw_loss, tom_losses
+
+    dx_std2_loss = dx_std2_losses / dx_std2_count
+    dy_std2_loss = dy_std2_losses / dy_std2_count
+    dyaw_std2_loss = dyaw_std2_losses / dyaw_std2_count
+    return test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, tom_losses
 
 def train(exp_config=None):
     env_config = EnvConfig()
@@ -231,7 +260,10 @@ def train(exp_config=None):
             road_masks = road_masks.to(exp_config.device) if len(batch) > 3 else None
             all_masks= [partner_masks, road_masks]
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
-            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            # l1 loss version
+
+            pred_loss, _ = l1_loss(bc_policy, context, expert_action)
+            #pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
             
             # To write data idx that has the highest loss
@@ -275,13 +307,17 @@ def train(exp_config=None):
             # Evaluation loop
             if gradient_steps % exp_config.eval_freq == 0:
                 bc_policy.eval()
-                test_loss, dx_loss, dy_loss, dyaw_loss, tom_loss = evaluate(eval_expert_data_loader, exp_config, bc_policy, num_train_sample)
+                test_losses = evaluate(eval_expert_data_loader, exp_config, bc_policy, num_train_sample)
+                test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, tom_losses = test_losses
                 if exp_config.use_wandb:
                     log_dict = {
                             "eval/loss": test_loss,
                             "eval/dx_loss": dx_loss,
                             "eval/dy_loss": dy_loss,
                             "eval/dyaw_loss": dyaw_loss,
+                            "eval/dx_std2_loss": dx_std2_loss,
+                            "eval/dy_std2_loss": dy_std2_loss,
+                            "eval/dyaw_std2_loss": dyaw_std2_loss,
                         }
                     if exp_config.use_tom:
                         log_dict['eval/tom_loss'] = tom_loss
