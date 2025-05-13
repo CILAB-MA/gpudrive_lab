@@ -133,14 +133,17 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
                     other_input = other_embeds # todo: [..., aux_ind * 32: (aux_ind + 1) * 32]
                 tom_loss = aux_loss(bc_policy, other_input, other_pos, aux_mask, 
                     aux_info=aux_info)
-            # pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
-            pred_loss, _ = focal_loss(bc_policy, context, expert_action)
+            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
             action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
             dx_std2_mask = expert_action[..., 0].abs() > 2.5 
             dy_std2_mask = expert_action[..., 1].abs() > 0.75 
             dyaw_std2_mask = expert_action[..., 2].abs() > 0.25
+            dx_std2_mask = dx_std2_mask.cpu().numpy()
+            dy_std2_mask = dy_std2_mask.cpu().numpy()
+            dyaw_std2_mask = dyaw_std2_mask.cpu().numpy()
 
             dx_loss = action_loss[..., 0].mean()
             dy_loss = action_loss[..., 1].mean()
@@ -262,8 +265,8 @@ def train(exp_config=None):
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
 
-            pred_loss, _ = focal_loss(bc_policy, context, expert_action)
-            #pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
+            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
             
             # To write data idx that has the highest loss

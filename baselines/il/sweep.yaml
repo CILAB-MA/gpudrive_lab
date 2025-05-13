@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: scale_up_focal_v2
+name: scale_up_data_size
 metric:
   goal: minimize
   name: eval/loss
@@ -10,16 +10,16 @@ parameters:
   seed:
     values: [3]
   num_scene:
-    values: [1000]
+    values: [100, 500, 1000, 5000]
   total_gradient_steps:
     values: [100000]
   # ILCONFIG
   network_dim:
-    values: [128, 256]
+    values: [64]
   head_dim:
     values: [64]
   num_layer:
-    values: [[3, 2], [4, 3]]
+    values: [[3, 2]]
   # AUXCONFIG
   use_tom:
     values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
