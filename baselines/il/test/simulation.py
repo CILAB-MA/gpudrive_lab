@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def run(args, env):
+def run(args, env, bc_policy, dataset):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -108,7 +108,7 @@ def run(args, env):
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:
                 f.write("Model,Dataset,OffRoad,VehicleCollsion,Goal,Collision,GoalProgress,VehColTime,GoalTime,OffRoadTime\n")
-            f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},{collision_time_avg},{goal_time_avg},{off_road_time_avg}\n")
+            f.write(f"{args.model_name},{dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},{collision_time_avg},{goal_time_avg},{off_road_time_avg}\n")
 
     if args.make_video:
         video_path = os.path.join(args.video_path, args.dataset, args.model_name, str(args.partner_portion_test))
@@ -182,11 +182,14 @@ if __name__ == "__main__":
 
     # Train Scene
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
+    
     for i in tqdm(range(num_iter)):
         print(env.data_batch)
-        run(args, env)
+        run(args, env, bc_policy, dataset='train')
         if i != num_iter - 1:
+            print('SWAP!!')
             env.swap_data_batch()
+            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
     env.close()
 
     # Test Scene
@@ -209,7 +212,7 @@ if __name__ == "__main__":
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
     for i in tqdm(range(num_iter)):
         print(env.data_batch)
-        run(args, env)
+        run(args, env, bc_policy, dataset='test')
         if i != num_iter - 1:
             env.swap_data_batch()
     env.close()
