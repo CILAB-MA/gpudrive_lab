@@ -7,12 +7,7 @@ class ExpertDataset(torch.utils.data.Dataset):
                  rollout_len=5, pred_len=1, aux_future_step=None, ego_global_pos=None, ego_global_rot=None,
                  use_tom=False):
         # obs
-        self.obs = obs
-        B, T, F = obs.shape
-        new_shape = (B, T + rollout_len - 1, F)
-        new_obs = np.zeros(new_shape, dtype=self.obs.dtype)
-        new_obs[:, rollout_len - 1:] = obs # This is more cheaper than concatenate
-        self.obs = new_obs
+        self.obs = np.pad(obs, ((0, 0), (rollout_len - 1, 0), (0, 0)))
 
         # actions
         self.actions = actions
@@ -23,6 +18,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         min_actions = np.min(actions, axis=-1)
         action_mask = (max_actions == 6) | (min_actions == -6) | (actions[..., -1] >= 3.14)  | (actions[..., -1] <= -3.14)
         valid_masks[action_mask] = 0
+        B, T, _ = obs.shape
         new_shape = (B, T + rollout_len - 1)
         new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
         new_valid_mask[:, rollout_len - 1:] = valid_masks
@@ -49,17 +45,15 @@ class ExpertDataset(torch.utils.data.Dataset):
             current_relative_pos[self.aux_mask] = 0
             self.other_pos = self._get_multi_class_pos(current_relative_pos)
 
-        new_shape = (B, T + rollout_len - 1, 127)
-        new_partner_mask = np.full(new_shape, 2, dtype=np.float32)
-        new_partner_mask[:, rollout_len - 1:] = partner_mask
-        self.partner_mask = np.where(new_partner_mask == 2, 1, 0).astype('bool')
-        # road_mask
-        self.road_mask = road_mask
-        new_shape = (B, T + rollout_len - 1, 200)
-        new_road_mask = np.ones(new_shape)
-        new_road_mask[:, rollout_len - 1:] = road_mask
-
-        self.road_mask = new_road_mask.astype('bool')
+        self.partner_mask = np.pad(partner_mask, ((0, 0), (rollout_len - 1, 0), (0, 0)), constant_values=2)
+        self.partner_mask = (self.partner_mask != 2)
+        road_mask = road_mask.astype(bool)
+        self.road_mask = np.pad(
+            road_mask,
+            pad_width=((0, 0), (rollout_len - 1, 0), (0, 0)),
+            mode='constant',
+            constant_values=True
+        )
           
         self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len

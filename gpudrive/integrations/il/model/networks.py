@@ -961,3 +961,29 @@ class CustomLateFusionNet(nn.Module):
     def forward(self, obs, masks=None, attn_weights=False, deterministic=False):
         """Forward pass."""
         pass
+
+class ContHead(nn.Module):
+    def __init__(self, input_dim, head_config):
+        super(ContHead, self).__init__()
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, head_config.head_dim),
+            nn.ReLU()
+        )
+        self.residual_block = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(head_config.head_dim, head_config.head_dim),
+                nn.ReLU(),
+            ) for _ in range(head_config.head_num_layers)
+        ])
+        
+        self.final_head = nn.Linear(head_config.head_dim, 3)
+
+    def forward(self, x, deterministic=None):
+        x = self.input_layer(x)
+        for layer in self.residual_block:
+            residual = x
+            x = layer(x)
+            x = x + residual
+        x = self.final_head(x)
+        x = x.unsqueeze(1)
+        return x
