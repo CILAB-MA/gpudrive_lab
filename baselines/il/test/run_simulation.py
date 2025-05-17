@@ -28,23 +28,24 @@ if __name__ == "__main__":
     models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
     for model in tqdm(models):
-        if '.pth' not in model:
-            continue
-        if args.partner_portion_test:
-            video_path = args.video_path + f"_{args.partner_portion_test}"
-        else:
-            video_path = args.video_path
+        for dataset in ['train', 'test']:
+            if '.pth' not in model:
+                continue
+            if args.partner_portion_test:
+                video_path = args.video_path + f"_{args.partner_portion_test}"
+            else:
+                video_path = args.video_path
 
-        video_path = os.path.join(video_path, args.sweep_name)
-        model_path = os.path.join(args.model_path, args.sweep_name)
-        
-        arguments = f"-mc -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
-        
-        command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
-        
-        result = subprocess.run(command, shell=True)
-        if result.returncode != 0:
-            print(f"Error: Command failed with return code {result.returncode}")
+            video_path = os.path.join(video_path, args.sweep_name)
+            model_path = os.path.join(args.model_path, args.sweep_name)
+            
+            arguments = f"-d {dataset} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
+            
+            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
+            
+            result = subprocess.run(command, shell=True)
+            if result.returncode != 0:
+                print(f"Error: Command failed with return code {result.returncode}")
 
     csv_path = f"{model_path}/result_{args.partner_portion_test}.csv"
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
