@@ -158,7 +158,7 @@ if __name__ == "__main__":
     else:
         # Test Scene
         scene_loader = SceneDataLoader(
-            root=f"/data/full_version/data/testing/",
+            root=f"/data/full_version/data/validation/",
             batch_size=args.batch_size,
             dataset_size=10000,
             sample_with_replacement=False,
@@ -194,7 +194,7 @@ if __name__ == "__main__":
     num_iter = int(dataset_size // args.batch_size)
 
     # Train Scene
-    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
+    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
     
     for i in tqdm(range(num_iter)):
         print(env.data_batch)
@@ -202,6 +202,6 @@ if __name__ == "__main__":
         if i != num_iter - 1:
             print('SWAP!!')
             env.swap_data_batch()
-            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
+            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
     env.close()
 

@@ -39,7 +39,7 @@ if __name__ == "__main__":
             video_path = os.path.join(video_path, args.sweep_name)
             model_path = os.path.join(args.model_path, args.sweep_name)
             
-            arguments = f"-mv -mc -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
+            arguments = f"-mc -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
             
             command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
             
