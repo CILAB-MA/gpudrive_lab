@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def run(args, env):
+def run(args, env, bc_policy, dataset):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -48,7 +48,6 @@ def run(args, env):
         collision_mask = (veh_collision > 0) & (collision_timesteps == -1)
         goal_mask = (goal_achieved > 0) & (goal_timesteps == -1)
         off_road_mask = (off_road > 0) & (off_road_timesteps == -1)
-
         collision_timesteps[collision_mask] = time_step
         expert_timesteps = expert_valids.squeeze(-1).sum(-1)
         goal_timesteps[goal_mask] = time_step / expert_timesteps[alive_agent_mask][goal_mask]
@@ -78,6 +77,7 @@ def run(args, env):
 
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
+            print(f'goal_timesteps {expert_timesteps[:, 0]}')
             break
     # Calculate average timesteps for status
     valid_collision_times = collision_timesteps[collision_timesteps >= 0].float()
@@ -108,7 +108,7 @@ def run(args, env):
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:
                 f.write("Model,Dataset,OffRoad,VehicleCollsion,Goal,Collision,GoalProgress,VehColTime,GoalTime,OffRoadTime\n")
-            f.write(f"{args.model_name},{args.dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},{collision_time_avg},{goal_time_avg},{off_road_time_avg}\n")
+            f.write(f"{args.model_name},{dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},{collision_time_avg},{goal_time_avg},{off_road_time_avg}\n")
 
     if args.make_video:
         video_path = os.path.join(args.video_path, args.dataset, args.model_name, str(args.partner_portion_test))
@@ -134,32 +134,45 @@ if __name__ == "__main__":
     parser.add_argument('--batch-size', type=int, default=2) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/net_size')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_seed_3_0423_021412.pth')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_seed_3_0515_031650.pth')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play'])
+    parser.add_argument('--dataset', '-d', type=str, default='test', choices=['train', 'test'])
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 128 if args.sim_agent == 'self_play' else 1
 
-    print('Scene Loader')
     # Create data loader
-    train_loader = SceneDataLoader(
-        root=f"/data/full_version/data/training/",
-        batch_size=args.batch_size,
-        dataset_size=args.dataset_size,
-        sample_with_replacement=False,
-        shuffle=False,
-    )
+    if args.dataset == 'train':
+        scene_loader = SceneDataLoader(
+            root=f"/data/full_version/data/training/",
+            batch_size=args.batch_size,
+            dataset_size=args.dataset_size,
+            sample_with_replacement=False,
+            shuffle=False,
+        )
+        dataset_size = args.dataset_size
+    else:
+        # Test Scene
+        scene_loader = SceneDataLoader(
+            root=f"/data/full_version/data/testing/",
+            batch_size=args.batch_size,
+            dataset_size=10000,
+            sample_with_replacement=False,
+            shuffle=False,
+        )
+        dataset_size = 10000
+    print(f'{args.dataset} len scene loader {len(scene_loader)}')
     
     env_config = EnvConfig(
         dynamics_model="delta_local",
         dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
-        collision_behavior='remove',
+        collision_behavior='ignore',
         num_stack=5
 
     )
@@ -169,7 +182,7 @@ if __name__ == "__main__":
     # Make env
     env = GPUDriveTorchEnv(
         config=env_config,
-        data_loader=train_loader,
+        data_loader=scene_loader,
         max_cont_agents=num_cont_agents,  # Number of agents to control
         device="cuda",
         render_config=render_config,
@@ -178,41 +191,17 @@ if __name__ == "__main__":
     print(f'model: {args.model_path}/{args.model_name}', )
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to("cuda")
     bc_policy.eval()
-    num_iter = int(args.dataset_size // args.batch_size)
+    num_iter = int(dataset_size // args.batch_size)
 
     # Train Scene
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
+    
     for i in tqdm(range(num_iter)):
         print(env.data_batch)
-        run(args, env)
+        run(args, env, bc_policy, dataset=args.dataset)
         if i != num_iter - 1:
+            print('SWAP!!')
             env.swap_data_batch()
+            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
     env.close()
-
-    # Test Scene
-    test_loader = SceneDataLoader(
-        root=f"/data/full_version/data/testing/",
-        batch_size=args.batch_size,
-        dataset_size=10_000,
-        sample_with_replacement=False,
-        shuffle=False,
-    )
-    env = GPUDriveTorchEnv(
-        config=env_config,
-        data_loader=test_loader,
-        max_cont_agents=num_cont_agents,  # Number of agents to control
-        device="cuda",
-        render_config=render_config,
-        action_type="continuous",
-    )
-    # Test Scene
-    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
-    for i in tqdm(range(num_iter)):
-        print(env.data_batch)
-        run(args, env)
-        if i != num_iter - 1:
-            env.swap_data_batch()
-    env.close()
-    # integrate the result
-    csv_path = f"{model_path}/result_{args.partner_portion_test}.csv"
 

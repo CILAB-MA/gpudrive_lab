@@ -249,8 +249,8 @@ pyrightconfig.json
 # Logs
 examples/experimental/logs/*
 
-# Sbatch scripts
-*.sh
+# # Sbatch scripts
+# *.sh
 
 # Videos
 videos/
