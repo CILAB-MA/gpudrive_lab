@@ -9,7 +9,7 @@ SWEEP_NAME=${3:-"early_attn5000"}  # 기본값 "early_attn5000"
 GPU_ID=${4:-0}  # 기본값 "early_attn5000"
 
 # pp 값 리스트
-PP_VALUES=(0.0 0.2 0.4 0.6 0.8 1.0)
+PP_VALUES=(1.0 0.8 0.6 0.4 0.2 0.0)
 
 # 반복문 실행
 for PP in "${PP_VALUES[@]}"; do
