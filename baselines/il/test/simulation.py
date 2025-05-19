@@ -140,12 +140,11 @@ if __name__ == "__main__":
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play'])
-    parser.add_argument('--dataset', '-d', type=str, default='train', choices=['train', 'test'])
+    parser.add_argument('--dataset', '-d', type=str, default='test', choices=['train', 'test'])
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 128 if args.sim_agent == 'self_play' else 1
 
-    print('Scene Loader')
     # Create data loader
     if args.dataset == 'train':
         scene_loader = SceneDataLoader(
@@ -155,16 +154,18 @@ if __name__ == "__main__":
             sample_with_replacement=False,
             shuffle=False,
         )
+        dataset_size = args.dataset_size
     else:
         # Test Scene
         scene_loader = SceneDataLoader(
             root=f"/data/full_version/data/testing/",
             batch_size=args.batch_size,
-            dataset_size=10_000,
+            dataset_size=10000,
             sample_with_replacement=False,
             shuffle=False,
         )
-
+        dataset_size = 10000
+    print(f'{args.dataset} len scene loader {len(scene_loader)}')
     
     env_config = EnvConfig(
         dynamics_model="delta_local",
@@ -190,14 +191,14 @@ if __name__ == "__main__":
     print(f'model: {args.model_path}/{args.model_name}', )
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to("cuda")
     bc_policy.eval()
-    num_iter = int(args.dataset_size // args.batch_size)
+    num_iter = int(dataset_size // args.batch_size)
 
     # Train Scene
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False) #todo: remove_controlled_agents -> ?
     
     for i in tqdm(range(num_iter)):
         print(env.data_batch)
-        run(args, env, bc_policy, dataset='train')
+        run(args, env, bc_policy, dataset=args.dataset)
         if i != num_iter - 1:
             print('SWAP!!')
             env.swap_data_batch()
