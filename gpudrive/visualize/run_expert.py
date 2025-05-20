@@ -101,7 +101,10 @@ if __name__ == "__main__":
     # env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
     torch.set_printoptions(precision=3)
     for idx, batch in enumerate(train_loader):
-        env.swap_data_batch(batch)
+        if len(train_loader) = idx:
+            env.swap_data_batch()
+        else:
+            env.swap_data_batch(batch)
         # env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
         obs = env.reset()
         partner_mask = env.get_partner_mask()
