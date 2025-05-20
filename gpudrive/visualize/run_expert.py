@@ -12,10 +12,10 @@ from gpudrive.visualize.utils import img_from_fig
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
-    parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/train")
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
-    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=20)
+    parser.add_argument("--data_dir", "-dd", type=str, default="testing", help="training (80000) / testing (10000)")
+    parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/test")
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
+    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=200)
     args = parser.parse_args()
 
     DATA_DIR = os.path.join("/data/full_version/data", args.data_dir)
