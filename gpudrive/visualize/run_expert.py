@@ -16,41 +16,58 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 
-def plot_action(log_actions, action_image_dir, st, en, done_step):
+def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
+                dy_thresh=0.035, dyaw_thresh=0.02):
     fig, axs = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
     labels = ['dx', 'dy', 'dyaw']
-    N, T, _ = log_actions.shape
-
+    _, T, _ = log_actions.shape
+    N = len(alive_world)
     colors = plt.get_cmap('gist_ncar')(torch.linspace(0, 1, N).numpy())
 
-    dy_peak = np.zeros(N)
-    dyaw_peak = np.zeros(N)
+    w = 0  # index for valid (alive) worlds
+    for n in range(N):
+        if alive_world[n] != 1:
+            continue
+        end = int(done_step[w].item())
+        dx = log_actions[w, :end, 0]
+        dy = log_actions[w, :end, 1]
+        dyaw = log_actions[w, :end, 2]
+        dx_binary = (dx < -0.01).astype(int)
+        dy_binary = (np.abs(dy) > dy_thresh).astype(int)
+        dyaw_binary = (np.abs(dyaw) > dyaw_thresh).astype(int)
+        dx_peak = np.min(dx)
+        dy_peak = np.abs(dy).max()
+        dyaw_peak = np.abs(dyaw).max()
+        dx_binary = dx_binary.mean()
+        dy_exceed_count = dy_binary.mean()
+        dyaw_exceed_count = dyaw_binary.mean()
+        max_ratio = np.max(dy_exceed_count, dyaw_exceed_count)
+        if dx_binary > 0.5:
+            label = 'RETREAT'
+        elif dy_peak > 0.035 and dyaw_peak > 0.025 and max_ratio > 0.15:
+            label = 'TURN' 
+        else:
+            label = 'NORMAL'
+        total_label = (
+            f'Agent {st + n} {label}'
+        )
 
-    for i in range(3):  # dx, dy, dyaw
-        for n in range(N):
-            end = int(done_step[n].item())
-            dy_peak[n] = np.abs(log_actions[n, :end, 1]).max()
-            dyaw_peak[n] = np.abs(log_actions[n, :end, 2]).max()
-            label = ""
-            if i == 0:
-                dy_val = round(float(dy_peak[n]), 3)
-                dyaw_val = round(float(dyaw_peak[n]), 3)
-                label = f'Agent {st + n} (dy={dy_val}, dyaw={dyaw_val})'
-            axs[i].plot(
-                range(end), log_actions[n, :end, i],
-                label=label,
-                color=colors[n]
-            )
+
+        axs[0].plot(range(end), dx, color=colors[n], label=total_label)
+        axs[1].plot(range(end), dy, color=colors[n])
+        axs[2].plot(range(end), dyaw, color=colors[n])
+        w += 1
+
+    for i in range(3):
         axs[i].set_ylabel(labels[i])
         axs[i].grid(True)
-
     axs[-1].set_xlabel('Time step')
 
     fig.legend(
         loc='center left',
         bbox_to_anchor=(0.87, 0.5),
         ncol=2,
-        title="Agents"
+        title=f"Agents over dy {dy_thresh} and dyaw {dyaw_thresh}"
     )
 
     fig.subplots_adjust(right=0.86)
@@ -60,15 +77,14 @@ def plot_action(log_actions, action_image_dir, st, en, done_step):
     plt.close()
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-image', '-mi', action='store_true')
     parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/validation_log")
-    parser.add_argument("--action-image-dir", "-aid", type=str, default="/data/full_version/expert_actions/validation_log")
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
+    parser.add_argument("--action-image-dir", "-aid", type=str, default="/data/full_version/expert_actions/validation_label")
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=9987)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -101,7 +117,7 @@ if __name__ == "__main__":
     # env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
     torch.set_printoptions(precision=3)
     for idx, batch in enumerate(train_loader):
-        if len(train_loader) = idx:
+        if len(train_loader) == idx:
             env.swap_data_batch()
         else:
             env.swap_data_batch(batch)
@@ -112,6 +128,7 @@ if __name__ == "__main__":
         frames = {f"env_{i}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS)}
         expert_actions, _, _, _, expert_valids = env.get_expert_actions()
         alive_agent_mask = env.cont_agent_mask.clone()
+        alive_world = alive_agent_mask.sum(-1).cpu().numpy()
         log_actions = expert_actions[alive_agent_mask]
         done_step = torch.zeros(len(log_actions)).to('cuda')
         expert_timesteps = expert_valids.squeeze(-1).sum(-1)
@@ -155,7 +172,7 @@ if __name__ == "__main__":
                         )
                 print(done_step, expert_timesteps[alive_agent_mask])
                 if args.make_image:
-                    plot_action(log_actions.cpu().numpy(), action_image_dir, idx * NUM_WORLDS , (idx + 1) * NUM_WORLDS, done_step)
+                    plot_action(log_actions.cpu().numpy(), action_image_dir, idx * NUM_WORLDS , (idx + 1) * NUM_WORLDS, done_step, alive_world)
                 break
 
     env.close()
