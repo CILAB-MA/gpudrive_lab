@@ -16,7 +16,7 @@ class ExpertDataset(torch.utils.data.Dataset):
         valid_masks = 1 - masks
         max_actions = np.max(actions, axis=-1)
         min_actions = np.min(actions, axis=-1)
-        action_mask = (max_actions == 6) | (min_actions == -6) | (actions[..., -1] >= 3.14)  | (actions[..., -1] <= -3.14)
+        action_mask = (np.abs(actions[..., 1]) >  0.5) | (np.abs(actions[..., 0]) >  5) | (np.abs(actions[..., -1]) > 0.2)
         valid_masks[action_mask] = 0
         B, T, _ = obs.shape
         new_shape = (B, T + rollout_len - 1)
@@ -217,12 +217,17 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     data_name = [100, 500, 1000, 5000]
-    for data_num in data_name:
-        data = np.load(f"/data/tom_v5/train_trajectory_{data_num}.npz")
-        partner_masks = data['partner_mask'].reshape(-1, 127)
-        dead_mask = data['dead_mask'].reshape(-1)
-        filted_partner_masks = partner_masks[~dead_mask]
-        zero_count = np.sum(filted_partner_masks.sum(axis=-1) == (2 * 127))
-        total_count = len(filted_partner_masks)
-        ratio = np.round(zero_count / total_count, 3)
-        print(zero_count, total_count,  ratio)
+    data = np.load(f"/data/full_version/processed/final/training_trajectory_1000.npz")
+    actions =data['actions'].reshape(-1, 3)
+    valid_masks = data['dead_mask'].reshape(-1)
+    valid_masks = 1 - valid_masks
+    action_mask = (np.abs(actions[:, 1]) >  0.5) | (np.abs(actions[:, 0]) >  5) | (np.abs(actions[:, -1]) > 0.2)
+    action_mask = action_mask.reshape(-1)
+    valid_masks[action_mask] = 0
+    valid_masks = valid_masks.astype('bool')
+    filtered_actions = actions[valid_masks]
+    dx = filtered_actions[:, 0]
+    dy = filtered_actions[:, 1]
+    dyaw = filtered_actions[:, 2]
+    print(f'dx max {dx.max():.3f} min {dx.min():.3f} dy max {dy.max():.3f} min {dy.max():.3f} dyaw max {dyaw.max():.3f} min {dyaw.max():.3f} ')
+    print(f'dx mean {dx.mean():.3f} std {dx.std():.3f} dy mean {dy.mean():.3f} std {dy.std():.3f} dyaw max {dyaw.mean():.3f} std {dyaw.std():.3f} ')

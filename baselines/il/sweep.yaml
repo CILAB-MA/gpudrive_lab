@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: scale_up_data_size
+name: data_cut
 metric:
   goal: minimize
   name: eval/loss
