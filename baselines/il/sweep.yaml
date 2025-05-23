@@ -10,16 +10,16 @@ parameters:
   seed:
     values: [3]
   num_scene:
-    values: [1000, 5000]
+    values: [1000]
   total_gradient_steps:
     values: [100000]
   # ILCONFIG
   network_dim:
-    values: [64]
+    values: [64, 128]
   head_dim:
     values: [64]
   num_layer:
-    values: [[3, 2]]
+    values: [[3, 2], [4, 3]]
   # AUXCONFIG
   use_tom:
     values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'

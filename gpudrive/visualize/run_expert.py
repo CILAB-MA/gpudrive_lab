@@ -41,8 +41,10 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
         dx_binary = dx_binary.mean()
         dy_exceed_count = dy_binary.mean()
         dyaw_exceed_count = dyaw_binary.mean()
-        max_ratio = np.max(dy_exceed_count, dyaw_exceed_count)
-        if dx_binary > 0.5:
+        max_ratio = max(dy_exceed_count, dyaw_exceed_count)
+        if (dy_peak > 0.5) or (dyaw_peak > 0.2):
+            label = 'ABNORMAL'
+        elif dx_binary > 0.5:
             label = 'RETREAT'
         elif dy_peak > 0.035 and dyaw_peak > 0.025 and max_ratio > 0.15:
             label = 'TURN' 
