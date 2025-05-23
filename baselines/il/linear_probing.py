@@ -54,7 +54,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         ego_global_pos = global_npz['ego_global_pos']
         ego_global_rot = global_npz['ego_global_rot']
     dataset = FutureDataset(
-        expert_obs, ego_global_pos, ego_global_rot, expert_masks, partner_mask, road_mask,
+        expert_obs, expert_actions, ego_global_pos, ego_global_rot, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, future_step=config.future_step,
         exp=config.exp
     )
@@ -123,12 +123,16 @@ def train(exp_config=None):
         backbone.eval()
         if exp_config.model == 'early_lp':
             layers = register_all_layers_forward_hook(backbone.fusion_attn)
-            nth_layer = '2'
+            nth_layer = '1'
         else:
             layers = register_all_layers_forward_hook(backbone.ro_attn)
-            nth_layer = '1'
+            nth_layer = '0'
         hidden_dim = 128
-        
+    if exp_config.exp == 'other':
+        ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x in {0,1,6,7} or y in {0,1,6,7}})
+    else:
+        ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x not in {3, 4}})
+    ood_label_tensor = torch.tensor(ood_labels, device='cuda')
     pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=exp_config.future_step).to("cuda")
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
@@ -199,14 +203,12 @@ def train(exp_config=None):
             # if exp_config.exp == 'ego':
             #     future_pos = future_pos.squeeze(1)
             masked_pos_label = future_pos[future_mask]
-
             if future_mask.sum() == 0:
                 continue_num += 1
                 continue
             
             # compute loss
             pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
-            
             pos_optimizer.zero_grad()
             pos_loss.backward()
             gradient_steps += 1
@@ -228,16 +230,19 @@ def train(exp_config=None):
                 test_pos_losses = 0
                 test_pos_f1_macros = 0
                 test_continue_num = 0
+                test_ood_accuracys = 0
+                test_ood_losses = 0
+                test_ood_f1_macros = 0
                 for j, batch in enumerate(eval_expert_data_loader):
                     obs, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
-                    
-                    obs = obs.to("cuda")
-                    future_pos = future_pos.to("cuda")
-                    valid_mask = valid_mask.to("cuda")
-                    future_mask = future_mask.to("cuda")
-                    partner_mask = partner_mask.to("cuda")
-                    road_mask = road_mask.to("cuda")
-                    all_masks= [partner_mask, road_mask]
+                    with torch.no_grad():
+                        obs = obs.to("cuda")
+                        future_pos = future_pos.to("cuda")
+                        valid_mask = valid_mask.to("cuda")
+                        future_mask = future_mask.to("cuda")
+                        partner_mask = partner_mask.to("cuda")
+                        road_mask = road_mask.to("cuda")
+                        all_masks= [partner_mask, road_mask]
                     if exp_config.model == 'baseline':
                         baseline_obs = obs[..., :6].reshape(-1, 30)
                         if exp_config.exp == 'other':
@@ -254,36 +259,50 @@ def train(exp_config=None):
                             lp_input = layers[nth_layer][:,0,:]
                         else:
                             lp_input = layers[nth_layer][:,1:,:]
-
-                    # get future pred pos and action
-                    pred_pos = pos_linear_model(lp_input)
-                    future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
-                    masked_pos = pred_pos[future_mask]
+                    with torch.no_grad():
+                        # get future pred pos and action
+                        pred_pos = pos_linear_model(lp_input)
+                        future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
+                        masked_pos = pred_pos[future_mask]
+                            
+                        # get future expert action
+                        future_pos = future_pos.clone()
+                        masked_pos_label = future_pos[future_mask]
+                        ood_mask = (masked_pos_label[..., None] == ood_label_tensor).any(dim=-1)
+                        ood_pos_label = masked_pos_label[ood_mask]
+                        ood_pos_pred = masked_pos[ood_mask]
+                        if future_mask.sum() == 0:
+                            test_continue_num += 1
+                            continue
                         
-                    # get future expert action
-                    future_pos = future_pos.clone()
-                    masked_pos_label = future_pos[future_mask]
-                    
-                    if future_mask.sum() == 0:
-                        test_continue_num += 1
-                        continue
-                    
-                    # compute loss
-                    pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
+                        # compute loss
+                        pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
+                        ood_loss, ood_acc, ood_class = pos_linear_model.loss(ood_pos_pred, ood_pos_label)
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
                     masked_pos_label = masked_pos_label.detach().cpu().numpy()
+                    ood_pos_label = ood_pos_label.detach().cpu().numpy()
+                    ood_class = ood_class.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_pos_label, average='macro')
+                    ood_f1_macro = f1_score(ood_class, ood_pos_label, average='macro')
 
                     test_pos_accuracys += pos_acc
                     test_pos_losses += pos_loss.item()
                     test_pos_f1_macros += pos_f1_macro
+
+                    test_ood_accuracys += ood_acc
+                    test_ood_losses += ood_loss.item()
+                    test_ood_f1_macros += ood_f1_macro
+
                 if exp_config.use_wandb:
                     wandb.log(
                         {
                             "eval/pos_accuracy": test_pos_accuracys / (j + 1 - test_continue_num),
                             "eval/pos_loss": test_pos_losses / (j + 1 - test_continue_num),
                             "eval/pos_f1_macro": test_pos_f1_macros / (j + 1 - test_continue_num),
+                            "eval/ood_accuracy": test_ood_accuracys / (j + 1 - test_continue_num),
+                            "eval/ood_loss": test_ood_losses / (j + 1 - test_continue_num),
+                            "eval/ood_f1_macro": test_ood_f1_macros / (j + 1 - test_continue_num),
                         }, step=gradient_steps
                     )
                 if test_pos_losses < best_loss:

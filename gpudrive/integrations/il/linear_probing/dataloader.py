@@ -4,7 +4,7 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 
 class FutureDataset(torch.utils.data.Dataset):
-    def __init__(self, obs, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None,
+    def __init__(self, obs, actions, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None,
                  rollout_len=5, pred_len=1, future_step=1, exp='other', xy_range=None):
         # obs
         self.obs = obs
@@ -16,6 +16,8 @@ class FutureDataset(torch.utils.data.Dataset):
 
         # masks
         valid_masks = 1 - masks
+        action_mask = (np.abs(actions[..., 1]) >  0.5) | (np.abs(actions[..., 0]) >  5) | (np.abs(actions[..., -1]) > 0.2)
+        valid_masks[action_mask] = 0
         new_shape = (B, T + rollout_len - 1)
         new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
         new_valid_mask[:, rollout_len - 1:] = valid_masks
@@ -231,21 +233,21 @@ if __name__ == "__main__":
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
     exp = 'ego'
-    future_step = 15
-    xy_range_dict={5: [(-0.0125, 0.0125), (-0.00625, 0.00625)],
-                 15: [(-0.0125, 0.025), (-0.00625, 0.00625)],
-                 25: [(-0.0175, 0.0375), (-0.0125, 0.0125)],
-                 35: [(-0.025, 0.05), (-0.025, 0.025)]} 
+    future_step = 35
+    # xy_range_dict={5: [(-0.0125, 0.0125), (-0.00625, 0.00625)],
+    #              15: [(-0.0125, 0.025), (-0.00625, 0.00625)],
+    #              25: [(-0.0175, 0.0375), (-0.0125, 0.0125)],
+    #              35: [(-0.025, 0.05), (-0.025, 0.025)]} 
     data = np.load("/data/full_version/processed/final/training_trajectory_1000.npz")
     # data = np.load("/data/ICRA_Workshop/tom_v5/train_trajectory_1000.npz")
     global_data = np.load("/data/full_version/processed/final/global_training_trajectory_1000.npz")
     # global_data = np.load("/data/ICRA_Workshop/tom_v5/linear_probing/global_train_trajectory_1000.npz")
     expert_data_loader = DataLoader(
         FutureDataset(
-            data['obs'], global_data['ego_global_pos'], global_data['ego_global_rot'],
+            data['obs'], data['actions'], global_data['ego_global_pos'], global_data['ego_global_rot'],
             data['dead_mask'], data['partner_mask'], data['road_mask'], 
             rollout_len=5, pred_len=1, future_step=future_step, exp=exp, 
-            xy_range=xy_range_dict[future_step]
+            # xy_range=xy_range_dict[future_step]
         ),
         batch_size=256,
         shuffle=True,
@@ -265,7 +267,7 @@ if __name__ == "__main__":
         pos_vals = other_pos[aux_mask].cpu().numpy().astype(int)
 
         total_pos_counts += np.bincount(pos_vals, minlength=64)
-
+    
     # # ego_future_pos 분포
     # plt.figure(figsize=(10, 4))
     # plt.bar(range(64), total_pos_counts, color='blue', alpha=0.7)

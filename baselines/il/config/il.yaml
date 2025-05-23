@@ -5,12 +5,12 @@ model_name: "early_attn" # ['bc', 'late_fusion', 'attention', 'wayformer'. 'earl
 # EXPERIMENT
 device: 'cuda'
 batch_size: 512
-total_gradient_steps: 100_000
+total_gradient_steps: 100000
 eval_freq: 5000
 lr: 0.0005
 sample_per_epoch: 438763
 seed: 3
-early_stop_num: 100_000
+early_stop_num: 100000
 base_path: '/data/full_version'
 model_path: 'model'
 data_path: 'processed/final'

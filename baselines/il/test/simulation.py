@@ -133,8 +133,8 @@ if __name__ == "__main__":
     parser.add_argument('--dataset-size', type=int, default=1000) # total_world
     parser.add_argument('--batch-size', type=int, default=2) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/net_size')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_seed_3_0515_031650.pth')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/scale_up_data_size')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_seed_3_0519_021808.pth')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
