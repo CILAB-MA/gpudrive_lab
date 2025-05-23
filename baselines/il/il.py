@@ -138,6 +138,7 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
             action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
+
             dx_std2_mask = expert_action[..., 0].abs() > 2 
             dy_std2_mask = expert_action[..., 1].abs() > 0.035 
             dyaw_std2_mask = expert_action[..., 2].abs() > 0.023

@@ -79,6 +79,7 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
     plt.close()
 
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")

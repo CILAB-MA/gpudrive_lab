@@ -10,7 +10,7 @@ parameters:
   seed:
     values: [3]
   num_scene:
-    values: [1000]
+    values: [1000, 5000]
   total_gradient_steps:
     values: [100000]
   # ILCONFIG
