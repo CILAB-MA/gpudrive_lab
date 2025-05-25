@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: scale_up_data_size
+name: data_cut
 metric:
   goal: minimize
   name: eval/loss
@@ -15,11 +15,11 @@ parameters:
     values: [100000]
   # ILCONFIG
   network_dim:
-    values: [64]
+    values: [64, 128]
   head_dim:
     values: [64]
   num_layer:
-    values: [[3, 2]]
+    values: [[3, 2], [4, 3]]
   # AUXCONFIG
   use_tom:
     values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
