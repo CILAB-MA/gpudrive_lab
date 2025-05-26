@@ -15,6 +15,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+from tqdm import tqdm
 
 def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
                 dy_thresh=0.035, dyaw_thresh=0.02):
@@ -23,7 +24,7 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
     _, T, _ = log_actions.shape
     N = len(alive_world)
     colors = plt.get_cmap('gist_ncar')(torch.linspace(0, 1, N).numpy())
-
+    scene_labels = []
     w = 0  # index for valid (alive) worlds
     for n in range(N):
         if alive_world[n] != 1:
@@ -50,6 +51,7 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
             label = 'TURN' 
         else:
             label = 'NORMAL'
+        scene_labels.append(label)
         total_label = (
             f'Agent {st + n} {label}'
         )
@@ -77,6 +79,7 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
     image_file_path = os.path.join(action_image_dir, f'expert_action_value_scene_{st}to{en}.png')
     plt.savefig(image_file_path, bbox_inches='tight')
     plt.close()
+    return scene_labels
 
 
 
@@ -85,9 +88,10 @@ if __name__ == "__main__":
     parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-image', '-mi', action='store_true')
-    parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/validation_log")
-    parser.add_argument("--action-image-dir", "-aid", type=str, default="/data/full_version/expert_actions/validation_label")
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=9987)
+    parser.add_argument('--make-csv', '-mc', action='store_true')
+    parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/training_log")
+    parser.add_argument("--action-image-dir", "-aid", type=str, default="/data/full_version/expert_actions/training_label")
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -119,11 +123,8 @@ if __name__ == "__main__":
     )
     # env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
     torch.set_printoptions(precision=3)
-    for idx, batch in enumerate(train_loader):
-        if len(train_loader) == idx:
-            env.swap_data_batch()
-        else:
-            env.swap_data_batch(batch)
+    num_iter = int(TOTAL_NUM_WORLDS // NUM_WORLDS)
+    for idx in tqdm(range(num_iter)):
         # env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
         obs = env.reset()
         partner_mask = env.get_partner_mask()
@@ -136,8 +137,6 @@ if __name__ == "__main__":
         done_step = torch.zeros(len(log_actions)).to('cuda')
         expert_timesteps = expert_valids.squeeze(-1).sum(-1)
         for t in range(env.episode_len):
-            print(f"Step: {t}")
-
             # Step the environment
             expert_actions, _, _, _, _ = env.get_expert_actions()
             env.step_dynamics(expert_actions[:, :, t, :])
@@ -159,11 +158,7 @@ if __name__ == "__main__":
                     )
 
             obs = env.get_obs()
-            # partner_mask = env.get_partner_mask()
-            # road_mask = env.get_road_mask()
-            # reward = env.get_rewards()
             done = env.get_dones()
-            # info = env.get_infos()
             mask = (done[alive_agent_mask] == 1.0) & (done_step == 0)
             done_step[mask] = t
             if done.all():
@@ -173,9 +168,19 @@ if __name__ == "__main__":
                         media.write_video(
                             os.path.join(VIDEO_DIR + f'_ratio_{int(args.partner_portion_test)}', f"world_{i:05d}.gif"), np.array(frames[f"env_{i}"]), fps=60, codec="gif"
                         )
-                print(done_step, expert_timesteps[alive_agent_mask])
                 if args.make_image:
-                    plot_action(log_actions.cpu().numpy(), action_image_dir, idx * NUM_WORLDS , (idx + 1) * NUM_WORLDS, done_step, alive_world)
+                    scene_labels = plot_action(log_actions.cpu().numpy(), action_image_dir, idx * NUM_WORLDS , (idx + 1) * NUM_WORLDS, done_step, alive_world)
                 break
-
+        if args.make_csv:
+            csv_path = f"/data/full_version/expert_{args.data_dir}_data.csv"
+            file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
+            with open(csv_path, 'a', encoding='utf-8') as f:
+                if file_is_empty:
+                    f.write("scene_idx,done_step,label\n")
+                scene_idx = np.arange(idx * NUM_WORLDS, (idx + 1) * NUM_WORLDS)
+                scene_idx = scene_idx[alive_world.astype('bool')]
+                for sc, do, sl in zip(scene_idx, done_step, scene_labels):
+                    f.write(f"{sc},{do},{sl}\n")     
+        if idx != num_iter - 1:
+            env.swap_data_batch()     
     env.close()
