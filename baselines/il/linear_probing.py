@@ -19,6 +19,11 @@ from gpudrive.integrations.il.linear_probing.dataloader import FutureDataset
 from gpudrive.integrations.il.linear_probing.lp_model import *
 from sklearn.metrics import f1_score
 from box import Box
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from scipy.stats import pearsonr
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -127,7 +132,7 @@ def train(exp_config=None):
         else:
             layers = register_all_layers_forward_hook(backbone.ro_attn)
             nth_layer = '0'
-        hidden_dim = 128
+        hidden_dim = backbone.hidden_dim
     if exp_config.exp == 'other':
         ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x in {0,1,6,7} or y in {0,1,6,7}})
     else:
@@ -164,7 +169,7 @@ def train(exp_config=None):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
             batch_size = batch[0].size(0)
-            obs, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
+            obs, _, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
             
             obs = obs.to("cuda")
             future_pos = future_pos.to("cuda")
@@ -233,10 +238,14 @@ def train(exp_config=None):
                 test_ood_accuracys = 0
                 test_ood_losses = 0
                 test_ood_f1_macros = 0
+                action_losses = []
+                lp_losses = []
+                num_oods = 0
                 for j, batch in enumerate(eval_expert_data_loader):
-                    obs, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
+                    obs, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
                     with torch.no_grad():
                         obs = obs.to("cuda")
+                        actions = actions.to("cuda")
                         future_pos = future_pos.to("cuda")
                         valid_mask = valid_mask.to("cuda")
                         future_mask = future_mask.to("cuda")
@@ -255,6 +264,7 @@ def train(exp_config=None):
                     else:
                         with torch.no_grad():
                             context, *_, = backbone.get_context(obs, all_masks)
+                            pred_actions = backbone.get_action(context, deterministic=True)
                         if exp_config.exp == 'ego':
                             lp_input = layers[nth_layer][:,0,:]
                         else:
@@ -277,23 +287,48 @@ def train(exp_config=None):
                         
                         # compute loss
                         pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
-                        ood_loss, ood_acc, ood_class = pos_linear_model.loss(ood_pos_pred, ood_pos_label)
+                        if len(ood_pos_pred) > 0:
+                            ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label)
+                            ood_pos_label = ood_pos_label.detach().cpu().numpy()
+                            ood_class = ood_class.detach().cpu().numpy()
+                            ood_f1_macro = f1_score(ood_class, ood_pos_label, average='macro')
+                            test_ood_accuracys += ood_acc
+                            test_ood_losses += ood_loss.sum()
+                            test_ood_f1_macros += ood_f1_macro
+                            num_ood += num_ood
+                        if gradient_steps == 14000 and exp_config.exp == 'ego': # todo: make it as last evaluation
+                            if len(action_losses) > 500:
+                                continue
+                            action_loss = F.smooth_l1_loss(pred_actions[future_mask], actions[future_mask], reduction='none')
+                            pos_loss_raw, _, _, _ = pos_linear_model.loss_no_reduction(masked_pos, masked_pos_label)
+                            action_losses += [action_loss.sum(-1).reshape(-1)]
+                            lp_losses += [pos_loss_raw]
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
                     masked_pos_label = masked_pos_label.detach().cpu().numpy()
-                    ood_pos_label = ood_pos_label.detach().cpu().numpy()
-                    ood_class = ood_class.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_pos_label, average='macro')
-                    ood_f1_macro = f1_score(ood_class, ood_pos_label, average='macro')
 
                     test_pos_accuracys += pos_acc
                     test_pos_losses += pos_loss.item()
                     test_pos_f1_macros += pos_f1_macro
+                if gradient_steps == 9000 and exp_config.exp == 'ego': 
+                    action_raw_losses = torch.cat(action_losses, dim=0)
+                    lp_raw_losses = torch.cat(lp_losses, dim=0)
+                    action_np = action_raw_losses.detach().cpu().numpy()
+                    lp_np = lp_raw_losses.detach().cpu().numpy()
+                    df = pd.DataFrame({
+                        "Action Loss": action_np,
+                        "Linear Probe Loss": lp_np
+                    })
+                    corr, _ = pearsonr(action_np, lp_np)
 
-                    test_ood_accuracys += ood_acc
-                    test_ood_losses += ood_loss.item()
-                    test_ood_f1_macros += ood_f1_macro
-
+                    plt.figure(figsize=(6, 6))
+                    sns.scatterplot(x="Action Loss", y="Linear Probe Loss", data=df, alpha=0.6)
+                    sns.regplot(x="Action Loss", y="Linear Probe Loss", data=df, scatter=False, color="red", label=f"r = {corr:.3f}")
+                    plt.legend()
+                    plt.title("Correlation between Action Loss and LP Loss")
+                    plt.tight_layout()
+                    plt.savefig('corr_lp_action.png', dpi=300)
                 if exp_config.use_wandb:
                     wandb.log(
                         {
