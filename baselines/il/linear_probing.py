@@ -295,14 +295,14 @@ def train(exp_config=None):
                             test_ood_accuracys += ood_acc
                             test_ood_losses += ood_loss.sum()
                             test_ood_f1_macros += ood_f1_macro
-                            num_ood += num_ood
-                        if gradient_steps == 14000 and exp_config.exp == 'ego': # todo: make it as last evaluation
-                            if len(action_losses) > 500:
-                                continue
-                            action_loss = F.smooth_l1_loss(pred_actions[future_mask], actions[future_mask], reduction='none')
-                            pos_loss_raw, _, _, _ = pos_linear_model.loss_no_reduction(masked_pos, masked_pos_label)
-                            action_losses += [action_loss.sum(-1).reshape(-1)]
-                            lp_losses += [pos_loss_raw]
+                            num_oods += num_ood
+                        # if gradient_steps == 14000 and exp_config.exp == 'ego': # todo: make it as last evaluation
+                        #     if len(action_losses) > 500:
+                        #         continue
+                        #     action_loss = F.smooth_l1_loss(pred_actions[future_mask], actions[future_mask], reduction='none')
+                        #     pos_loss_raw, _, _, _ = pos_linear_model.loss_no_reduction(masked_pos, masked_pos_label)
+                        #     action_losses += [action_loss.sum(-1).reshape(-1)]
+                        #     lp_losses += [pos_loss_raw]
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
                     masked_pos_label = masked_pos_label.detach().cpu().numpy()
@@ -311,33 +311,33 @@ def train(exp_config=None):
                     test_pos_accuracys += pos_acc
                     test_pos_losses += pos_loss.item()
                     test_pos_f1_macros += pos_f1_macro
-                if gradient_steps == 9000 and exp_config.exp == 'ego': 
-                    action_raw_losses = torch.cat(action_losses, dim=0)
-                    lp_raw_losses = torch.cat(lp_losses, dim=0)
-                    action_np = action_raw_losses.detach().cpu().numpy()
-                    lp_np = lp_raw_losses.detach().cpu().numpy()
-                    df = pd.DataFrame({
-                        "Action Loss": action_np,
-                        "Linear Probe Loss": lp_np
-                    })
-                    corr, _ = pearsonr(action_np, lp_np)
+                # if gradient_steps == 9000 and exp_config.exp == 'ego': 
+                #     action_raw_losses = torch.cat(action_losses, dim=0)
+                #     lp_raw_losses = torch.cat(lp_losses, dim=0)
+                #     action_np = action_raw_losses.detach().cpu().numpy()
+                #     lp_np = lp_raw_losses.detach().cpu().numpy()
+                #     df = pd.DataFrame({
+                #         "Action Loss": action_np,
+                #         "Linear Probe Loss": lp_np
+                #     })
+                #     corr, _ = pearsonr(action_np, lp_np)
 
-                    plt.figure(figsize=(6, 6))
-                    sns.scatterplot(x="Action Loss", y="Linear Probe Loss", data=df, alpha=0.6)
-                    sns.regplot(x="Action Loss", y="Linear Probe Loss", data=df, scatter=False, color="red", label=f"r = {corr:.3f}")
-                    plt.legend()
-                    plt.title("Correlation between Action Loss and LP Loss")
-                    plt.tight_layout()
-                    plt.savefig('corr_lp_action.png', dpi=300)
+                #     plt.figure(figsize=(6, 6))
+                #     sns.scatterplot(x="Action Loss", y="Linear Probe Loss", data=df, alpha=0.6)
+                #     sns.regplot(x="Action Loss", y="Linear Probe Loss", data=df, scatter=False, color="red", label=f"r = {corr:.3f}")
+                #     plt.legend()
+                #     plt.title("Correlation between Action Loss and LP Loss")
+                #     plt.tight_layout()
+                #     plt.savefig('corr_lp_action.png', dpi=300)
                 if exp_config.use_wandb:
                     wandb.log(
                         {
                             "eval/pos_accuracy": test_pos_accuracys / (j + 1 - test_continue_num),
                             "eval/pos_loss": test_pos_losses / (j + 1 - test_continue_num),
                             "eval/pos_f1_macro": test_pos_f1_macros / (j + 1 - test_continue_num),
-                            "eval/ood_accuracy": test_ood_accuracys / (j + 1 - test_continue_num),
-                            "eval/ood_loss": test_ood_losses / (j + 1 - test_continue_num),
-                            "eval/ood_f1_macro": test_ood_f1_macros / (j + 1 - test_continue_num),
+                            "eval/ood_accuracy": test_ood_accuracys / num_oods,
+                            "eval/ood_loss": test_ood_losses / num_oods,
+                            "eval/ood_f1_macro": test_ood_f1_macros / num_oods,
                         }, step=gradient_steps
                     )
                 if test_pos_losses < best_loss:
