@@ -2,14 +2,14 @@ model_path: "/data/full_version/model/data_cut_add"
 rollout_len: 5
 pred_len: 1
 base_path: '/data/full_version'
-model_name: 'early_attn_seed_3_0522_115334'
+model_name: 'early_attn_seed_3_0523_204605'
 data_path: 'processed/final'
 seed: 3
 exp: 'ego'
 model: 'early_lp'
 total_gradient_steps: 10_000
 batch_size: 256
-eval_freq: 1000
+eval_freq: 100
 future_step: 5
 num_scene: 1000
 num_workers: 8

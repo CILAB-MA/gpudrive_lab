@@ -240,6 +240,7 @@ def train(exp_config=None):
                 test_ood_f1_macros = 0
                 action_losses = []
                 lp_losses = []
+                ood_classes, ood_labels = [], []
                 num_oods = 0
                 for j, batch in enumerate(eval_expert_data_loader):
                     obs, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
@@ -291,11 +292,11 @@ def train(exp_config=None):
                             ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label)
                             ood_pos_label = ood_pos_label.detach().cpu().numpy()
                             ood_class = ood_class.detach().cpu().numpy()
-                            ood_f1_macro = f1_score(ood_class, ood_pos_label, average='macro')
                             test_ood_accuracys += ood_acc
                             test_ood_losses += ood_loss.sum()
-                            test_ood_f1_macros += ood_f1_macro
                             num_oods += num_ood
+                            ood_classes.append(ood_class)
+                            ood_labels.append(ood_pos_label)
                         # if gradient_steps == 14000 and exp_config.exp == 'ego': # todo: make it as last evaluation
                         #     if len(action_losses) > 500:
                         #         continue
@@ -330,6 +331,10 @@ def train(exp_config=None):
                 #     plt.tight_layout()
                 #     plt.savefig('corr_lp_action.png', dpi=300)
                 if exp_config.use_wandb:
+                    if len(ood_class) > 0:
+                        ood_classes = np.concatenate(ood_classes,axis=0)
+                        ood_labels = np.concatenate(ood_labels, axis=0)
+                        ood_f1_macro = f1_score(ood_classes, ood_labels, average='macro')
                     wandb.log(
                         {
                             "eval/pos_accuracy": test_pos_accuracys / (j + 1 - test_continue_num),
@@ -337,7 +342,7 @@ def train(exp_config=None):
                             "eval/pos_f1_macro": test_pos_f1_macros / (j + 1 - test_continue_num),
                             "eval/ood_accuracy": test_ood_accuracys / num_oods,
                             "eval/ood_loss": test_ood_losses / num_oods,
-                            "eval/ood_f1_macro": test_ood_f1_macros / num_oods,
+                            "eval/ood_f1_macro": ood_f1_macro,
                         }, step=gradient_steps
                     )
                 if test_pos_losses < best_loss:

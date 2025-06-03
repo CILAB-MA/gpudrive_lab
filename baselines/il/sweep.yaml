@@ -15,7 +15,7 @@ parameters:
     values: [100000]
   # ILCONFIG
   network_dim:
-    values: [256, 128, 64]
+    values: [128, 64]
   head_dim:
     values: [64]
   num_layer:
