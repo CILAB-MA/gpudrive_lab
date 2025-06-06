@@ -1276,6 +1276,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             perc_to_rmv_per_scene (float): Percentage of agents to remove per scene
             remove_controlled_agents (bool): If True, removes controlled agents. If False, removes uncontrolled agents
         """
+        if perc_to_rmv_per_scene <= 0.0:
+            return
         # Obtain agent ids
         agent_ids = LocalEgoState.from_tensor(
             self_obs_tensor=self.sim.self_observation_tensor(),
@@ -1288,7 +1290,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             agent_mask = self.cont_agent_mask
         else:
             # Create inverse mask for uncontrolled agents
-            agent_mask = ~self.cont_agent_mask
+            agent_mask = (~self.cont_agent_mask) & (agent_ids != -1)
 
         for env_idx in range(self.num_worlds):
             # Get all relevant agent IDs (controlled or uncontrolled) for the current environment
