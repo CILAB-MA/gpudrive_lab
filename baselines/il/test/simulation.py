@@ -1,22 +1,25 @@
 """Obtain a policy using behavioral cloning."""
+import os, sys
+sys.path.append(os.getcwd())
 
 import logging, imageio
 import torch
-import os, sys, json
 import numpy as np
-sys.path.append(os.getcwd())
+import pandas as pd
 import argparse
 from tqdm import tqdm
+import mediapy as media
+
 # GPUDrive
-from gpudrive.env.config import EnvConfig, SceneConfig, RenderConfig, SelectionDiscipline
+from gpudrive.env.config import EnvConfig, RenderConfig
 from gpudrive.env.env_torch import GPUDriveTorchEnv
 from gpudrive.env.dataset import SceneDataLoader
-import pandas as pd
+from gpudrive.visualize.utils import img_from_fig
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def run(args, env, bc_policy, expert_dict, dataset):
+def run(args, env, bc_policy, expert_dict, dataset, scene_batch_idx):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -40,7 +43,7 @@ def run(args, env, bc_policy, expert_dict, dataset):
     expert_timesteps = np.array([expert_dict[k]['done_step'] for k in sorted_keys])
     expert_timesteps = torch.from_numpy(expert_timesteps).to("cuda")
     alive_world = alive_agent_mask.sum(-1)
-    for time_step in range(env.episode_len):
+    for time_step in tqdm(range(env.episode_len)):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
         
         # MASK
@@ -72,9 +75,18 @@ def run(args, env, bc_policy, expert_dict, dataset):
         all_actions[~dead_agent_mask, :] = actions
 
         if args.make_video:
-            for world_render_idx in range(args.batch_size):
-                frame = env.render(world_render_idx=world_render_idx)
-                frames[world_render_idx].append(frame)
+            sim_states = env.vis.plot_simulator_state(
+                    env_indices=list(range(args.batch_size)),
+                    time_steps=[time_step]*args.batch_size,
+                    plot_importance_weight=False,
+                    plot_linear_probing=False,
+                    plot_linear_probing_label=False
+                )
+
+            for i in range(args.batch_size):
+                frames[i].append(
+                    img_from_fig(sim_states[i])
+                )
 
         env.step_dynamics(all_actions)
         loss = torch.abs(all_actions[~dead_agent_mask] - expert_actions[~dead_agent_mask][:, time_step, :])
@@ -145,19 +157,17 @@ def run(args, env, bc_policy, expert_dict, dataset):
 
     if args.make_video:
         video_path = os.path.join(args.video_path, args.dataset, args.model_name, str(args.partner_portion_test))
-        if args.shortest_path_test:
-            video_path = os.path.join(args.video_path, args.dataset, args.model_name, 'road_masked')
         if not os.path.exists(video_path):
             os.makedirs(video_path)
-        for world_render_idx in range(NUM_WORLDS):
+        for world_render_idx in range(args.batch_size):
             if world_render_idx in torch.where(veh_collision >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(veh_col).mp4', np.array(frames[world_render_idx]), fps=10)
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(veh_col).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
             elif world_render_idx in torch.where(off_road >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(off_road).mp4', np.array(frames[world_render_idx]), fps=10)
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(off_road).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
             elif world_render_idx in torch.where(goal_achieved >= 1)[0].tolist():
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(goal).mp4', np.array(frames[world_render_idx]), fps=10)
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(goal).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
             else:
-                imageio.mimwrite(f'{video_path}/world_{world_render_idx + args.start_idx}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10)
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
     return off_road_rate, veh_coll_rate, goal_rate, collision_rate
 
 if __name__ == "__main__":
@@ -171,7 +181,7 @@ if __name__ == "__main__":
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
-    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     args = parser.parse_args()
@@ -232,7 +242,7 @@ if __name__ == "__main__":
     scene_dict = df.set_index('scene_idx').to_dict(orient='index')
     for i in tqdm(range(num_iter)):
         expert_dict = {k: scene_dict[k + i * args.batch_size] for k in range(args.batch_size) if k + i * args.batch_size in scene_dict}
-        run(args, env, bc_policy, expert_dict, dataset=args.dataset)
+        run(args, env, bc_policy, expert_dict, dataset=args.dataset, scene_batch_idx=i)
         if i != num_iter - 1:
             print('SWAP!!')
             env.swap_data_batch()
