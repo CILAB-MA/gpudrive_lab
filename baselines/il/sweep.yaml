@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: data_cut
+name: data_cut_other_seed
 metric:
   goal: minimize
   name: eval/loss
@@ -8,18 +8,18 @@ parameters:
   model_name:
     values: ["early_attn"]
   seed:
-    values: [3]
+    values: [11, 42]
   num_scene:
-    values: [1000, 5000]
+    values: [1000]
   total_gradient_steps:
     values: [100000]
   # ILCONFIG
   network_dim:
-    values: [64, 128]
+    values: [128, 64]
   head_dim:
     values: [64]
   num_layer:
-    values: [[3, 2], [4, 3]]
+    values: [[4, 3], [3, 2]]
   # AUXCONFIG
   use_tom:
     values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'

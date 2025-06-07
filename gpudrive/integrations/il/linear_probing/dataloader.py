@@ -13,6 +13,7 @@ class FutureDataset(torch.utils.data.Dataset):
         new_obs = np.zeros(new_shape, dtype=self.obs.dtype)
         new_obs[:, rollout_len - 1:] = obs # This is more cheaper than concatenate
         self.obs = new_obs
+        self.actions = actions
 
         # masks
         valid_masks = 1 - masks
@@ -61,7 +62,7 @@ class FutureDataset(torch.utils.data.Dataset):
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'valid_masks', 'partner_mask', 'road_mask']
+        self.full_var = ['obs', 'actions', 'valid_masks', 'partner_mask', 'road_mask']
         if exp == 'other':
             self.full_var += ['aux_mask', 'other_pos']
         else:
@@ -209,6 +210,8 @@ class FutureDataset(torch.utils.data.Dataset):
                 if self.__dict__[var_name] is not None:
                     if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
+                    elif var_name in ['actions']:
+                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
                     elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask', 'ego_pos']:

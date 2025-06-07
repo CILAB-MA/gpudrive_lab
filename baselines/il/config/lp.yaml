@@ -1,8 +1,8 @@
-model_path: "/data/full_version/model/net_size"
+model_path: "/data/full_version/model/data_cut_add"
 rollout_len: 5
 pred_len: 1
 base_path: '/data/full_version'
-model_name: 'early_attn_seed_3_0423_021412'
+model_name: 'early_attn_seed_3_0523_204605'
 data_path: 'processed/final'
 seed: 3
 exp: 'ego'

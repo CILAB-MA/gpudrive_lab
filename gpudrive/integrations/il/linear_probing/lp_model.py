@@ -73,6 +73,17 @@ class LinearProbPosition(LinearProb):
         accuracy = correct / total
         return loss, accuracy, pred_class
 
+    def loss_no_reduction(self, pred_logits, expert_labels):
+        # compute loss
+        criterion = nn.CrossEntropyLoss(reduction='none')
+        loss = criterion(pred_logits, expert_labels)
+        
+        # compute accuracy
+        pred_class = torch.argmax(pred_logits, dim=-1)
+        correct = (pred_class == expert_labels).sum().item()
+        total = expert_labels.numel()
+        return loss, correct, pred_class, total
+
 class LinearProbAngle(LinearProb):
     def __init__(self, context_dim, other_dim, future_step=None):
         super(LinearProbAngle, self).__init__(context_dim, other_dim)

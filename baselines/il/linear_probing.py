@@ -19,6 +19,11 @@ from gpudrive.integrations.il.linear_probing.dataloader import FutureDataset
 from gpudrive.integrations.il.linear_probing.lp_model import *
 from sklearn.metrics import f1_score
 from box import Box
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from scipy.stats import pearsonr
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -97,6 +102,9 @@ def train(exp_config=None):
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(current_time)
         wandb_tags.append('full_paper')
+        wandb_tags.append(f"future_step: {wandb.config['future_step']}")
+        wandb_tags.append(f"exp: {wandb.config['exp']}")
+        wandb_tags.append(f"model: {wandb.config['model']}")
         wandb.run.tags = tuple(wandb_tags)
         # Config Update
         for key, value in vars(args).items():
@@ -127,7 +135,7 @@ def train(exp_config=None):
         else:
             layers = register_all_layers_forward_hook(backbone.ro_attn)
             nth_layer = '0'
-        hidden_dim = 128
+        hidden_dim = backbone.hidden_dim
     if exp_config.exp == 'other':
         ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x in {0,1,6,7} or y in {0,1,6,7}})
     else:
@@ -137,7 +145,7 @@ def train(exp_config=None):
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_2500.npz"
+    eval_data_file =  f"validation_trajectory_1000.npz"
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=exp_config.lr, eps=0.0001)
 
@@ -164,7 +172,7 @@ def train(exp_config=None):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
             batch_size = batch[0].size(0)
-            obs, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
+            obs, _, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
             
             obs = obs.to("cuda")
             future_pos = future_pos.to("cuda")
@@ -233,10 +241,15 @@ def train(exp_config=None):
                 test_ood_accuracys = 0
                 test_ood_losses = 0
                 test_ood_f1_macros = 0
+                action_losses = []
+                lp_losses = []
+                ood_classes, ood_labels = [], []
+                num_oods = 0
                 for j, batch in enumerate(eval_expert_data_loader):
-                    obs, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
+                    obs, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
                     with torch.no_grad():
                         obs = obs.to("cuda")
+                        actions = actions.to("cuda")
                         future_pos = future_pos.to("cuda")
                         valid_mask = valid_mask.to("cuda")
                         future_mask = future_mask.to("cuda")
@@ -255,6 +268,7 @@ def train(exp_config=None):
                     else:
                         with torch.no_grad():
                             context, *_, = backbone.get_context(obs, all_masks)
+                            pred_actions = backbone.get_action(context, deterministic=True)
                         if exp_config.exp == 'ego':
                             lp_input = layers[nth_layer][:,0,:]
                         else:
@@ -277,32 +291,38 @@ def train(exp_config=None):
                         
                         # compute loss
                         pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
-                        ood_loss, ood_acc, ood_class = pos_linear_model.loss(ood_pos_pred, ood_pos_label)
+                        if len(ood_pos_pred) > 0:
+                            ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label)
+                            ood_pos_label = ood_pos_label.detach().cpu().numpy()
+                            ood_class = ood_class.detach().cpu().numpy()
+                            test_ood_accuracys += ood_acc
+                            test_ood_losses += ood_loss.sum()
+                            num_oods += num_ood
+                            ood_classes.append(ood_class)
+                            ood_labels.append(ood_pos_label)
+
                     # get F1 scores
                     pos_class = pos_class.detach().cpu().numpy()
                     masked_pos_label = masked_pos_label.detach().cpu().numpy()
-                    ood_pos_label = ood_pos_label.detach().cpu().numpy()
-                    ood_class = ood_class.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_pos_label, average='macro')
-                    ood_f1_macro = f1_score(ood_class, ood_pos_label, average='macro')
 
                     test_pos_accuracys += pos_acc
                     test_pos_losses += pos_loss.item()
                     test_pos_f1_macros += pos_f1_macro
 
-                    test_ood_accuracys += ood_acc
-                    test_ood_losses += ood_loss.item()
-                    test_ood_f1_macros += ood_f1_macro
-
                 if exp_config.use_wandb:
+                    if len(ood_class) > 0:
+                        ood_classes = np.concatenate(ood_classes,axis=0)
+                        ood_labels = np.concatenate(ood_labels, axis=0)
+                        ood_f1_macro = f1_score(ood_classes, ood_labels, average='macro')
                     wandb.log(
                         {
                             "eval/pos_accuracy": test_pos_accuracys / (j + 1 - test_continue_num),
                             "eval/pos_loss": test_pos_losses / (j + 1 - test_continue_num),
                             "eval/pos_f1_macro": test_pos_f1_macros / (j + 1 - test_continue_num),
-                            "eval/ood_accuracy": test_ood_accuracys / (j + 1 - test_continue_num),
-                            "eval/ood_loss": test_ood_losses / (j + 1 - test_continue_num),
-                            "eval/ood_f1_macro": test_ood_f1_macros / (j + 1 - test_continue_num),
+                            "eval/ood_accuracy": test_ood_accuracys / num_oods,
+                            "eval/ood_loss": test_ood_losses / num_oods,
+                            "eval/ood_f1_macro": ood_f1_macro,
                         }, step=gradient_steps
                     )
                 if test_pos_losses < best_loss:
