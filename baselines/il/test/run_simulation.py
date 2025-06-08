@@ -15,9 +15,9 @@ def arg_parse():
     parser.add_argument('--sweep-name', '-sn', type=str, default='data_cut_add')
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/video')
-    parser.add_argument('--dataset-size', type=int, default=100) # total_world
+    parser.add_argument('--dataset-size', type=int, default=1000) # total_world
     parser.add_argument('--batch-size', type=int, default=100) # num_world
-    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     parser.add_argument('--make-video', '-mv', action='store_true')
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=0)
@@ -26,10 +26,10 @@ def arg_parse():
 
 if __name__ == "__main__":
     args = arg_parse()
-    models = os.listdir(os.path.join(args.model_path, args.sweep_name))
+    models = os.listdir(os.path.join(args.model_path, args.sweep_name))[:5]
     print(models)
     for model in tqdm(models):
-        for dataset in ['validation']:
+        for dataset in ['training', 'validation']:
             if '.pth' not in model:
                 continue
             if args.partner_portion_test:
@@ -49,28 +49,50 @@ if __name__ == "__main__":
                 print(f"Error: Command failed with return code {result.returncode}")
 
     csv_path = f"{model_path}/result_{args.partner_portion_test}.csv"
+    csv_path2 = f"{model_path}/result_{args.partner_portion_test}_total.csv"
+
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
         print(f"CSV file {csv_path} does not exist or is empty. Exiting...")
         exit()
-    df = pd.read_csv(csv_path)
-    df_total = df.groupby(["Model", "Dataset"], as_index=False).mean()
-    grouped = df.groupby(["Model", "Dataset"], as_index=False).sum()
-    for prefix in ["Turn", "Normal", "Reverse", "Abnormal"]:
-        goal_col = f"{prefix}Goal"
-        offroad_col = f"{prefix}OffRoad"
-        vehcol_col = f"{prefix}VehCollision"
-        coll_col = f"{prefix}Collision"
-        goalprog_col = f"{prefix}GoalProgress"
-        goaltime_col = f"{prefix}GoalTime"
-        num_col = f"{prefix}Num"
+    # Load CSV without index and remove Unnamed columns
+    df = pd.read_csv(csv_path, index_col=False)
+    df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
 
-        if goal_col in grouped.columns and num_col in grouped.columns:
-            df_total[goal_col] = grouped[goal_col] / grouped[num_col]
-            df_total[offroad_col] = grouped[offroad_col] / grouped[num_col]
-            df_total[vehcol_col] = grouped[vehcol_col] / grouped[num_col]
-            df_total[coll_col] = grouped[coll_col] / grouped[num_col]
-            df_total[goalprog_col] = grouped[goalprog_col] / grouped[num_col]
-            df_total[goaltime_col] = grouped[goaltime_col] / grouped[num_col]
-            df_total[num_col] = grouped[num_col]  #
-    df_avg.to_csv(csv_path, index=False)
-    print(f"Updated CSV saved at {csv_path} with averaged results.")
+    # Result rows will be collected here
+    rows = []
+
+    # Group by (Model, Dataset)
+    for (model_name, dataset_name), group in df.groupby(["Model", "Dataset"]):
+        total_stats = group.mean(numeric_only=True)
+        grouped_sum = group.sum(numeric_only=True)
+
+        for prefix in ["Turn", "Normal", "Reverse", "Abnormal", "Straight"]:
+            goal_col = f"{prefix}Goal"
+            offroad_col = f"{prefix}OffRoad"
+            vehcol_col = f"{prefix}VehCollision"
+            coll_col = f"{prefix}Collision"
+            goalprog_col = f"{prefix}GoalProgress"
+            goaltime_col = f"{prefix}GoalTime"
+            num_col = f"{prefix}Num"
+
+            if goal_col in grouped_sum and num_col in grouped_sum:
+                total_stats[goal_col] = grouped_sum[goal_col] / grouped_sum[num_col] if grouped_sum[num_col] > 0 else 0
+                total_stats[offroad_col] = grouped_sum[offroad_col] / grouped_sum[num_col] if grouped_sum[num_col] > 0 else 0
+                total_stats[vehcol_col] = grouped_sum[vehcol_col] / grouped_sum[num_col] if grouped_sum[num_col] > 0 else 0
+                total_stats[coll_col] = grouped_sum[coll_col] / grouped_sum[num_col] if grouped_sum[num_col] > 0 else 0
+                total_stats[goalprog_col] = grouped_sum[goalprog_col] / grouped_sum[num_col] if grouped_sum[num_col] > 0 else 0
+                total_stats[goaltime_col] = grouped_sum[goaltime_col] / grouped_sum[goal_col] if grouped_sum[goal_col] > 0 else 0
+                total_stats[num_col] = grouped_sum[num_col]
+
+        total_stats["Model"] = model_name
+        total_stats["Dataset"] = dataset_name
+        rows.append(total_stats)
+
+    # Create final DataFrame and reorder columns
+    df_out = pd.DataFrame(rows)
+    cols = ['Model', 'Dataset'] + [c for c in df_out.columns if c not in ['Model', 'Dataset']]
+    df_out = df_out[cols]
+    print(df_out)
+    # Save
+    df_out.to_csv(csv_path2, index=False)
+    print(f"Saved aggregated results to: {csv_path2}")
