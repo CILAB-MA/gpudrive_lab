@@ -38,6 +38,7 @@ def run(args, env, bc_policy, expert_dict, dataset, scene_batch_idx):
     scene_labels = np.array([expert_dict[k]['label'] for k in sorted_keys])
     turn_mask = torch.from_numpy(scene_labels == 'TURN').to("cuda")
     normal_mask = torch.from_numpy(scene_labels == 'NORMAL').to("cuda")
+    straight_mask = torch.from_numpy(scene_labels == 'STRAIGHT').to("cuda")
     reverse_mask = torch.from_numpy(scene_labels == 'RETREAT').to("cuda")
     abnormal_mask = torch.from_numpy(scene_labels == 'ABNORMAL').to("cuda")
     expert_timesteps = np.array([expert_dict[k]['done_step'] for k in sorted_keys])
@@ -95,6 +96,13 @@ def run(args, env, bc_policy, expert_dict, dataset, scene_batch_idx):
         obs = env.get_obs()
         dones = env.get_dones()
         infos = env.get_infos()
+        off_road = infos.off_road[alive_agent_mask]
+        veh_collision = infos.collided[alive_agent_mask]
+        goal_achieved = infos.goal_achieved[alive_agent_mask]
+        off_road_rate = off_road.sum().float() / alive_agent_mask.sum().float()
+        veh_coll_rate = veh_collision.sum().float() / alive_agent_mask.sum().float()
+        goal_rate = goal_achieved.sum().float() / alive_agent_mask.sum().float()
+        print(f'STEP: {time_step} OFF ROAD: {off_road_rate} VEH COLL: {veh_coll_rate} GOAL: {goal_rate}')
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
             break
@@ -203,11 +211,11 @@ if __name__ == "__main__":
         scene_loader = SceneDataLoader(
             root=f"/data/full_version/data/validation/",
             batch_size=args.batch_size,
-            dataset_size=10000,
+            dataset_size=100,
             sample_with_replacement=False,
             shuffle=False,
         )
-        dataset_size = 10000
+        dataset_size = 100
     print(f'{args.dataset} len scene loader {len(scene_loader)}')
     
     env_config = EnvConfig(

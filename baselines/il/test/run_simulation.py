@@ -15,9 +15,10 @@ def arg_parse():
     parser.add_argument('--sweep-name', '-sn', type=str, default='data_cut_add')
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/video')
-    parser.add_argument('--dataset-size', type=int, default=1000) # total_world
+    parser.add_argument('--dataset-size', type=int, default=100) # total_world
     parser.add_argument('--batch-size', type=int, default=100) # num_world
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
+    parser.add_argument('--make-video', '-mv', action='store_true')
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=0)
     return parser.parse_args()
@@ -38,9 +39,9 @@ if __name__ == "__main__":
 
             video_path = os.path.join(video_path, args.sweep_name)
             model_path = os.path.join(args.model_path, args.sweep_name)
-            
-            arguments = f"-mc -mv -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
-            
+            arguments = f"-mc -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
+            if args.make_video:
+                arguments += ' -mv'
             command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
             
             result = subprocess.run(command, shell=True)
