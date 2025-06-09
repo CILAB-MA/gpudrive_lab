@@ -1,6 +1,6 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: lp_scale_pt2
+name: lp_renew
 metric:
   goal: minimize
   name: eval/loss
@@ -14,7 +14,7 @@ parameters:
   future_step:
     values: [10, 20, 30]
   exp:
-    values: ['other']
+    values: ['other', 'ego']
   model:
     values: ['early_lp', 'final_lp', 'baseline']
   # EXPERIMENT
@@ -25,4 +25,4 @@ parameters:
   lr:
     values: [0.0015]
   seed:
-    values: [11, 42]
+    values: [3, 11, 42]
