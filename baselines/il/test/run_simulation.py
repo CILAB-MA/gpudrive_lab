@@ -26,7 +26,7 @@ def arg_parse():
 
 if __name__ == "__main__":
     args = arg_parse()
-    models = os.listdir(os.path.join(args.model_path, args.sweep_name))[:5]
+    models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
     for model in tqdm(models):
         for dataset in ['training', 'validation']:
