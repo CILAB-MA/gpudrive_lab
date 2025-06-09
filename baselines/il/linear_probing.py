@@ -197,7 +197,7 @@ def train(exp_config=None):
                 if exp_config.exp == 'ego':
                     lp_input = layers[nth_layer][:,0,:]
                 else:
-                    lp_input = layers[nth_layer][:,1:,:]
+                    lp_input = layers[nth_layer][:,1:128,:]
 
             # get future pred pos and action
             # if exp_config.exp == 'ego':
@@ -272,7 +272,7 @@ def train(exp_config=None):
                         if exp_config.exp == 'ego':
                             lp_input = layers[nth_layer][:,0,:]
                         else:
-                            lp_input = layers[nth_layer][:,1:,:]
+                            lp_input = layers[nth_layer][:,1:128,:]
                     with torch.no_grad():
                         # get future pred pos and action
                         pred_pos = pos_linear_model(lp_input)

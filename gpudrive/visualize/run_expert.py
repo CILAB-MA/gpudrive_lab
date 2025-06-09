@@ -49,6 +49,8 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
             label = 'RETREAT'
         elif dy_peak > 0.035 and dyaw_peak > 0.025 and max_ratio > 0.15:
             label = 'TURN' 
+        elif dy_peak < 0.01 and dyaw_peak < 0.01:
+            label = 'STRAIGHT'
         else:
             label = 'NORMAL'
         scene_labels.append(label)
@@ -85,7 +87,7 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, alive_world,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-image', '-mi', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
@@ -172,7 +174,7 @@ if __name__ == "__main__":
                     scene_labels = plot_action(log_actions.cpu().numpy(), action_image_dir, idx * NUM_WORLDS , (idx + 1) * NUM_WORLDS, done_step, alive_world)
                 break
         if args.make_csv:
-            csv_path = f"/data/full_version/expert_{args.data_dir}_data.csv"
+            csv_path = f"/data/full_version/expert_{args.data_dir}_data_v2.csv"
             file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
             with open(csv_path, 'a', encoding='utf-8') as f:
                 if file_is_empty:
