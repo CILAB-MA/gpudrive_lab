@@ -131,10 +131,8 @@ def train(exp_config=None):
         backbone.eval()
         if exp_config.model == 'early_lp':
             layers = register_all_layers_forward_hook(backbone.fusion_attn)
-            nth_layer = '1'
         else:
             layers = register_all_layers_forward_hook(backbone.ro_attn)
-            nth_layer = '0'
         hidden_dim = backbone.hidden_dim
     if exp_config.exp == 'other':
         ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x in {0,1,6,7} or y in {0,1,6,7}})
@@ -145,7 +143,7 @@ def train(exp_config=None):
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_1000.npz"
+    eval_data_file =  f"validation_trajectory_2500.npz"
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=exp_config.lr, eps=0.0001)
 
@@ -194,6 +192,7 @@ def train(exp_config=None):
             else:
                 with torch.no_grad():
                     context, *_, = backbone.get_context(obs, all_masks)
+                nth_layer =list(layers.keys())[-1]
                 if exp_config.exp == 'ego':
                     lp_input = layers[nth_layer][:,0,:]
                 else:
