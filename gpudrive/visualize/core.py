@@ -1325,6 +1325,37 @@ class MatplotlibVisualizer:
             plot_agent_group_2d(
                 bboxes_static, AGENT_COLOR_BY_STATE["log_replay"]
             )
+            
+        # Annotate agent IDs at their positions
+        id_tensor = agent_states.id[env_idx]
+        x_tensor = agent_states.pos_x[env_idx]
+        y_tensor = agent_states.pos_y[env_idx]
+        for agent_id, x, y in zip(id_tensor, x_tensor, y_tensor):
+            if agent_id < 0:
+                continue
+            if self.render_3d:
+                ax.text(
+                    x.item(),
+                    y.item(),
+                    self.vehicle_height,
+                    str(int(agent_id.item())),
+                    ha="center",
+                    va="center",
+                    fontsize=6 * marker_size_scale,
+                    color="black",
+                    zorder=10,
+                )
+            else:
+                ax.text(
+                    x.item(),
+                    y.item(),
+                    str(int(agent_id.item())),
+                    ha="center",
+                    va="center",
+                    fontsize=6 * marker_size_scale,
+                    color="black",
+                    zorder=10,
+                )
 
     def _plot_expert_trajectories(
         self,

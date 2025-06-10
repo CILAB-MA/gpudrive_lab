@@ -138,7 +138,7 @@ if __name__ == "__main__":
         log_actions = expert_actions[alive_agent_mask]
         done_step = torch.zeros(len(log_actions)).to('cuda')
         expert_timesteps = expert_valids.squeeze(-1).sum(-1)
-        for t in range(env.episode_len):
+        for t in tqdm(range(env.episode_len)):
             # Step the environment
             expert_actions, _, _, _, _ = env.get_expert_actions()
             env.step_dynamics(expert_actions[:, :, t, :])
