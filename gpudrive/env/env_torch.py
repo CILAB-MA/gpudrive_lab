@@ -832,7 +832,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         if self.config.norm_obs:
             partner_obs.normalize()
         self.partner_ids = partner_obs.ids.squeeze(-1)
-        print(self.partner_ids.shape)
         if mask is not None:
             return partner_obs.data.flatten(start_dim=1)
         else:
