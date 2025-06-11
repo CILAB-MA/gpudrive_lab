@@ -51,9 +51,9 @@ class SceneDataLoader:
             : min(self.dataset_size, len(self.dataset))
         ]
         if self.scene_nums is not None:
-            if sorted(self.scene_nums)[-1] >= self.batch_size:
+            if sorted(self.scene_nums)[-1] >= self.dataset_size:
                 raise ValueError(
-                    "scene_nums contains indices that are out of bounds for the batch size."
+                    "scene_nums contains indices that are out of bounds for the dataset size."
                 )
             self.dataset = [
                 self.dataset[i] for i in self.scene_nums
