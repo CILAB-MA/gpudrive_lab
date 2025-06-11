@@ -13,6 +13,7 @@ class SceneDataLoader:
     file_prefix: str = "tfrecord"
     seed: int = 42
     shuffle: bool = False
+    scene_nums: list = None
 
     """
     A data loader for sampling batches of traffic scenarios from a directory of files.
@@ -25,6 +26,7 @@ class SceneDataLoader:
         file_prefix (str): Prefix for scene files to include in the dataset.
         seed (int): Seed for random number generator to ensure reproducibility.
         shuffle (bool): Whether to shuffle the dataset before batching.
+        scene_nums (list) Specific scene numbers to include in the dataset. If None, all scenes are included.
     """
 
     def __post_init__(self):
@@ -48,6 +50,15 @@ class SceneDataLoader:
         self.dataset = self.dataset[
             : min(self.dataset_size, len(self.dataset))
         ]
+        if self.scene_nums is not None:
+            if sorted(self.scene_nums)[-1] >= self.batch_size:
+                raise ValueError(
+                    "scene_nums contains indices that are out of bounds for the batch size."
+                )
+            self.dataset = [
+                self.dataset[i] for i in self.scene_nums
+            ]
+            self.dataset_size = len(self.dataset)
 
         # If dataset_size < batch_size, repeat the dataset until it matches the batch size
         if self.dataset_size < self.batch_size:
@@ -71,6 +82,8 @@ class SceneDataLoader:
             ]
         else:
             self.indices = list(range(len(self.dataset)))
+            if self.scene_nums is not None:
+                self.indices = list(range(len(self.scene_nums)))
         self.current_index = 0
 
     def __iter__(self) -> Iterator[List[str]]:
