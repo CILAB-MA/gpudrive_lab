@@ -42,19 +42,6 @@ def figure_to_numpy(fig):
     image = image.reshape(int(height), int(width), 3)
     return image
 
-def fill_ego(partner_idx, importance_score, partner_mask):
-    n, _ = partner_idx.shape
-    filled_tensor = torch.full((n, 127), -1.0).to("cuda")
-
-    row_indices = torch.arange(n).unsqueeze(1).expand_as(partner_idx).to("cuda")
-    valid_rows = row_indices[~partner_mask]
-    valid_cols = partner_idx[~partner_mask].int()
-    valid_values = importance_score[~partner_mask]
-
-    filled_tensor[valid_rows, valid_cols] = valid_values.float()
-    
-    return filled_tensor
-
 def register_all_layers_forward_hook(model):
     hidden_vector_dict = OrderedDict()
 
