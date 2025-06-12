@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: data_cut_other_seed
+name: remove_collision_data
 metric:
   goal: minimize
   name: eval/loss
@@ -8,14 +8,14 @@ parameters:
   model_name:
     values: ["early_attn"]
   seed:
-    values: [11, 42]
+    values: [3, 11, 42]
   num_scene:
     values: [1000]
   total_gradient_steps:
     values: [100000]
   # ILCONFIG
   network_dim:
-    values: [128, 64]
+    values: [256, 128, 64]
   head_dim:
     values: [64]
   num_layer:
