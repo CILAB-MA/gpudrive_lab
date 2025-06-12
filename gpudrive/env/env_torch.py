@@ -756,6 +756,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             device=self.device,
             mask=mask,
         )
+        self.ego_ids = ego_state.id
         if self.config.norm_obs:
             ego_state.normalize()
 
@@ -1262,6 +1263,9 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         
         return road_mask
 
+    def get_ego_ids(self):
+        return self.ego_ids.clone()
+        
     def advance_sim_with_log_playback(self, init_steps=0):
         """Advances the simulator by stepping the objects with the logged human trajectories.
 
