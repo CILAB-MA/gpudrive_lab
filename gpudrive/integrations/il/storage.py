@@ -41,7 +41,9 @@ def save_trajectory(env, save_path, save_index=0):
         )
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
     road_mask = env.get_road_mask()
-
+    goal_achieved = 0
+    off_road = 0
+    veh_collision = 0
     for time_step in tqdm(range(env.episode_len)):
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
@@ -69,27 +71,18 @@ def save_trajectory(env, save_path, save_index=0):
         .to(device)
         )
         infos = env.get_infos()
-        # Check mask
-        # partner_mask_bool = (partner_mask == 2)
-        # action_valid_mask = torch.where(partner_mask == 0, 1, 0).bool()
-        # total_other_agent_obs = obs[..., 6:128 * 6].reshape(-1, 128, 127, 6)
-        # total_road_obs = obs[..., 128 * 6:].reshape(-1, 128, 200, 13)
-        # sum_alive_partner = torch.logical_or((total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 0), (total_other_agent_obs[~partner_mask_bool].sum(dim=-1) == 1)).sum().item()
-        # sum_alive_road = torch.logical_or((total_road_obs[~road_mask].sum(dim=-1) == 0), (total_road_obs[~road_mask].sum(dim=-1) == 1)).sum().item()
-        # sum_dead_partner = torch.logical_and((total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 0), (total_other_agent_obs[partner_mask_bool].sum(dim=-1) != 1)).sum().item()
-        # sum_dead_road = torch.logical_and((total_road_obs[road_mask].sum(dim=-1) != 0), (total_road_obs[road_mask].sum(dim=-1) != 1)).sum().item()
-        # print("Checking alive but, sum is 0 or 1 ->", sum_alive_partner, sum_alive_road)
-        # print("Checking dead but, sum is not 0 and 1 ->", sum_dead_partner, sum_dead_road)
+        
+        goal_achieved += infos.goal_achieved[cont_agent_mask]
+        off_road += infos.off_road[cont_agent_mask]
+        veh_collision += infos.collided[cont_agent_mask]
+        goal_achieved = torch.clamp(goal_achieved, max=1.0)
+        off_road = torch.clamp(off_road, max=1.0)
+        veh_collision = torch.clamp(veh_collision, max=1.0)
 
         if (dead_agent_mask == True).all():
-            off_road = infos.off_road[cont_agent_mask]
-            veh_collision = infos.collided[cont_agent_mask]
-            goal_achieved = infos.goal_achieved[cont_agent_mask]
-
+            goal_rate = goal_achieved.sum().float() / cont_agent_mask.sum().float()
             off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
             veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
-            goal_rate = goal_achieved.sum().float() / cont_agent_mask.sum().float()
-            collision_rate = off_road_rate + veh_coll_rate
             collision = (veh_collision + off_road > 0)
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
             print(f'Save number w/o collision {len(expert_trajectory_lst[~collision])} / {len(expert_trajectory_lst)}')
@@ -129,7 +122,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
-    save_path = os.path.join(args.save_path, f'{args.dataset}_subset')
+    save_path = os.path.join(args.save_path, f'{args.dataset}_subset_v2')
     print()
     print("num_stack : ", args.num_stack)
     print("save_path : ", save_path)
@@ -143,6 +136,7 @@ if __name__ == "__main__":
         dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
+        collision_behavior="remove"
     )
     print('Scene Loader')
     # Create data loader
