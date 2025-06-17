@@ -49,7 +49,6 @@ def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
                     if len(indices) == 0:
                         continue
                     jd['ego_idx'] = indices[0].item()
-                    jd['rel_no_qa_id'] = []
                     env_q = jd['env_q']
                     env_a = jd['env_a']
                     ego_q = jd['ego_q']
@@ -76,7 +75,6 @@ def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
                     del jd['int_q']
                     del jd['int_a']
 
-
                     loaded_jsons.append(jd)
             if len(loaded_jsons) != 0:
                 scenario_data[sid] = loaded_jsons[0]
@@ -84,10 +82,10 @@ def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/validation_log")
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -124,7 +122,7 @@ if __name__ == "__main__":
         womd_reasoning_json = dict()
         obs = env.reset()
         scenario_ids = env.get_scenario_ids()
-        ego_ids = env.ego_ids.clone()
+        ego_ids = env.get_ego_ids()
         scenario_data = load_all_scenario_jsons(json_list, scenario_ids, ego_ids, base_folder)
         womd_reasoning_json.update(scenario_data)
         with open(f"/data/full_version/processed/reasoning/{args.data_dir}/womd_reasoning_{100 * idx}.json", "w") as f:
