@@ -1655,8 +1655,7 @@ class MatplotlibVisualizer:
         ymin, ymax = ax_base.get_ylim()
         
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=fig.dpi,
-                bbox_inches="tight", transparent=True)
+        fig.savefig(buf, format="png", dpi=100, transparent=True)
         buf.seek(0)
         bg_img = mpimg.imread(buf)
         
@@ -1664,7 +1663,7 @@ class MatplotlibVisualizer:
         num_imp_heads = self.importance_weight.shape[1] # (num_world, num_head, partner_num)
         
         for head_idx in range(num_imp_heads):
-            f_h, ax_h = plt.subplots(figsize=fig.get_size_inches(), dpi=fig.dpi)
+            f_h, ax_h = plt.subplots(figsize=(10, 10), dpi=100)
             
             ax_h.imshow(bg_img, extent=[xmin, xmax, ymin, ymax], origin="upper")
             ax_h.set_xlim(xmin, xmax); ax_h.set_ylim(ymin, ymax)
@@ -1704,9 +1703,16 @@ class MatplotlibVisualizer:
             )
             
             importance_weight = self.importance_weight[env_idx, head_idx, other_agents][valid_mask].numpy()
-            importance_score = (importance_weight - importance_weight.min()) / (
-                importance_weight.max() - importance_weight.min()
-            )
+            iw_min = importance_weight.min()
+            iw_max = importance_weight.max()
+            denom = iw_max - iw_min
+            
+            if denom > 1e-6:
+                importance_score = (importance_weight - importance_weight.min()) / (
+                    importance_weight.max() - importance_weight.min()
+                )
+            else:
+                importance_score = np.zeros_like(importance_weight)
             viridis_color = cm.viridis(importance_score)[:, :3]
 
             utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
