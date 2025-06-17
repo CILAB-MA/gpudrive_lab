@@ -359,9 +359,9 @@ if __name__ == "__main__":
         wandb.login(key=private_info["wandb_key"])
         
         if args.sweep_id is not None:
-            wandb.agent(args.sweep_id, function=train, project=private_info['main_project'], entity=private_info['entity'])
+            wandb.agent(args.sweep_id, function=train, project=private_info['lp_project'], entity=private_info['entity'])
         else:
-            sweep_id = wandb.sweep(sweep_config, project=private_info['main_project'], entity=private_info['entity'])
+            sweep_id = wandb.sweep(sweep_config, project=private_info['lp_project'], entity=private_info['entity'])
             wandb.agent(sweep_id, function=train)
     else:
         train(exp_config)

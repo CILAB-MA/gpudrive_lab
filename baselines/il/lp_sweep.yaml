@@ -7,9 +7,9 @@ metric:
 parameters:
   # MODEL
   model_path:
-    value: "/data/full_version/model/data_cut_add"
+    value: "/data/full_version/model/remove_collision_data"
   model_name:
-    values: ["early_attn_seed_3_0523_204605"]
+    values: ["early_attn_seed_3_0612_093633"]
   # DATA
   future_step:
     values: [10, 20, 30]
