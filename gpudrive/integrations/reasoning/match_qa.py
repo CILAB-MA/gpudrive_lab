@@ -56,31 +56,7 @@ if __name__ == "__main__":
         scenario_ids = env.get_scenario_ids()
         ego_ids = env.get_ego_ids()
         for scene_id, data in jd.items():
-            if len(jd[scene_id]) != 0:
-                # ids
-                reasoning_dicts = jd[scene_id][0]
-                relative_ids = reasoning_dicts['rel_id']
-                relative_qa_ids = reasoning_dicts['rel_qa_id']
-                batch_idx = reasoning_dicts['batch_idx']
-                # step
-                cur_step = reasoning_dicts['cur_time'] * 10
-                futue_step = reasoning_dicts['future_time'] * 10
-
-                # qa
-                env_q = reasoning_dicts['env_q']
-                env_a = reasoning_dicts['env_a']
-                ego_q = reasoning_dicts['ego_q']
-                ego_a = reasoning_dicts['ego_a']
-                sur_q = reasoning_dicts['sur_q']
-                sur_a = reasoning_dicts['sur_a']
-                int_q = reasoning_dicts['int_q']
-                int_a = reasoning_dicts['int_a']
-
-                reasoning_dicts['rel_no_qa_id'] = []
-                for rel_id, qa_id in zip(relative_ids, relative_qa_ids):
-                    if rel_id not in ego_ids[batch_idx].int():
-                        reasoning_dicts['rel_no_qa_id'].append(qa_id)
-                        filtered = [q, a for q, a in zip(env_q, env_a) if (f"#{qa_id}" not in q or f"#{qa_id}" not in a)]
+            print(scene_id, data)
         if idx != num_iter - 1:
             env.swap_data_batch()
     env.close()
