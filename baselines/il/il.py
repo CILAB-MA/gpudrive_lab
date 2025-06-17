@@ -228,19 +228,16 @@ def train(exp_config=None):
                                             isshuffle=False)
     num_train_sample = len(expert_data_loader.dataset)
     best_loss = 9999999
-    early_stopping = 0
     gradient_steps = 0
     model_path = f"{exp_config.model_path}/{exp_config.name}" if exp_config.use_wandb else exp_config.model_path
     model_path = os.path.join(exp_config.base_path, model_path)
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
     pbar = tqdm(total=exp_config.total_gradient_steps, desc="Gradient Steps", ncols=100)
     stop_training = False
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     while gradient_steps < exp_config.total_gradient_steps and not stop_training:
         bc_policy.train()
-        losses = 0
+        train_losses = 0
         dx_losses = 0
         dy_losses = 0
         dyaw_losses = 0
@@ -286,7 +283,7 @@ def train(exp_config=None):
             optimizer.zero_grad()
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 20)
+            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
@@ -306,7 +303,7 @@ def train(exp_config=None):
                 dyaw_losses += dyaw_loss
                 if exp_config.use_tom:
                     tom_losses += tom_loss.mean().item()
-            losses += pred_loss.mean().item()
+            train_losses += loss.item()
                 
             # Evaluation loop
             if gradient_steps % exp_config.eval_freq == 0:
@@ -327,27 +324,17 @@ def train(exp_config=None):
                         log_dict['eval/tom_loss'] = tom_loss
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
-                    torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_seed_{exp_config.seed}_{current_time}.pth")
+                    torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}_{gradient_steps}.pth")
                     best_loss = test_loss
-                    early_stopping = 0
                     print(f'STEP {gradient_steps} gets BEST!')
-                else:
-                    early_stopping += 1
-                    if early_stopping > exp_config.early_stop_num + 1:
-                        wandb.finish()
-                        stop_training = True
-                        break
                 bc_policy.train()                
         if exp_config.use_wandb:
             log_dict = {   
-                    "train/loss": losses / (n + 1),
+                    "train/loss": train_losses / (n + 1),
                     "train/dx_loss": dx_losses / (n + 1),
                     "train/dy_loss": dy_losses / (n + 1),
                     "train/dyaw_loss": dyaw_losses / (n + 1),
                     "train/max_grad_norm": max_norms / (n + 1),
-                    # "gmm/max_component_probs": max(component_probs),
-                    # "gmm/median_component_probs": np.median(component_probs),
-                    # "gmm/min_component_probs": min(component_probs),
                 }
             if exp_config.use_tom:
                 log_dict['train/tom_loss'] = tom_losses / (n + 1)
