@@ -162,11 +162,11 @@ def run(args, env, bc_policy, expert_dict, dataset, scene_batch_idx):
         if not os.path.exists(video_path):
             os.makedirs(video_path)
         for world_render_idx in range(args.batch_size):
-            if world_render_idx in torch.where(veh_collision >= 1)[0].tolist():
+            if world_render_idx in torch.where(veh_collision_ep >= 1)[0].tolist():
                 media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(veh_col).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
-            elif world_render_idx in torch.where(off_road >= 1)[0].tolist():
+            elif world_render_idx in torch.where(off_road_ep >= 1)[0].tolist():
                 media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(off_road).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
-            elif world_render_idx in torch.where(goal_achieved >= 1)[0].tolist():
+            elif world_render_idx in torch.where(goal_achieved_ep >= 1)[0].tolist():
                 media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(goal).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
             else:
                 media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
@@ -178,14 +178,14 @@ if __name__ == "__main__":
     parser.add_argument('--dataset-size', type=int, default=1000) # total_world
     parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/data_cut_add')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_seed_3_0522_115334.pth')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/remove_collision_data')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_seed_3_0612_093633.pth')
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play'])
-    parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
+    parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 128 if args.sim_agent == 'self_play' else 1
