@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: remove_collision_data
+name: cov_1.792
 metric:
   goal: minimize
   name: eval/loss
