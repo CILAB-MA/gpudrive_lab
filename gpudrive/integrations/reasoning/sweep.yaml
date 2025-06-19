@@ -1,0 +1,9 @@
+program: gpudrive/integrations/reasoning/baseline
+method: grid
+name: baseline
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  qa_name:
+    values: ["env", "ego", "sur", "int"]
