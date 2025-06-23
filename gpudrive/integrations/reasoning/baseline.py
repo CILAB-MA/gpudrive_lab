@@ -25,11 +25,11 @@ class AuxHead(nn.Module):
     def __init__(self, input_dim, aux_dim=2):
         super(AuxHead, self).__init__()
         self.input_layer = nn.Sequential(
-            nn.Linear(input_dim, 32),
+            nn.Linear(input_dim, 384),
             nn.ReLU()
         )
         self.relu = nn.ReLU()
-        self.head = nn.Linear(32, aux_dim)
+        self.head = nn.Linear(384, aux_dim)
         self.aux_dim = aux_dim
         
     def forward(self, x, deterministic=None):
@@ -55,6 +55,7 @@ def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True):
         answers = npz[f'{exp_name}_a']
 
     dataset = QADataset(questions, answers)
+    data_len = len(dataset)
     dataloader = DataLoader(
         dataset,
         batch_size=128,
@@ -64,7 +65,7 @@ def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True):
         pin_memory=True
     )
     del dataset
-    return dataloader
+    return dataloader, data_len
 
 def evaluate(dataloader, model):
     eval_losses = 0
@@ -81,19 +82,23 @@ def evaluate(dataloader, model):
 def train(args):
     data_path = '/data/full_version/processed/final'
     current_time = datetime.now().strftime("%m%d_%H%M%S")
+
     if args.use_wandb:
         wandb.init()
         exp_name = dict(wandb.config)['qa_name']
-        print(dict(wandb.config))
+        seed = dict(wandb.config)['seed']
         wandb.run.name = f'base_{exp_name}_{current_time}'
         wandb.run.save()
     else:
         exp_name = 'env'
-    tr_loader = get_dataloader(data_path, "womd_reasoning_embed_training.npz", exp_name=exp_name)
-    te_loader = get_dataloader(data_path, "womd_reasoning_embed_validation.npz", exp_name=exp_name, 
+    tr_loader, tr_len = get_dataloader(data_path, "womd_reasoning_embed_training.npz", exp_name=exp_name)
+    te_loader, te_len = get_dataloader(data_path, "womd_reasoning_embed_validation.npz", exp_name=exp_name, 
                                isshuffle=False)
+    if args.use_wandb:
+        wandb.run.tags = tuple([f'num_train_{tr_len}', f'num_test_{te_len}'])
+        wandb.run.save()
     gradient_steps = 0
-    set_seed(42)
+    set_seed(seed)
     model = AuxHead(384, 384)
     model = model.cuda()
     pbar = tqdm(total=20000, desc="Gradient Steps", ncols=100)
