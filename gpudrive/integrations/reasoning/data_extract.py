@@ -77,7 +77,7 @@ def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
 
                     loaded_jsons.append(jd)
             if len(loaded_jsons) != 0:
-                scenario_data[sid] = loaded_jsons[0]
+                scenario_data[idx] = loaded_jsons[0]
     return scenario_data
 
 if __name__ == "__main__":
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/validation_log")
     parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
-    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
+    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
