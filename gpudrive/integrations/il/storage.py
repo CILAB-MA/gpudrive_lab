@@ -17,7 +17,7 @@ def save_trajectory(env, save_path, save_index=0):
     obs = env.reset()
     expert_actions, _, _, _ , _ = env.get_expert_actions() # (num_worlds, num_agents, episode_len, action_dim)
     road_mask = env.get_road_mask()
-    partner_mask = env.get_partner_mask(obs)
+    partner_mask = env.get_partner_mask()
     # partner_id = env.get_partner_id().unsqueeze(-1)
     device = env.device
     
@@ -63,7 +63,7 @@ def save_trajectory(env, save_path, save_index=0):
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         obs = env.get_obs() 
         road_mask = env.get_road_mask()
-        partner_mask = env.get_partner_mask(obs)
+        partner_mask = env.get_partner_mask()
         # partner_id = env.get_partner_id().unsqueeze(-1)
         agent_info = (
         env.sim.absolute_self_observation_tensor()
