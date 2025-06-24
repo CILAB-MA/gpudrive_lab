@@ -1169,7 +1169,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         ego_states = self._get_ego_state(mask)
         partner_observations = self._get_partner_obs(mask)
         road_map_observations = self._get_road_map_obs(mask)
-
+        self.partner_mask = self.make_partner_mask(partner_observations)
         if (
             self.use_vbd
             and self.vbd_model is not None
@@ -1212,22 +1212,25 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.sim.controlled_state_tensor().to_torch().clone() == 1
         ).squeeze(axis=2)
        
-    def get_partner_mask(self, obs):
+    def make_partner_mask(self, partner_observations):
         """Get the partner mask. Shape: [num_worlds, max_agent_count, max_agent_count - 1, 1]"""
         if not self.config.partner_obs:
             return torch.Tensor().to(self.device)
 
+        B, A, _ = partner_observations.shape
+        partner_observations = partner_observations.reshape(B, A, 127, 6)
+        partner_sum = partner_observations.sum(-1)
         response_type = ResponseType.from_tensor(
             tensor=self.sim.response_type_tensor(),
             backend=self.backend,
             device=self.device,
         )
-        static_mask = (obs[..., :6].sum(-1) != 0) & (response_type.static)
+        static_mask = response_type.static
         W, A = static_mask.shape
         eye_mask = ~torch.eye(A, dtype=torch.bool)
         expanded = static_mask.unsqueeze(1).expand(-1, A, -1)
         relative_static_mask = expanded[:, eye_mask].reshape(W, A, -1)
-
+        filtered_static_mask = (relative_static_mask) & (partner_sum != 0)
         partner_obs = PartnerObs.from_tensor(
             partner_obs_tensor=self.sim.partner_observations_tensor(),
             backend=self.backend,
@@ -1235,11 +1238,14 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         partner_ids = partner_obs.ids.squeeze(-1)
         partner_mask = torch.where(
-            relative_static_mask, 1, torch.where(partner_ids == -2, 2, 0)  # 0: partner, 1: static, 2: non-exist
+            filtered_static_mask, 1, torch.where(partner_ids <= -1, 2, 0)  # 0: partner, 1: static, 2: non-exist
         ) 
         
         return partner_mask
 
+    def get_partner_mask(self):
+        return self.partner_mask.clone()
+    
     def get_road_mask(self):
         """Get the road mask. Shape: [num_worlds, max_agent_count, kMaxAgentMapObservationsCount]"""
         if not self.config.road_map_obs:
@@ -1552,7 +1558,9 @@ if __name__ == "__main__":
     for idx, batch in enumerate(train_loader):
         env.swap_data_batch(batch)
         obs = env.reset()
-        partner_mask = env.get_partner_mask(obs)
+        partner_mask = env.get_partner_mask()
+        partner_obs = obs[..., 6:128*6].reshape(2, 128, 127, 6)
+        print(f'no exist sum {partner_obs[partner_mask == 2].sum()} visible sum zero len {(partner_obs[partner_mask != 2].sum(-1) == 0).sum()}')
         road_mask = env.get_road_mask()
         frames = {f"env_{i}_head_{j}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS) for j in range(NUM_IMPORTANCE_HEAD)}
         expert_actions, _, _, _, _ = env.get_expert_actions()
@@ -1568,7 +1576,6 @@ if __name__ == "__main__":
             setattr(env.vis, "ego_pred_prime", {10: torch.tensor([[28], [28], [28], [28]]), 20: torch.tensor([[29], [29], [29], [29]]), 30:torch.tensor([[30], [30], [30], [30]]), 40:torch.tensor([[31], [31], [31], [31]])})
             setattr(env.vis, "other_pred", {10: torch.tensor([[20], [20], [20], [20]]), 20: torch.tensor([[21], [21], [21], [21]]), 30:torch.tensor([[22], [22], [22], [22]]), 40:torch.tensor([[23], [23], [23], [23]])})
             setattr(env.vis, "intervention_idx", torch.tensor([79, 51, 0, 0]))
-            
             # Make video
             sim_states = env.vis.plot_simulator_state(
                 env_indices=list(range(NUM_WORLDS)),
@@ -1590,7 +1597,8 @@ if __name__ == "__main__":
             reward = env.get_rewards()
             done = env.get_dones()
             info = env.get_infos()
-
+            partner_obs = obs[..., 6:128*6].reshape(2, 128, 127, 6)
+            print(f'no exist sum {partner_obs[partner_mask == 2].sum()} visible sum zero len {(partner_obs[partner_mask != 2].sum(-1) == 0).sum()}')
             if done.all():
                 for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS):
                     for j in range(NUM_IMPORTANCE_HEAD):
