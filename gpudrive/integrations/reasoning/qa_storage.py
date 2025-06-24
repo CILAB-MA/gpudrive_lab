@@ -83,7 +83,10 @@ def save_qa_trajectory(env, jd, save_path, save_index=0):
     for i, data in enumerate(jd.values()):
         for qa, qa_type in enumerate(qa_types):
             qas = data[f"{qa_type}_qa"]
-            qs, ans = zip(*qas) if qas else ([], [])
+            if qas:
+                qs, ans = zip(*qas) 
+            else:
+                continue
             q_embeddings = compute_sentence_embeddings(qs, device='cuda')
             a_embeddings = compute_sentence_embeddings(ans, device='cuda')
             num = min(len(q_embeddings), qa_timesteps)
@@ -208,7 +211,7 @@ def save_qa_trajectory(env, jd, save_path, save_index=0):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
