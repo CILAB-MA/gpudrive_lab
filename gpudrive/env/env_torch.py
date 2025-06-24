@@ -25,6 +25,7 @@ from gpudrive.datatypes.roadgraph import (
 )
 from gpudrive.datatypes.metadata import Metadata
 from gpudrive.datatypes.info import Info
+from gpudrive.datatypes.control import ResponseType
 
 from gpudrive.visualize.core import MatplotlibVisualizer
 from gpudrive.visualize.utils import img_from_fig
@@ -1216,15 +1217,25 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         if not self.config.partner_obs:
             return torch.Tensor().to(self.device)
 
+        response_type = ResponseType.from_tensor(
+            tensor=self.sim.response_type_tensor(),
+            backend=self.backend,
+            device=self.device,
+        )
+        static_mask = (obs[..., :6].sum(-1) != 0) & (response_type.static)
+        W, A = static_mask.shape
+        eye_mask = ~torch.eye(A, dtype=torch.bool)
+        expanded = static_mask.unsqueeze(1).expand(-1, A, -1)
+        relative_static_mask = expanded[:, eye_mask].reshape(W, A, -1)
+
         partner_obs = PartnerObs.from_tensor(
             partner_obs_tensor=self.sim.partner_observations_tensor(),
             backend=self.backend,
             device=self.device,
         )
-        
         partner_ids = partner_obs.ids.squeeze(-1)
         partner_mask = torch.where(
-            partner_ids == -1, 1, torch.where(partner_ids == -2, 2, 0)  # 0: partner, 1: static, 2: non-exist
+            relative_static_mask, 1, torch.where(partner_ids == -2, 2, 0)  # 0: partner, 1: static, 2: non-exist
         ) 
         
         return partner_mask
