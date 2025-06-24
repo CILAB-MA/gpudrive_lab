@@ -1212,7 +1212,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.sim.controlled_state_tensor().to_torch().clone() == 1
         ).squeeze(axis=2)
        
-    def get_partner_mask(self):
+    def get_partner_mask(self, obs):
         """Get the partner mask. Shape: [num_worlds, max_agent_count, max_agent_count - 1, 1]"""
         if not self.config.partner_obs:
             return torch.Tensor().to(self.device)
@@ -1552,7 +1552,7 @@ if __name__ == "__main__":
     for idx, batch in enumerate(train_loader):
         env.swap_data_batch(batch)
         obs = env.reset()
-        partner_mask = env.get_partner_mask()
+        partner_mask = env.get_partner_mask(obs)
         road_mask = env.get_road_mask()
         frames = {f"env_{i}_head_{j}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS) for j in range(NUM_IMPORTANCE_HEAD)}
         expert_actions, _, _, _, _ = env.get_expert_actions()
