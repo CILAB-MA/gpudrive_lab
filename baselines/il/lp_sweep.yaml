@@ -1,15 +1,15 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: lp_renew
+name: lp_clean
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/full_version/model/remove_collision_data"
+    value: "/data/full_version/model/rerun_0624"
   model_name:
-    values: ["early_attn_seed_3_0612_093633"]
+    values: ["early_attn_s3_0624_111410_90000"]
   # DATA
   future_step:
     values: [10, 20, 30]

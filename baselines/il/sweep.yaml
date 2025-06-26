@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: cov_1.792
+name: rerun_0624
 metric:
   goal: minimize
   name: eval/loss
@@ -19,7 +19,7 @@ parameters:
   head_dim:
     values: [64]
   num_layer:
-    values: [[4, 3], [3, 2]]
+    values: [[4, 3]]
   # AUXCONFIG
   use_tom:
     values: [null] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
