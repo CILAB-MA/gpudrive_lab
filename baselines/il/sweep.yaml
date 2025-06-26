@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: rerun_0624
+name: rerun_0626
 metric:
   goal: minimize
   name: eval/loss
