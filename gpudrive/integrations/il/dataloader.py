@@ -44,7 +44,7 @@ class ExpertDataset(torch.utils.data.Dataset):
             self.other_pos = self._get_multi_class_pos(current_relative_pos)
 
         self.partner_mask = np.pad(partner_mask, ((0, 0), (rollout_len - 1, 0), (0, 0)), constant_values=2)
-        self.partner_mask = (self.partner_mask != 2)
+        self.partner_mask = self.partner_mask  == 2
         road_mask = road_mask.astype(bool)
         self.road_mask = np.pad(
             road_mask,
