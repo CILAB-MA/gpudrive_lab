@@ -111,7 +111,7 @@ def run(args, env, bc_policy, expert_dict, dataset, scene_batch_idx):
     goal_time_avg = valid_goal_times.mean().item() if len(valid_goal_times) > 0 else -1
 
     goal_progress_ratio = dist_metrics[alive_agent_mask] / init_goal_dist
-    goal_progress_ratio[goal_achieved.bool()] = 0
+    goal_progress_ratio[goal_achieved_ep.bool()] = 0
     # calculate the different label
     label_masks = [turn_mask, normal_mask, reverse_mask, straight_mask]
     offroads, veh_colls, goals, goal_progresses, goal_time_avgs, num_labels = [], [], [], [], [], []
@@ -139,7 +139,7 @@ def run(args, env, bc_policy, expert_dict, dataset, scene_batch_idx):
     print(f'Success World idx : ', torch.where(goal_achieved_ep == 1)[0].tolist())
     print(f'Goal Reached Time : {goal_time_avg}')
     if args.make_csv:
-        csv_path = f"{args.model_path}/result_{args.partner_portion_test}.csv"
+        csv_path = f"{args.model_path}/result_{args.partner_portion_test}v2.csv"
         file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:
