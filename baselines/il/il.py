@@ -283,7 +283,7 @@ def train(exp_config=None):
             optimizer.zero_grad()
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
+            torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 20)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
