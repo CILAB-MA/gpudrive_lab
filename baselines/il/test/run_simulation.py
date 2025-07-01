@@ -26,7 +26,7 @@ def arg_parse():
 
 if __name__ == "__main__":
     args = arg_parse()
-    models = os.listdir(os.path.join(args.model_path, args.sweep_name))
+    models = os.listdir(os.path.join(args.model_path, args.sweep_name))[4:]
     print(models)
     for model in tqdm(models):
         for dataset in ['training', 'validation']:
@@ -48,7 +48,7 @@ if __name__ == "__main__":
             if result.returncode != 0:
                 print(f"Error: Command failed with return code {result.returncode}")
 
-    csv_path = f"{model_path}/result_{args.partner_portion_test}.csv"
+    csv_path = f"{model_path}/result_{args.partner_portion_test}v2.csv"
     csv_path2 = f"{model_path}/result_{args.partner_portion_test}_total.csv"
 
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
