@@ -1,11 +1,13 @@
 program: gpudrive/integrations/reasoning/baseline
 method: grid
-name: baseline_hidden384
+name: raw_input
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   qa_name:
     values: ["env", "ego", "sur", "int"]
+  model_name:
+    values: ["trajectory"]
   seed:
     values: [3, 11, 42, 50]

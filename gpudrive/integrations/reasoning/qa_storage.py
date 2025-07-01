@@ -53,7 +53,7 @@ def analyze_semantic_distribution_hf(questions, n_clusters=10, save_path="tsne_p
             print(" -", q)
     return embeddings
 
-def save_qa_trajectory(env, jd, save_path, save_index=0):
+def save_qa_trajectory(env, model, jd, save_path, save_index=0):
     """
     Save the trajectory, partner_mask and road_mask in the environment, distinguishing them by each scene and agent.
     
@@ -87,8 +87,10 @@ def save_qa_trajectory(env, jd, save_path, save_index=0):
                 qs, ans = zip(*qas) 
             else:
                 continue
-            q_embeddings = compute_sentence_embeddings(qs, device='cuda')
-            a_embeddings = compute_sentence_embeddings(ans, device='cuda')
+            q_embeddings  = model.encode(qs, convert_to_tensor=True)  
+            q_embeddings =  q_embeddings.cpu().numpy()  #
+            a_embeddings  = model.encode(ans, convert_to_tensor=True)  
+            a_embeddings =  a_embeddings.cpu().numpy()  #
             num = min(len(q_embeddings), qa_timesteps)
             q_npy[qa][i, :num] = q_embeddings[:num]
             a_npy[qa][i, :num] = a_embeddings[:num]
@@ -250,6 +252,8 @@ if __name__ == "__main__":
         device="cuda",
         action_type="continuous",
     )
+    model = SentenceTransformer('all-MiniLM-L6-v2') 
+    model.eval()
     num_iter = int(TOTAL_NUM_WORLDS // NUM_WORLDS)
     print('Launch Env')
     num_iter = int(args.total_scene_size // args.scene_batch_size)
@@ -260,7 +264,7 @@ if __name__ == "__main__":
         if idx != num_iter - 1:
             with open(f"/data/full_version/processed/reasoning/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
                 jd = json.load(f)
-        save_qa_trajectory(env, jd, save_path, idx * args.scene_batch_size)
+        save_qa_trajectory(env, model, jd, save_path, idx * args.scene_batch_size)
         if idx != num_iter - 1:
             env.swap_data_batch()
     env.close()
