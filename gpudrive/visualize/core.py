@@ -475,8 +475,6 @@ class MatplotlibVisualizer:
 
             ax.set_axis_off()
 
-        for fig in figs:
-            fig.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
         
         if plot_linear_probing:
             figs = [
