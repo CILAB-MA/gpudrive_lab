@@ -844,7 +844,7 @@ class GMM(nn.Module):
         covariances = params[..., self.n_components * self.action_dim:2 * self.n_components * self.action_dim].view(-1, self.time_dim, self.n_components, self.action_dim)
         weights = params[..., -self.n_components:].view(-1, self.time_dim, self.n_components)
         
-        covariances = torch.clamp(covariances, self.clip_value, 3.58352)
+        covariances = torch.clamp(covariances, self.clip_value, 1.792)
         covariances = torch.exp(covariances)
         weights = torch.softmax(weights, dim=-1)
         self.component_probs = weights[0,0].detach() # To wandb log
