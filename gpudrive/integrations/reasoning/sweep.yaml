@@ -1,6 +1,6 @@
 program: gpudrive/integrations/reasoning/baseline
 method: grid
-name: pretrained_mse
+name: pretrained_unique
 metric:
   goal: minimize
   name: eval/loss
