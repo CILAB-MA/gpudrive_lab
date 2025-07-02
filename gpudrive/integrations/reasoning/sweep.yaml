@@ -1,6 +1,6 @@
 program: gpudrive/integrations/reasoning/baseline
 method: grid
-name: raw_input
+name: pretrained_mse
 metric:
   goal: minimize
   name: eval/loss
@@ -8,6 +8,8 @@ parameters:
   qa_name:
     values: ["env", "ego", "sur", "int"]
   model_name:
-    values: ["trajectory"]
+    values: ["pretrained"]
   seed:
-    values: [3, 11, 42, 50]
+    values: [3, 11, 42]
+  start_idx: 
+    values: [0]
