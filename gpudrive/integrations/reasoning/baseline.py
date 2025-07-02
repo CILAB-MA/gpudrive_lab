@@ -40,18 +40,19 @@ class AuxHead(nn.Module):
         return aux_preds
 
 class QADataset(Dataset):
-    def __init__(self, question, answer, masks, obs=None, obs_masks=None, exp_model='baseline'):
+    def __init__(self, question, answer, masks, obs=None, obs_masks=None, exp_model='baseline',
+                 start_idx=0):
         B, MAX_LEN = question.shape[:2]
         self.qs = torch.from_numpy(question[~masks]).float()
         self.as_ = torch.from_numpy(answer[~masks]).float()
         if obs is not None:
-            self._obs = torch.from_numpy(obs[:, :5]).float()
+            self._obs = torch.from_numpy(obs[:, start_idx:start_idx + 5]).float()
             self._obs = self._obs.reshape(B, -1).unsqueeze(1)
             self._obs = self._obs.repeat(1, MAX_LEN, 1)
             self._obs = self._obs[~masks]
             partner_mask = obs_masks[0]
             road_mask = obs_masks[1]
-            self._partner_mask = torch.from_numpy(partner_mask[:, 4]).float()
+            self._partner_mask = torch.from_numpy(partner_mask[:, start_idx + 5 -1]).float()
             self._partner_mask = self._partner_mask.reshape(B, -1).unsqueeze(1)
             self._partner_mask = self._partner_mask.repeat(1, MAX_LEN, 1)
             self._partner_mask = self._partner_mask[~masks]
@@ -72,7 +73,8 @@ class QADataset(Dataset):
         else:
             return self.qs[idx], self.as_[idx], self._obs[idx], self._partner_mask[idx], self._road_mask[idx]
         
-def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True, traj_file=None, model='baseline'):
+def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True, traj_file=None, 
+                   model='baseline', start_idx=0):
     with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
         questions = npz[f'{exp_name}_qs']
         answers = npz[f'{exp_name}_as']
@@ -85,7 +87,8 @@ def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True, traj_fi
              road_mask = npz['road_mask']
              obs_masks = [partner_mask, road_mask]
 
-    dataset = QADataset(questions, answers, masks, obs, obs_masks=obs_masks, exp_model=model)
+    dataset = QADataset(questions, answers, masks, obs, obs_masks=obs_masks, exp_model=model,
+                        start_idx=start_idx)
     data_len = len(dataset)
     dataloader = DataLoader(
         dataset,
@@ -116,7 +119,7 @@ def evaluate(dataloader, model, bc_policy, exp_model='baseline'):
             question = torch.cat([question, context], dim=-1)
         with torch.no_grad():
             pred_answer = model(question)
-            loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
+            loss = F.mse_loss(pred_answer, answer)
         eval_losses += loss
     return eval_losses / (i + 1)
 
@@ -129,21 +132,23 @@ def train(args):
         wandb.init()
         exp_name = dict(wandb.config)['qa_name']
         exp_model = dict(wandb.config)['model_name']
+        start_idx = dict(wandb.config)['start_idx']
         seed = dict(wandb.config)['seed']
         wandb.run.name = f'base_{exp_name}_{current_time}'
         wandb.run.save()
         
     else:
-        exp_name = 'sur'
-        exp_model = 'pretrained'
+        exp_name = 'env'
+        exp_model = 'baseline'
         seed = 42
+        start_idx = 0
     if exp_model != 'baseline':
         traj_train_file = "training_trajectory_80000.npz"
         traj_valid_file = "validation_trajectory_10000.npz"
     tr_loader, tr_len = get_dataloader(data_path, "reasoning_training_trajectory_80000.npz", exp_name=exp_name,
-                                       traj_file=traj_train_file, model=exp_model)
+                                       traj_file=traj_train_file, model=exp_model, start_idx=start_idx)
     te_loader, te_len = get_dataloader(data_path, "reasoning_validation_trajectory_10000.npz", exp_name=exp_name, 
-                               isshuffle=False, traj_file=traj_valid_file, model=exp_model)
+                               isshuffle=False, traj_file=traj_valid_file, model=exp_model, start_idx=start_idx)
     if exp_model == 'pretrained':
         model_path = '/data/full_version/model/cov1792_clip10/early_attn_s3_0630_072820_60000.pth'
         bc_policy = torch.load(model_path, weights_only=False).to("cuda")
@@ -177,8 +182,8 @@ def train(args):
             if exp_model != 'baseline':
                 question = torch.cat([question, context], dim=-1)
             pred_answer = model(question)
-
-            loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
+            loss = F.mse_loss(pred_answer, answer)
+            # loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
