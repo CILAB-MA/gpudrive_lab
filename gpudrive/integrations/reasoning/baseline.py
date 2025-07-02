@@ -79,7 +79,17 @@ def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True, traj_fi
         questions = npz[f'{exp_name}_qs']
         answers = npz[f'{exp_name}_as']
         masks = npz[f'{exp_name}_masks']
+        B, M = questions.shape[:2]
+        concat_vecs = np.concatenate([questions, answers], axis=-1)
+        flat_vecs = concat_vecs.reshape(-1, 768)
+        _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
+        unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
+        unique_mask_flat[unique_indices] = True
+        unique_mask = unique_mask_flat.reshape(B, M)
+        final_mask = ~((unique_mask == True) & (masks == False))
+
     obs = None
+    obs_masks = None
     if model != 'baseline':
          with np.load(os.path.join(data_path, traj_file), mmap_mode='r') as npz:
              obs = npz['obs']
@@ -87,7 +97,7 @@ def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True, traj_fi
              road_mask = npz['road_mask']
              obs_masks = [partner_mask, road_mask]
 
-    dataset = QADataset(questions, answers, masks, obs, obs_masks=obs_masks, exp_model=model,
+    dataset = QADataset(questions, answers, final_mask, obs, obs_masks=obs_masks, exp_model=model,
                         start_idx=start_idx)
     data_len = len(dataset)
     dataloader = DataLoader(
@@ -119,7 +129,7 @@ def evaluate(dataloader, model, bc_policy, exp_model='baseline'):
             question = torch.cat([question, context], dim=-1)
         with torch.no_grad():
             pred_answer = model(question)
-            loss = F.mse_loss(pred_answer, answer)
+            loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
         eval_losses += loss
     return eval_losses / (i + 1)
 
@@ -149,6 +159,7 @@ def train(args):
                                        traj_file=traj_train_file, model=exp_model, start_idx=start_idx)
     te_loader, te_len = get_dataloader(data_path, "reasoning_validation_trajectory_10000.npz", exp_name=exp_name, 
                                isshuffle=False, traj_file=traj_valid_file, model=exp_model, start_idx=start_idx)
+    bc_policy = None
     if exp_model == 'pretrained':
         model_path = '/data/full_version/model/cov1792_clip10/early_attn_s3_0630_072820_60000.pth'
         bc_policy = torch.load(model_path, weights_only=False).to("cuda")
@@ -164,7 +175,7 @@ def train(args):
         wandb.run.tags = tuple([f'num_train_{tr_len}', f'num_test_{te_len}', f'param_{trainable_params}'])
         wandb.run.save()
     pbar = tqdm(total=20000, desc="Gradient Steps", ncols=100)
-    optimizer = AdamW(model.parameters(), lr=3e-4, eps=0.0001)
+    optimizer = AdamW(model.parameters(), lr=4e-4, eps=0.0001)
     while gradient_steps < 20000:
         train_losses = 0
         for n, batch in enumerate(tr_loader):
@@ -182,7 +193,7 @@ def train(args):
             if exp_model != 'baseline':
                 question = torch.cat([question, context], dim=-1)
             pred_answer = model(question)
-            loss = F.mse_loss(pred_answer, answer)
+            loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
             # loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
             optimizer.zero_grad()
             loss.backward()
