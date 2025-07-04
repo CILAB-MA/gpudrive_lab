@@ -1,22 +1,22 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: lp_clean
+name: lp_covclip
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/full_version/model/rerun_0624"
+    value: "/data/full_version/model/cov1792_clip10"
   model_name:
-    values: ["early_attn_s3_0624_111410_90000"]
+    values: ["early_attn_s3_0630_072820_60000"]
   # DATA
   future_step:
-    values: [10, 20, 30]
+    values: [10, 20, 30, 40]
   exp:
     values: ['other', 'ego']
   model:
-    values: ['early_lp', 'final_lp', 'baseline']
+    values: ['early_lp', 'final_lp']
   # EXPERIMENT
   batch_size:
     values: [256]
