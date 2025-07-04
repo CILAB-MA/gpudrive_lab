@@ -13,8 +13,6 @@ with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
     questions = npz[f'{exp_name}_qs']  # (N, D)
     answers = npz[f'{exp_name}_as']    # (N, A)
     masks = npz[f'{exp_name}_masks']
-    masked_questions_sum = questions[~masks].sum(-1)
-    masked_answers = answers[~masks]
 
 concat_vecs = np.concatenate([questions, answers], axis=-1)
 flat_vecs = concat_vecs.reshape(-1, 768)
@@ -22,6 +20,9 @@ _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
 unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
 unique_mask_flat[unique_indices] = True
 unique_mask = unique_mask_flat.reshape(1281, 20)
+final_mask = ~((unique_mask == True) & (masks == False))
+masked_questions_sum = questions[~final_mask].sum(-1)
+masked_answers = answers[~final_mask]
 grouped_answers = defaultdict(list)
 
 for q, a in zip(masked_questions_sum, masked_answers):
