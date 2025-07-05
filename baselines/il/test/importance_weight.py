@@ -127,7 +127,7 @@ def run(args, env, bc_policy, expert_dict, scene_batch_idx):
     print(f'Success World idx : ', torch.where(goal_achieved_ep == 1)[0].tolist())
 
     # Make video
-    root = os.path.join(args.video_path, args.dataset, args.model_name, str(args.partner_portion_test))
+    root = os.path.join(args.video_path, args.dataset, args.model_name)
     for world_render_idx in range(args.batch_size):
         for head_idx in range(4):
             video_path = os.path.join(root, f"head_{head_idx}")
@@ -146,13 +146,13 @@ def run(args, env, bc_policy, expert_dict, scene_batch_idx):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=1000) # total_world
-    parser.add_argument('--batch-size', type=int, default=5) # num_world
+    parser.add_argument('--dataset-size', type=int, default=10) # total_world
+    parser.add_argument('--batch-size', type=int, default=10) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/data_cut_add')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_seed_3_0522_115334.pth')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/cov1792_clip10')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0630_072820_60000.pth')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos/importance_weight')
-    parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
+    parser.add_argument('--linear-probing', '-lp', type=str, default='other_linear_prob')
     args = parser.parse_args()
 
     # Make scene loader
@@ -186,13 +186,12 @@ if __name__ == "__main__":
     print(f'model: {args.model_path}/{args.model_name}', )
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to("cuda")
     bc_policy.eval()
-
+    lp_model = torch.load(f"{args.model_path}/other_linear_prob/{args.model_name[:-4]}/seed11/pos_early_lp_10.pth", weights_only=False).to("cuda")
     # Simulate the environment with the policy
     df = pd.read_csv(f'/data/full_version/expert_{args.dataset}_data_v2.csv')
     expert_dict = df.set_index('scene_idx').to_dict(orient='index')
     for i, batch in enumerate(scene_loader):
         env.swap_data_batch(batch)
-        env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
         run(args, env, bc_policy, expert_dict, scene_batch_idx=i)
     env.close()
 
