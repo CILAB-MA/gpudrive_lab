@@ -48,6 +48,7 @@ class ReasoningDataset(torch.utils.data.Dataset):
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
         self.full_var = ['obs', 'actions', 'partner_mask', 'road_mask']
+        self.use_tom = use_tom
         if use_tom:
             self.full_var += ['questions', 'answers', 'qa_masks']
 
@@ -67,13 +68,17 @@ class ReasoningDataset(torch.utils.data.Dataset):
         idx2 = int(idx2)
         # row, column -> 
         batch = ()
+        valid_qa_indices = np.where(~self.qa_masks[idx1])[0]
+        if len(valid_qa_indices) >= self.qa_num_sample:
+            sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=False)
+        else:
+            sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=True)
         if self.num_timestep > 1:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
                     if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
                     elif var_name in ['questions', 'answers', 'qa_masks']:
-                        sample_qa = np.random.choice(self.qa_len, size=self.qa_num_sample, replace=False)
                         data = self.__dict__[var_name][idx1, sample_qa]
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
