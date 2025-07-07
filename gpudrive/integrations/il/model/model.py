@@ -75,9 +75,7 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
             head_config=exp_config,
             time_dim=1
         )
-        # self.head = ContHead(
-        #     input_dim= 2 * exp_config.network_dim + exp_config.network_dim,
-        #     head_config=exp_config,)
+
     def _unpack_obs(self, obs_flat, num_stack):
         """
         Unpack the flattened observation into the ego state and visible state.

@@ -1,0 +1,23 @@
+program: baselines/reasoning/aux.py
+method: grid
+name: aux_only
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  seed:
+    values: [3, 11, 42]
+  num_scene:
+    values: [80000]
+  total_gradient_steps:
+    values: [100000]
+  # ILCONFIG
+  network_dim:
+    values: [128]
+  head_dim:
+    values: [64]
+  num_layer:
+    values: [[4, 3]]
+  # AUXCONFIG
+  use_tom:
+    values: [True] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
