@@ -36,4 +36,4 @@ time_dim: 1
 clip_value: -20.0
 
 # AUXCONFIG
-use_tom: False # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted
+use_tom: True # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted
