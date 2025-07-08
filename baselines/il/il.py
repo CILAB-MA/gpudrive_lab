@@ -150,9 +150,9 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             dy_loss = action_loss[..., 1].mean()
             dyaw_loss = action_loss[..., 2].mean()
 
-            dx_std2_loss = action_loss[..., 0][dx_std2_mask].mean() if dx_std2_mask.sum() > 0 else 0
-            dy_std2_loss = action_loss[..., 1][dy_std2_mask].mean() if dy_std2_mask.sum() > 0 else 0
-            dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].mean() if dyaw_std2_mask.sum() > 0 else 0
+            dx_std2_loss = action_loss[..., 0][dx_std2_mask].sum() if dx_std2_mask.sum() > 0 else 0
+            dy_std2_loss = action_loss[..., 1][dy_std2_mask].sum() if dy_std2_mask.sum() > 0 else 0
+            dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].sum() if dyaw_std2_mask.sum() > 0 else 0
 
             dx_losses += dx_loss
             dy_losses += dy_loss
@@ -324,7 +324,7 @@ def train(exp_config=None):
                         log_dict['eval/tom_loss'] = tom_loss
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
-                    torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}_{gradient_steps}.pth")
+                    torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}.pth")
                     best_loss = test_loss
                     print(f'STEP {gradient_steps} gets BEST!')
                 bc_policy.train()                
