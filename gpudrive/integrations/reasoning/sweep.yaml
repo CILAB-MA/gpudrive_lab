@@ -1,14 +1,14 @@
 program: gpudrive/integrations/reasoning/baseline
 method: grid
-name: pretrained_unique
+name: all_unique
 metric:
   goal: minimize
   name: eval/loss
 parameters:
-  qa_name:
-    values: ["env", "ego", "sur", "int"]
+  # qa_name:
+  #   values: ["env", "ego", "sur", "int"]
   model_name:
-    values: ["pretrained"]
+    values: ["pretrained", "baseline"]
   seed:
     values: [3, 11, 42]
   start_idx: 

@@ -83,11 +83,19 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
             questions = np.concatenate([qa_npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
             answers = np.concatenate([qa_npz[f'{qa_name}_as'] for qa_name in qa_names], axis=1)
             qa_masks = np.concatenate([qa_npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
+        B, M = questions.shape[:2]
+        concat_vecs = np.concatenate([questions, answers], axis=-1)
+        flat_vecs = concat_vecs.reshape(-1, 768)
+        _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
+        unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
+        unique_mask_flat[unique_indices] = True
+        unique_mask = unique_mask_flat.reshape(B, M)
+        qa_masks_final = ~((unique_mask == True) & (qa_masks == False))
     dataset = ReasoningDataset(
         expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, 
         use_tom=config.use_tom, questions=questions, answers=answers,
-        qa_masks=qa_masks
+        qa_masks=qa_masks_final
 
     )
     dataloader = DataLoader(
@@ -252,6 +260,8 @@ def train(exp_config=None):
         dyaw_losses = 0
         tom_losses = 0
         max_norms = 0
+        cos_sims = 0
+        conflict_count = 0
         max_names = []
         
         for n, batch in enumerate(expert_data_loader):
@@ -274,11 +284,19 @@ def train(exp_config=None):
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
-
+            main_grads = torch.autograd.grad(pred_loss, bc_policy.parameters(), retain_graph=True, allow_unused=True)
+            main_vec = torch.cat([g.flatten() for g in main_grads if g is not None])
             if exp_config.use_tom:
                 tom_loss = aux_loss(bc_policy, context, questions, answers, 
                     qa_masks=qa_masks)
+                aux_grads = torch.autograd.grad(tom_loss, bc_policy.parameters(), allow_unused=True)
+                aux_vec = torch.cat([g.flatten() for g in aux_grads if g is not None])
+                cos_sim = torch.nn.functional.cosine_similarity(main_vec, aux_vec, dim=0).item()
+                if torch.dot(main_vec, aux_vec) < 0:
+                    conflict_count += 1
+                cos_sims += cos_sim
                 loss += 0.2 * tom_loss
+
             loss = loss.mean()
             # Backward pass
             optimizer.zero_grad()
@@ -310,19 +328,19 @@ def train(exp_config=None):
             if gradient_steps % exp_config.eval_freq == 0:
                 bc_policy.eval()
                 test_losses = evaluate(eval_expert_data_loader, exp_config, bc_policy, num_train_sample)
-                test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, tom_losses = test_losses
+                test_loss, test_dx_loss, test_dy_loss, test_dyaw_loss, test_dx_std2_loss, test_dy_std2_loss, test_dyaw_std2_loss, test_tom_losses = test_losses
                 if exp_config.use_wandb:
                     log_dict = {
                             "eval/loss": test_loss,
-                            "eval/dx_loss": dx_loss,
-                            "eval/dy_loss": dy_loss,
-                            "eval/dyaw_loss": dyaw_loss,
-                            "eval/dx_std2_loss": dx_std2_loss,
-                            "eval/dy_std2_loss": dy_std2_loss,
-                            "eval/dyaw_std2_loss": dyaw_std2_loss,
+                            "eval/dx_loss": test_dx_loss,
+                            "eval/dy_loss": test_dy_loss,
+                            "eval/dyaw_loss": test_dyaw_loss,
+                            "eval/dx_std2_loss": test_dx_std2_loss,
+                            "eval/dy_std2_loss": test_dy_std2_loss,
+                            "eval/dyaw_std2_loss": test_dyaw_std2_loss,
                         }
                     if exp_config.use_tom:
-                        log_dict['eval/tom_loss'] = tom_loss
+                        log_dict['eval/tom_loss'] = test_tom_losses
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
                     torch.save(bc_policy, f"{model_path}/{model_name}_s{exp_config.seed}_{current_time}.pth")
@@ -339,6 +357,7 @@ def train(exp_config=None):
                 }
             if exp_config.use_tom:
                 log_dict['train/tom_loss'] = tom_losses / (n + 1)
+                log_dict['train/conflict_grad'] = conflict_count / (n + 1)
             wandb.log(log_dict, step=gradient_steps)
     wandb.finish()
 
