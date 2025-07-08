@@ -73,12 +73,13 @@ class QADataset(Dataset):
         else:
             return self.qs[idx], self.as_[idx], self._obs[idx], self._partner_mask[idx], self._road_mask[idx]
         
-def get_dataloader(data_path, data_file, exp_name='env', isshuffle=True, traj_file=None, 
+def get_dataloader(data_path, data_file, isshuffle=True, traj_file=None, 
                    model='baseline', start_idx=0):
+    qa_names = ['env', 'ego', 'sur', 'int']
     with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
-        questions = npz[f'{exp_name}_qs']
-        answers = npz[f'{exp_name}_as']
-        masks = npz[f'{exp_name}_masks']
+        questions = np.concatenate([npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
+        answers = np.concatenate([npz[f'{qa_name}_as'] for qa_name in qa_names], axis=1)
+        masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
         B, M = questions.shape[:2]
         concat_vecs = np.concatenate([questions, answers], axis=-1)
         flat_vecs = concat_vecs.reshape(-1, 768)
@@ -140,11 +141,11 @@ def train(args):
     traj_valid_file = None
     if args.use_wandb:
         wandb.init()
-        exp_name = dict(wandb.config)['qa_name']
+        # exp_name = dict(wandb.config)['qa_name']
         exp_model = dict(wandb.config)['model_name']
         start_idx = dict(wandb.config)['start_idx']
         seed = dict(wandb.config)['seed']
-        wandb.run.name = f'base_{exp_name}_{current_time}'
+        wandb.run.name = f'base_{current_time}'
         wandb.run.save()
         
     else:
@@ -155,9 +156,9 @@ def train(args):
     if exp_model != 'baseline':
         traj_train_file = "training_trajectory_80000.npz"
         traj_valid_file = "validation_trajectory_10000.npz"
-    tr_loader, tr_len = get_dataloader(data_path, "reasoning_training_trajectory_80000.npz", exp_name=exp_name,
+    tr_loader, tr_len = get_dataloader(data_path, "reasoning_training_trajectory_80000.npz",
                                        traj_file=traj_train_file, model=exp_model, start_idx=start_idx)
-    te_loader, te_len = get_dataloader(data_path, "reasoning_validation_trajectory_10000.npz", exp_name=exp_name, 
+    te_loader, te_len = get_dataloader(data_path, "reasoning_validation_trajectory_10000.npz", 
                                isshuffle=False, traj_file=traj_valid_file, model=exp_model, start_idx=start_idx)
     bc_policy = None
     if exp_model == 'pretrained':

@@ -103,18 +103,17 @@ class ReasoningDataset(torch.utils.data.Dataset):
 if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
-    data_name = [100, 500, 1000, 5000]
-    data = np.load(f"/data/full_version/processed/final/training_trajectory_1000.npz")
-    actions =data['actions'].reshape(-1, 3)
-    valid_masks = data['dead_mask'].reshape(-1)
-    valid_masks = 1 - valid_masks
-    action_mask = (np.abs(actions[:, 1]) >  0.5) | (np.abs(actions[:, 0]) >  5) | (np.abs(actions[:, -1]) > 0.2)
-    action_mask = action_mask.reshape(-1)
-    valid_masks[action_mask] = 0
-    valid_masks = valid_masks.astype('bool')
-    filtered_actions = actions[valid_masks]
-    dx = filtered_actions[:, 0]
-    dy = filtered_actions[:, 1]
-    dyaw = filtered_actions[:, 2]
-    print(f'dx max {dx.max():.3f} min {dx.min():.3f} dy max {dy.max():.3f} min {dy.max():.3f} dyaw max {dyaw.max():.3f} min {dyaw.max():.3f} ')
-    print(f'dx mean {dx.mean():.3f} std {dx.std():.3f} dy mean {dy.mean():.3f} std {dy.std():.3f} dyaw max {dyaw.mean():.3f} std {dyaw.std():.3f} ')
+    qa_names = ['env', 'ego', 'sur', 'int']
+    train_data_file = f"validation_trajectory_10000.npz"
+    with np.load(os.path.join('/data/full_version/processed/final/reasoning', "reasoning_" + train_data_file)) as qa_npz:
+        questions = np.concatenate([qa_npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
+        answers = np.concatenate([qa_npz[f'{qa_name}_as'] for qa_name in qa_names], axis=1)
+        qa_masks = np.concatenate([qa_npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
+    B, M = questions.shape[:2]
+    concat_vecs = np.concatenate([questions, answers], axis=-1)
+    flat_vecs = concat_vecs.reshape(-1, 768)
+    _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
+    unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
+    unique_mask_flat[unique_indices] = True
+    unique_mask = unique_mask_flat.reshape(B, M)
+    qa_masks = ~((unique_mask == True) & (qa_masks == False))
