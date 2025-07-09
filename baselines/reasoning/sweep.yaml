@@ -1,6 +1,6 @@
 program: baselines/reasoning/aux.py
 method: grid
-name: aux_only
+name: aux_analyze
 metric:
   goal: minimize
   name: eval/loss
