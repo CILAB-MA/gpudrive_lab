@@ -78,24 +78,24 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     answers = None
     qa_masks = None
     if config.use_tom:
-        qa_names = ['env', 'ego', 'sur', 'int']
+        qa_names = ['ego', 'env', 'sur', 'int']
         with np.load(os.path.join(data_path, "reasoning_" + data_file)) as qa_npz:
             questions = np.concatenate([qa_npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
             answers = np.concatenate([qa_npz[f'{qa_name}_as'] for qa_name in qa_names], axis=1)
             qa_masks = np.concatenate([qa_npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
-        B, M = questions.shape[:2]
-        concat_vecs = np.concatenate([questions, answers], axis=-1)
-        flat_vecs = concat_vecs.reshape(-1, 768)
-        _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
-        unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
-        unique_mask_flat[unique_indices] = True
-        unique_mask = unique_mask_flat.reshape(B, M)
-        qa_masks_final = ~((unique_mask == True) & (qa_masks == False))
+        # B, M = questions.shape[:2]
+        # concat_vecs = np.concatenate([questions, answers], axis=-1)
+        # flat_vecs = concat_vecs.reshape(-1, 768)
+        # _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
+        # unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
+        # unique_mask_flat[unique_indices] = True
+        # unique_mask = unique_mask_flat.reshape(B, M)
+        # qa_masks_final = ~((unique_mask == True) & (qa_masks == False))
     dataset = ReasoningDataset(
         expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, 
         use_tom=config.use_tom, questions=questions, answers=answers,
-        qa_masks=qa_masks_final
+        qa_masks=qa_masks
 
     )
     dataloader = DataLoader(
@@ -158,9 +158,9 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             dy_loss = action_loss[..., 1].mean()
             dyaw_loss = action_loss[..., 2].mean()
 
-            dx_std2_loss = action_loss[..., 0][dx_std2_mask].mean() if dx_std2_mask.sum() > 0 else 0
-            dy_std2_loss = action_loss[..., 1][dy_std2_mask].mean() if dy_std2_mask.sum() > 0 else 0
-            dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].mean() if dyaw_std2_mask.sum() > 0 else 0
+            dx_std2_loss = action_loss[..., 0][dx_std2_mask].sum() if dx_std2_mask.sum() > 0 else 0
+            dy_std2_loss = action_loss[..., 1][dy_std2_mask].sum() if dy_std2_mask.sum() > 0 else 0
+            dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].sum() if dyaw_std2_mask.sum() > 0 else 0
 
             dx_losses += dx_loss
             dy_losses += dy_loss
@@ -175,7 +175,7 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
 
             losses += loss.mean().item()
             if config.use_tom:
-                tom_losses += (0.2 * tom_loss).mean().item()
+                tom_losses += tom_loss.mean().item()
     test_loss = losses / (i + 1) 
     dx_loss = dx_losses / (i + 1) 
     dy_loss = dy_losses / (i + 1) 
@@ -252,6 +252,7 @@ def train(exp_config=None):
     stop_training = False
     if not os.path.exists(model_path):
         os.makedirs(model_path)
+    
     while gradient_steps < exp_config.total_gradient_steps and not stop_training:
         bc_policy.train()
         train_losses = 0
@@ -284,22 +285,40 @@ def train(exp_config=None):
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
-            main_grads = torch.autograd.grad(pred_loss, bc_policy.parameters(), retain_graph=True, allow_unused=True)
-            main_vec = torch.cat([g.flatten() for g in main_grads if g is not None])
             if exp_config.use_tom:
                 tom_loss = aux_loss(bc_policy, context, questions, answers, 
                     qa_masks=qa_masks)
-                aux_grads = torch.autograd.grad(tom_loss, bc_policy.parameters(), allow_unused=True)
-                aux_vec = torch.cat([g.flatten() for g in aux_grads if g is not None])
-                cos_sim = torch.nn.functional.cosine_similarity(main_vec, aux_vec, dim=0).item()
-                if torch.dot(main_vec, aux_vec) < 0:
-                    conflict_count += 1
-                cos_sims += cos_sim
                 loss += 0.2 * tom_loss
 
             loss = loss.mean()
             # Backward pass
             optimizer.zero_grad()
+
+            if exp_config.use_tom:
+                backbone_modules = [
+                    bc_policy.ego_state_net,
+                    bc_policy.road_object_net,
+                    bc_policy.road_graph_net,
+                    bc_policy.fusion_attn,
+                    bc_policy.ro_attn,
+                    bc_policy.rg_attn,
+                    bc_policy.ego_ro_attn,
+                    bc_policy.ego_rg_attn,
+                ]
+                backbone_params = []
+                for m in backbone_modules:
+                    backbone_params.extend(list(m.parameters()))
+
+                main_grads = torch.autograd.grad(pred_loss, backbone_params, retain_graph=True, allow_unused=True)
+                main_vec = torch.cat([g.flatten() for g in main_grads if g is not None])
+
+                aux_grads = torch.autograd.grad(tom_loss, backbone_params, retain_graph=True, allow_unused=True)
+                aux_vec = torch.cat([g.flatten() for g in aux_grads if g is not None])
+
+                cos_sim = torch.nn.functional.cosine_similarity(main_vec, aux_vec, dim=0).item()
+                if torch.dot(main_vec, aux_vec) < 0:
+                    conflict_count += 1
+                cos_sims += cos_sim
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
@@ -358,6 +377,7 @@ def train(exp_config=None):
             if exp_config.use_tom:
                 log_dict['train/tom_loss'] = tom_losses / (n + 1)
                 log_dict['train/conflict_grad'] = conflict_count / (n + 1)
+                log_dict['train/cosine_similarity'] = cos_sims / (n + 1)
             wandb.log(log_dict, step=gradient_steps)
     wandb.finish()
 

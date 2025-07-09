@@ -69,7 +69,10 @@ class ReasoningDataset(torch.utils.data.Dataset):
         # row, column -> 
         batch = ()
         valid_qa_indices = np.where(~self.qa_masks[idx1])[0]
-        if len(valid_qa_indices) >= self.qa_num_sample:
+        # print(idx1, idx2, valid_qa_indices)
+        if len(valid_qa_indices) == 0:
+            sample_qa = np.random.choice(np.arange(2), 1)
+        elif len(valid_qa_indices) >= self.qa_num_sample:
             sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=False)
         else:
             sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=True)
@@ -104,7 +107,7 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     qa_names = ['env', 'ego', 'sur', 'int']
-    train_data_file = f"validation_trajectory_10000.npz"
+    train_data_file = f"training_trajectory_80000.npz"
     with np.load(os.path.join('/data/full_version/processed/final/reasoning', "reasoning_" + train_data_file)) as qa_npz:
         questions = np.concatenate([qa_npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
         answers = np.concatenate([qa_npz[f'{qa_name}_as'] for qa_name in qa_names], axis=1)
@@ -117,3 +120,4 @@ if __name__ == "__main__":
     unique_mask_flat[unique_indices] = True
     unique_mask = unique_mask_flat.reshape(B, M)
     qa_masks = ~((unique_mask == True) & (qa_masks == False))
+    np.savez_compressed()
