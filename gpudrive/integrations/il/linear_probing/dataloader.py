@@ -24,11 +24,11 @@ class FutureDataset(torch.utils.data.Dataset):
         new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
         new_valid_mask[:, rollout_len - 1:] = valid_masks
         self.valid_masks = new_valid_mask.astype('bool')
+        #### 
         if partner_labels is not None:
-            new_shape = (B, T + rollout_len - 1, 127)
-            new_label_mask = np.full(new_shape, -1, dtype=np.float32)
-            new_label_mask[:, rollout_len - 1:] = partner_labels
-            self.partner_labels = new_label_mask
+            partner_labels_pad = np.zeros((partner_labels.shape[0], future_step, *partner_labels.shape[2:]), dtype=np.int16)
+            partner_labels_new = np.concatenate([partner_labels, partner_labels_pad], axis=1).astype('bool')[:, future_step:]
+            self.partner_labels = partner_labels_new
         if ego_labels is not None:
             self.ego_labels = ego_labels
         if exp == 'other':

@@ -289,7 +289,7 @@ def train(exp_config=None):
                         future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
                         masked_pos = pred_pos[future_mask]
                         masked_label = labels[future_mask]
-                        # get future expert action
+                        # get future expert actionpartner_mask
                         future_pos = future_pos.clone()
                         masked_pos_label = future_pos[future_mask]
                         ood_mask = (masked_pos_label[..., None] == ood_label_tensor).any(dim=-1)
@@ -316,10 +316,11 @@ def train(exp_config=None):
                         correct_mask = pred_classes == masked_pos_label
                         correct_one_hot = one_hot & correct_mask.unsqueeze(-1)
                         correct_per_class = correct_one_hot.sum(dim=0)
-                        labeled_acc += correct_per_class
-                        labeled_sum += cls_totals
+                        labeled_acc += correct_per_class.cpu()
+                        labeled_sum += cls_totals.cpu()
 
                     # get F1 scores
+                    
                     pos_class = pos_class.detach().cpu().numpy()
                     masked_pos_label = masked_pos_label.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_pos_label, average='macro')
