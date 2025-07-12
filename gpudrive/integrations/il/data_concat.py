@@ -78,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'],)
     args = parser.parse_args()
     save_path = "/data/full_version/processed/final"
-    save_name = f'{args.dataset}_trajectory_{args.num_scene}_label.npz'
+    save_name = f'label/{args.dataset}_trajectory_{args.num_scene}.npz'
     subset_path = f"/data/full_version/processed/{args.dataset}_subset_v2"
     os.makedirs(save_path, exist_ok=True)
     run(save_path, save_name, subset_path, args.num_scene, args.start_idx)

@@ -104,9 +104,9 @@ if __name__ == "__main__":
         partner_mask = env.get_partner_mask()
         road_mask = env.get_road_mask()
         alive_agent_num = env.cont_agent_mask.sum().item()
-        expert_partner_label_lst = np.full((alive_agent_num, env.episode_len, 127), 4)
+        expert_partner_label_lst = np.full((alive_agent_num, env.episode_len, 127), -1)
         expert_ego_label_lst = np.full((alive_agent_num, 1), 4)
-        expert_partner_id_lst = torch.full((alive_agent_num, env.episode_len, 127), 4, device="cuda", dtype=torch.long)
+        expert_partner_id_lst = torch.full((alive_agent_num, env.episode_len, 127), -1, device="cuda", dtype=torch.long)
         expert_actions, _, _, _, expert_valids = env.get_expert_actions()
         alive_agent_mask = env.cont_agent_mask.clone()
         alive_sum = alive_agent_mask.sum(-1)
@@ -146,8 +146,7 @@ if __name__ == "__main__":
         scene_idx = np.arange(idx * NUM_WORLDS, (idx + 1) * NUM_WORLDS)
         index_array = index_array + idx * NUM_WORLDS
         index_array = index_array[~collision.cpu()]
-        ego_ids = ego_ids[~collision.cpu()]
-        ego_ids_np = ego_ids.cpu().numpy()
+        ego_ids_np = ego_ids.cpu().int().numpy()
         expert_partner_id_lst = expert_partner_id_lst[~collision]
         expert_partner_id_lst = expert_partner_id_lst.cpu().numpy()
         expert_partner_id_lst_flat = expert_partner_id_lst.reshape(-1)
@@ -160,9 +159,9 @@ if __name__ == "__main__":
         expert_partner_label_lst = expert_partner_label_lst.reshape(expert_partner_id_lst.shape)
         done_step = done_step[~collision.cpu()]
         scene_labels = scene_labels[~collision.cpu()]
-        np.savez_compressed(f'{SAVE_DIR}/label_trajectory_{args.scene_batch_size * idx}.npz',
-                            partner_label=expert_partner_label_lst,
-                            ego_label=scene_labels)
+        # np.savez_compressed(f'{SAVE_DIR}/label_trajectory_{args.scene_batch_size * idx}.npz',
+        #                     partner_label=expert_partner_label_lst,
+        #                     ego_label=scene_labels)
         print(f'alive agent: {len(index_array)}')
             
         if idx != num_iter - 1:
