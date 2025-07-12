@@ -5,7 +5,8 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class FutureDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None,
-                 rollout_len=5, pred_len=1, future_step=1, exp='other', xy_range=None):
+                 rollout_len=5, pred_len=1, future_step=1, exp='other', xy_range=None, 
+                 partner_labels=None, ego_labels=None):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -23,7 +24,13 @@ class FutureDataset(torch.utils.data.Dataset):
         new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
         new_valid_mask[:, rollout_len - 1:] = valid_masks
         self.valid_masks = new_valid_mask.astype('bool')
-
+        #### 
+        if partner_labels is not None:
+            partner_labels_pad = np.zeros((partner_labels.shape[0], future_step, *partner_labels.shape[2:]), dtype=np.int16)
+            partner_labels_new = np.concatenate([partner_labels, partner_labels_pad], axis=1).astype('bool')[:, future_step:]
+            self.partner_labels = partner_labels_new
+        if ego_labels is not None:
+            self.ego_labels = ego_labels
         if exp == 'other':
             # future partner_mask
             partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
@@ -67,6 +74,11 @@ class FutureDataset(torch.utils.data.Dataset):
             self.full_var += ['aux_mask', 'other_pos']
         else:
             self.full_var += ['future_valid_mask', 'ego_pos']
+        if partner_labels is not None:
+            self.full_var += ['partner_labels']
+        if ego_labels is not None:
+            self.full_var += ['ego_labels']
+
     def __len__(self):
         return len(self.valid_indices)
 
@@ -214,8 +226,10 @@ class FutureDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
-                    elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask', 'ego_pos']:
+                    elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask', 'ego_pos', 'partner_labels']:
                         data = self.__dict__[var_name][idx1, idx2]
+                    elif var_name == 'ego_labels':
+                        data = self.__dict__[var_name][idx1]
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
                     batch = batch + (data, )

@@ -48,20 +48,28 @@ def set_seed(seed=42, deterministic=False):
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
     with np.load(os.path.join(data_path, data_file)) as npz:
+        ego_labels = None
+        partner_labels = None
         expert_obs = npz['obs']
         expert_actions = npz['actions']
         expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
         partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
         road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
+        if config.exp == 'ego':
+            ego_labels = npz['ego_labels'].astype('int') if 'ego_labels' in npz.keys() else None
+        if config.exp == 'other':
+            partner_labels = npz['partner_labels'].astype('int') if 'partner_labels' in npz.keys() else None
     ego_global_pos = None
     ego_global_rot = None
+    if 'validation' in data_file:
+        data_file = data_file[6:]
     with np.load(os.path.join(data_path, "global_" + data_file)) as global_npz:
         ego_global_pos = global_npz['ego_global_pos']
         ego_global_rot = global_npz['ego_global_rot']
     dataset = FutureDataset(
         expert_obs, expert_actions, ego_global_pos, ego_global_rot, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, future_step=config.future_step,
-        exp=config.exp
+        exp=config.exp, partner_labels=partner_labels, ego_labels=ego_labels
     )
     dataloader = DataLoader(
         dataset,
@@ -143,7 +151,7 @@ def train(exp_config=None):
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_2500.npz"
+    eval_data_file =  f"label/validation_trajectory_2500.npz"
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=exp_config.lr, eps=0.0001)
 
@@ -243,9 +251,11 @@ def train(exp_config=None):
                 action_losses = []
                 lp_losses = []
                 ood_classes, ood_labels = [], []
+                labeled_acc = torch.zeros(5)
+                labeled_sum = torch.zeros(5)
                 num_oods = 0
                 for j, batch in enumerate(eval_expert_data_loader):
-                    obs, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
+                    obs, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos, labels = batch
                     with torch.no_grad():
                         obs = obs.to("cuda")
                         actions = actions.to("cuda")
@@ -254,6 +264,7 @@ def train(exp_config=None):
                         future_mask = future_mask.to("cuda")
                         partner_mask = partner_mask.to("cuda")
                         road_mask = road_mask.to("cuda")
+                        labels = labels.to("cuda")[:, -1]
                         all_masks= [partner_mask, road_mask]
                     if exp_config.model == 'baseline':
                         baseline_obs = obs[..., :6].reshape(-1, 30)
@@ -277,8 +288,8 @@ def train(exp_config=None):
                         pred_pos = pos_linear_model(lp_input)
                         future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
                         masked_pos = pred_pos[future_mask]
-                            
-                        # get future expert action
+                        masked_label = labels[future_mask]
+                        # get future expert actionpartner_mask
                         future_pos = future_pos.clone()
                         masked_pos_label = future_pos[future_mask]
                         ood_mask = (masked_pos_label[..., None] == ood_label_tensor).any(dim=-1)
@@ -299,8 +310,17 @@ def train(exp_config=None):
                             num_oods += num_ood
                             ood_classes.append(ood_class)
                             ood_labels.append(ood_pos_label)
+                        pred_classes = masked_pos.argmax(-1) 
+                        one_hot = torch.nn.functional.one_hot(masked_label.long(), num_classes=5).bool()
+                        cls_totals = one_hot.sum(dim=0)
+                        correct_mask = pred_classes == masked_pos_label
+                        correct_one_hot = one_hot & correct_mask.unsqueeze(-1)
+                        correct_per_class = correct_one_hot.sum(dim=0)
+                        labeled_acc += correct_per_class.cpu()
+                        labeled_sum += cls_totals.cpu()
 
                     # get F1 scores
+                    
                     pos_class = pos_class.detach().cpu().numpy()
                     masked_pos_label = masked_pos_label.detach().cpu().numpy()
                     pos_f1_macro = f1_score(pos_class, masked_pos_label, average='macro')
@@ -324,6 +344,7 @@ def train(exp_config=None):
                             "eval/ood_f1_macro": ood_f1_macro,
                         }, step=gradient_steps
                     )
+
                 if test_pos_losses < best_loss:
                     save_dir = os.path.join(exp_config.model_path, f"{exp_config.exp}_linear_prob/{exp_config.model_name}/seed{exp_config.seed}/")
                     os.makedirs(save_dir, exist_ok=True)
