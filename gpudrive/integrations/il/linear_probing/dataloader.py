@@ -27,7 +27,7 @@ class FutureDataset(torch.utils.data.Dataset):
         #### 
         if partner_labels is not None:
             partner_labels_pad = np.zeros((partner_labels.shape[0], future_step, *partner_labels.shape[2:]), dtype=np.int16)
-            partner_labels_new = np.concatenate([partner_labels, partner_labels_pad], axis=1).astype('bool')[:, future_step:]
+            partner_labels_new = np.concatenate([partner_labels, partner_labels_pad], axis=1)[:, future_step:]
             self.partner_labels = partner_labels_new
         if ego_labels is not None:
             self.ego_labels = ego_labels

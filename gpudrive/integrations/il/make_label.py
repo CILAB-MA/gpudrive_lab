@@ -101,7 +101,6 @@ if __name__ == "__main__":
         obs = env.reset()
         off_road = 0
         veh_collision = 0
-        partner_mask = env.get_partner_mask()
         road_mask = env.get_road_mask()
         alive_agent_num = env.cont_agent_mask.sum().item()
         expert_partner_label_lst = np.full((alive_agent_num, env.episode_len, 127), -1)
@@ -125,6 +124,7 @@ if __name__ == "__main__":
             partner_ids = env.partner_ids.clone()[alive_agent_mask].int()
             expert_partner_id_lst[:, t] = partner_ids
             expert_actions, _, _, _, _ = env.get_expert_actions()
+            partner_mask = env.get_partner_mask()[alive_agent_mask]
             env.step_dynamics(expert_actions[:, :, t, :])
             expert_actions_t = expert_actions[:, :, t, :]
             control_actions = expert_actions_t[alive_agent_mask]
@@ -145,24 +145,24 @@ if __name__ == "__main__":
         save_path = f"/data/full_version/"
         scene_idx = np.arange(idx * NUM_WORLDS, (idx + 1) * NUM_WORLDS)
         index_array = index_array + idx * NUM_WORLDS
-        index_array = index_array[~collision.cpu()]
+        index_array_np = index_array.cpu().numpy()
         ego_ids_np = ego_ids.cpu().int().numpy()
-        expert_partner_id_lst = expert_partner_id_lst[~collision]
+        N, T, M = expert_partner_id_lst.shape
+        scene_ego_keys = list(zip(index_array_np, ego_ids_np))
         expert_partner_id_lst = expert_partner_id_lst.cpu().numpy()
         expert_partner_id_lst_flat = expert_partner_id_lst.reshape(-1)
-        id_to_label = dict(zip(ego_ids_np, scene_labels))
-        valid_mask = expert_partner_id_lst_flat >= 0
-        valid_ids = expert_partner_id_lst_flat[valid_mask]
-        labels = np.array([id_to_label[pid] if pid in id_to_label else -1 for pid in valid_ids])
-        expert_partner_label_lst = expert_partner_label_lst[~collision.cpu()].reshape(-1)
-        expert_partner_label_lst[valid_mask] = labels
-        expert_partner_label_lst = expert_partner_label_lst.reshape(expert_partner_id_lst.shape)
+        id_to_label = {key: label for key, label in zip(scene_ego_keys, scene_labels)}
+        scene_idx_expanded = np.repeat(index_array[:, None, None], T * M).reshape(N, T, M)
+        partner_ids_flat = expert_partner_id_lst.reshape(-1)
+        scene_idx_flat = scene_idx_expanded.reshape(-1).numpy()
+        labels_flat = np.array([id_to_label.get((s, pid), -1) for s, pid in zip(scene_idx_flat, partner_ids_flat)])
+        partner_labels = labels_flat.reshape(N, T, M)[~collision.cpu()]
         done_step = done_step[~collision.cpu()]
         scene_labels = scene_labels[~collision.cpu()]
-        # np.savez_compressed(f'{SAVE_DIR}/label_trajectory_{args.scene_batch_size * idx}.npz',
-        #                     partner_label=expert_partner_label_lst,
-        #                     ego_label=scene_labels)
-        print(f'alive agent: {len(index_array)}')
+        np.savez_compressed(f'{SAVE_DIR}/label_trajectory_{args.scene_batch_size * idx}.npz',
+                            partner_label=partner_labels,
+                            ego_label=scene_labels)
+        print(f'alive agent: {len(done_step)}')
             
         if idx != num_iter - 1:
             env.swap_data_batch()     

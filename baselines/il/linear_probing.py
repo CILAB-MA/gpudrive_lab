@@ -264,7 +264,7 @@ def train(exp_config=None):
                         future_mask = future_mask.to("cuda")
                         partner_mask = partner_mask.to("cuda")
                         road_mask = road_mask.to("cuda")
-                        labels = labels.to("cuda")[:, -1]
+                        labels = labels.to("cuda")
                         all_masks= [partner_mask, road_mask]
                     if exp_config.model == 'baseline':
                         baseline_obs = obs[..., :6].reshape(-1, 30)
@@ -311,9 +311,13 @@ def train(exp_config=None):
                             ood_classes.append(ood_class)
                             ood_labels.append(ood_pos_label)
                         pred_classes = masked_pos.argmax(-1) 
-                        one_hot = torch.nn.functional.one_hot(masked_label.long(), num_classes=5).bool()
+                        error_mask = masked_label == -1
+                        filtered_label = masked_label[~error_mask]
+                        filtered_pos_label = masked_pos_label[~error_mask]
+                        filtered_pred_classes = pred_classes[~error_mask]
+                        one_hot = torch.nn.functional.one_hot(filtered_label.long(), num_classes=5).bool()
                         cls_totals = one_hot.sum(dim=0)
-                        correct_mask = pred_classes == masked_pos_label
+                        correct_mask = filtered_pred_classes == filtered_pos_label
                         correct_one_hot = one_hot & correct_mask.unsqueeze(-1)
                         correct_per_class = correct_one_hot.sum(dim=0)
                         labeled_acc += correct_per_class.cpu()
@@ -330,10 +334,10 @@ def train(exp_config=None):
                     test_pos_f1_macros += pos_f1_macro
 
                 if exp_config.use_wandb:
+                    labeled_numpy = labeled_acc.numpy() / labeled_sum.numpy()
                     if len(ood_class) > 0:
                         ood_classes = np.concatenate(ood_classes,axis=0)
                         ood_labels = np.concatenate(ood_labels, axis=0)
-                        ood_f1_macro = f1_score(ood_classes, ood_labels, average='macro')
                     wandb.log(
                         {
                             "eval/pos_accuracy": test_pos_accuracys / (j + 1 - test_continue_num),
@@ -341,10 +345,12 @@ def train(exp_config=None):
                             "eval/pos_f1_macro": test_pos_f1_macros / (j + 1 - test_continue_num),
                             "eval/ood_accuracy": test_ood_accuracys / num_oods,
                             "eval/ood_loss": test_ood_losses / num_oods,
-                            "eval/ood_f1_macro": ood_f1_macro,
+                            "eval/retreat_acc": labeled_numpy[1],
+                            "eval/turn_acc": labeled_numpy[2],
+                            "eval/straight_acc": labeled_numpy[3],
+                            "eval/normal_acc": labeled_numpy[4],
                         }, step=gradient_steps
                     )
-
                 if test_pos_losses < best_loss:
                     save_dir = os.path.join(exp_config.model_path, f"{exp_config.exp}_linear_prob/{exp_config.model_name}/seed{exp_config.seed}/")
                     os.makedirs(save_dir, exist_ok=True)
