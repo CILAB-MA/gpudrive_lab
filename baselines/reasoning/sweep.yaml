@@ -1,6 +1,6 @@
 program: baselines/reasoning/aux.py
 method: grid
-name: test_pcgrad
+name: pcgrad_tom
 metric:
   goal: minimize
   name: eval/loss
@@ -20,4 +20,4 @@ parameters:
     values: [[4, 3]]
   # AUXCONFIG
   use_tom:
-    values: ['PCGrad'] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+    values: ['PCGrad', True] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
