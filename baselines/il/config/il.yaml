@@ -15,6 +15,8 @@ base_path: '/data/full_version'
 model_path: 'model'
 data_path: 'processed/final'
 num_scene: 1000
+grad_norm: 10
+
 # DATA CONFIG
 num_workers: 4
 prefetch_factor: 2
@@ -38,6 +40,7 @@ action_dim: 3
 n_components: 6
 time_dim: 1
 clip_value: -20.0
+cov_clip: 1.792
 
 # AUXCONFIG
 use_tom: null # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted
