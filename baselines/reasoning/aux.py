@@ -22,7 +22,7 @@ from gpudrive.integrations.reasoning.dataloader import ReasoningDataset
 from gpudrive.integrations.reasoning.model import EarlyFusionAttnAuxNet
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
 from gpudrive.integrations.il.loss import gmm_loss, aux_loss
-# from algorithms.il.utils import *
+from gpudrive.integrations.reasoning.pcgrad import PCGrad
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -210,13 +210,13 @@ def train(exp_config=None):
             else:    
                 wandb_dict[k] = v    
         exp_config = Box(wandb_dict)
-        if exp_config.use_tom:
+        if exp_config.use_tom != False:
             model_name = 'aux_attn'
         else:
             model_name = 'early_attn'
         wandb.run.name = f"{model_name}_{exp_config.seed}"
         wandb.run.save()
-    if exp_config.use_tom:
+    if exp_config.use_tom != False:
         model_name = 'aux_attn'
     else:
         model_name = 'early_attn'
@@ -225,6 +225,11 @@ def train(exp_config=None):
     # Initialize model and optimizer
     bc_policy = MODELS[model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
+    if exp_config.use_tom == 'PCGrad':
+        use_pcgrad = True
+    
+    if use_pcgrad:
+        optimizer = PCGrad(optimizer) 
     print(bc_policy)
     
     # Model Params wandb update
@@ -264,11 +269,11 @@ def train(exp_config=None):
         cos_sims = 0
         conflict_count = 0
         max_names = []
-        
+        norm_ratio = 0
         for n, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
-            if exp_config.use_tom:
+            if exp_config.use_tom != False:
                 obs, expert_action, partner_masks, road_masks, questions, answers, qa_masks, _ = batch
                 questions = questions.to(exp_config.device).float()
                 answers = answers.to(exp_config.device).float()
@@ -285,7 +290,7 @@ def train(exp_config=None):
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
-            if exp_config.use_tom:
+            if exp_config.use_tom != False:
                 tom_loss = aux_loss(bc_policy, context, questions, answers, 
                     qa_masks=qa_masks)
                 loss += 0.2 * tom_loss
@@ -294,7 +299,7 @@ def train(exp_config=None):
             # Backward pass
             optimizer.zero_grad()
 
-            if exp_config.use_tom:
+            if exp_config.use_tom != False:
                 backbone_modules = [
                     bc_policy.ego_state_net,
                     bc_policy.road_object_net,
@@ -314,12 +319,18 @@ def train(exp_config=None):
 
                 aux_grads = torch.autograd.grad(tom_loss, backbone_params, retain_graph=True, allow_unused=True)
                 aux_vec = torch.cat([g.flatten() for g in aux_grads if g is not None])
-
+                main_norm = main_vec.norm().item()
+                aux_norm = aux_vec.norm().item()
+                ratio = aux_norm / (main_norm + 1e-8)
+                norm_ratio += ratio
                 cos_sim = torch.nn.functional.cosine_similarity(main_vec, aux_vec, dim=0).item()
                 if torch.dot(main_vec, aux_vec) < 0:
                     conflict_count += 1
                 cos_sims += cos_sim
-            loss.backward()
+            if use_pcgrad:
+                optimizer.pc_backward([pred_loss, 0.2 * tom_loss])
+            else:
+                loss.backward()
 
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), 10)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
@@ -339,7 +350,7 @@ def train(exp_config=None):
                 dx_losses += dx_loss
                 dy_losses += dy_loss
                 dyaw_losses += dyaw_loss
-                if exp_config.use_tom:
+                if exp_config.use_tom != False:
                     tom_losses += tom_loss.mean().item()
             train_losses += pred_loss.item()
                 
@@ -358,7 +369,7 @@ def train(exp_config=None):
                             "eval/dy_std2_loss": test_dy_std2_loss,
                             "eval/dyaw_std2_loss": test_dyaw_std2_loss,
                         }
-                    if exp_config.use_tom:
+                    if exp_config.use_tom != False:
                         log_dict['eval/tom_loss'] = test_tom_losses
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
@@ -374,10 +385,11 @@ def train(exp_config=None):
                     "train/dyaw_loss": dyaw_losses / (n + 1),
                     "train/max_grad_norm": max_norms / (n + 1),
                 }
-            if exp_config.use_tom:
+            if exp_config.use_tom != False:
                 log_dict['train/tom_loss'] = tom_losses / (n + 1)
                 log_dict['train/conflict_grad'] = conflict_count / (n + 1)
                 log_dict['train/cosine_similarity'] = cos_sims / (n + 1)
+                log_dict['train/norm_ratio'] = norm_ratio / (n + 1)
             wandb.log(log_dict, step=gradient_steps)
     wandb.finish()
 
