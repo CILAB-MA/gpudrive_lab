@@ -765,6 +765,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             device=self.device,
             mask=mask,
         )
+        self.ego_ids = ego_state.id
         if self.config.norm_obs:
             ego_state.normalize()
 
