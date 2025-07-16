@@ -1688,6 +1688,9 @@ class MatplotlibVisualizer:
                     & (vehicle_width < 15)
                 )
             )
+            if valid_mask.sum() == 0:
+                figs.append(f_h)
+                continue
 
             bboxes = np.stack(
                 (

@@ -180,7 +180,16 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         _ = model.eval()
         return model
+    
     def get_global_state(self):
+        global_agent_obs = GlobalEgoState.from_tensor(
+            abs_self_obs_tensor=self.sim.absolute_self_observation_tensor(),
+            backend=self.backend,
+            device=self.device,
+        )
+        return global_agent_obs
+    
+    def get_global_pos(self):
         global_agent_obs = GlobalEgoState.from_tensor(
             abs_self_obs_tensor=self.sim.absolute_self_observation_tensor(),
             backend=self.backend,
@@ -188,8 +197,21 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         pos_x = global_agent_obs.pos_x
         pos_y = global_agent_obs.pos_y
-        pos = torch.cat([pos_x, pos_y], dim=-1)
+        pos = torch.stack([pos_x, pos_y], dim=-1)
         return pos
+    
+    def get_partner_pos(self):
+        """Get the positions of partner agents."""
+        partner_obs = PartnerObs.from_tensor(
+            partner_obs_tensor=self.sim.partner_observations_tensor(),
+            backend=self.backend,
+            device=self.device,
+        )
+        partner_obs.normalize()
+        partner_pos_x = partner_obs.rel_pos_x
+        partner_pos_y = partner_obs.rel_pos_y
+        return torch.cat([partner_pos_x, partner_pos_y], dim=-1)
+    
     def _generate_sample_batch(self, init_steps=10):
         """Generate a sample batch for the VBD model."""
         means_xy = (
