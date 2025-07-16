@@ -1,6 +1,6 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: lp_covclip
+name: test_scene_label
 metric:
   goal: minimize
   name: eval/loss
@@ -14,7 +14,7 @@ parameters:
   future_step:
     values: [10, 20, 30, 40]
   exp:
-    values: ['other', 'ego']
+    values: ['other']
   model:
     values: ['early_lp', 'final_lp']
   # EXPERIMENT
