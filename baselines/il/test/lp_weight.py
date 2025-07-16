@@ -99,12 +99,13 @@ def run(args, env, bc_policy, lp_model, scene_batch_idx, future_step):
         road_mask = env.get_road_mask().to("cuda")
         partner_mask = env.get_partner_mask().to("cuda")
         partner_mask_bool = partner_mask == 2
+        lp_partner_mask_bool = torch.logical_or(partner_mask == 2, partner_mask == 1)
         ego_global_state = env.get_global_state()
-        ego_global_pos[:, time_step] = torch.stack((ego_global_state.pos_x, ego_global_state.pos_y), dim=-1)[alive_agent_mask]
-        ego_global_rot[:, time_step] = ego_global_state.rotation_angle[alive_agent_mask]
+        ego_global_pos[:, time_step][alive_agent_mask.sum(-1) == 1] = torch.stack((ego_global_state.pos_x, ego_global_state.pos_y), dim=-1)[alive_agent_mask]
+        ego_global_rot[:, time_step][alive_agent_mask.sum(-1) == 1] = ego_global_state.rotation_angle[alive_agent_mask]
         partner_pos = env.get_partner_pos()
-        other_relative_pos[:, time_step] = partner_pos[alive_agent_mask]
-        other_relative_mask[:, time_step] = partner_mask_bool[alive_agent_mask]
+        other_relative_pos[:, time_step][alive_agent_mask.sum(-1) == 1] = partner_pos[alive_agent_mask]
+        other_relative_mask[:, time_step][alive_agent_mask.sum(-1) == 1] = lp_partner_mask_bool[alive_agent_mask]
         all_masks = [partner_mask_bool[~dead_agent_mask].unsqueeze(1), road_mask[~dead_agent_mask].unsqueeze(1)]
         with torch.no_grad():
             # for padding zero
@@ -136,7 +137,6 @@ def run(args, env, bc_policy, lp_model, scene_batch_idx, future_step):
     y_bins = torch.clamp(y_bins, 0, 7)
     label_discrete_pos = x_bins * 8 + y_bins
     label_discrete_pos = label_discrete_pos.cuda()
-    
     
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
@@ -209,8 +209,8 @@ def run(args, env, bc_policy, lp_model, scene_batch_idx, future_step):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=5) # total_world
-    parser.add_argument('--batch-size', type=int, default=5) # num_world
+    parser.add_argument('--dataset-size', type=int, default=1000) # total_world
+    parser.add_argument('--batch-size', type=int, default=20) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/cov1792_clip10')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0630_072820_60000.pth')
