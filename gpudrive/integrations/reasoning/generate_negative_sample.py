@@ -5,22 +5,42 @@ import argparse
 import mediapy as media
 import numpy as np
 
-from gpudrive.env.env_torch import GPUDriveTorchEnv
-from gpudrive.env.config import EnvConfig, RenderConfig
-from gpudrive.env.dataset import SceneDataLoader
-from gpudrive.visualize.utils import img_from_fig
 from tqdm import tqdm
 
 import torch
 import numpy as np
 import os
 import re
+from collections import defaultdict
+import random
+def group_answers_by_unique_question(int_qa):
+    q_to_a = defaultdict(list)
+    for q, a in int_qa:
+        q_to_a[q].append(a)
+    return q_to_a
 
+def extract_agent_numbers(sentence):
+    agent_numbers = set()
+    matches = re.findall(r"#(\d+)", sentence)
+    agent_numbers.update(matches)
+    return sorted(agent_numbers, key=int)
 
-def generate_all_neg_ego(answers):
+def simple_remap_ids(texts, original_ids):
+    mapping = {oid: str(random.randint(0, 15)) for oid in original_ids}
+    remapped = []
+    for text in texts:
+        for oid in original_ids:
+            text = text.replace(f"#{oid}", f"#{mapping[oid]}")
+        remapped.append(text)
+    return remapped, mapping
+
+def generate_all_neg(questions, answers, qa_type='int'):
     neg_answers = []
-    for answer in answers:
-        neg_answer = generate_negative_ego(answer)
+    for question, answer in zip(questions, answers):
+        if qa_type == 'ego':
+            neg_answer = generate_negative_ego(answer)
+        if qa_type == 'int':
+            neg_answer = generate_negative_int(question, answer)
         neg_answers.append(neg_answer)
         # if 'only lane' in answer:
         #     print(answer)
@@ -28,8 +48,82 @@ def generate_all_neg_ego(answers):
     answer_pairs = np.concatenate([answers.reshape(-1, 1), neg_answers.reshape(-1, 1)], axis=-1)
     return answer_pairs
 
-import numpy as np
-import re
+def generate_negative_int(question, answer):
+    neg_answer = answer.copy()
+    change = False
+    q_target = extract_agent_numbers(question)
+    a_target = extract_agent_numbers(answer)
+    if q_target == [] and len(a_target) > 0:
+        mapping = {oid: str(random.randint(0, 10)) for oid in a_target}
+        for oid, nid in mapping.items():
+            neg_answer = neg_answer.replace(f"#{oid}", f"#{nid}")
+    replacements = [
+    ('yield', 'not yield'),
+    ('constant speed', np.random.choice(['accelerating', 'decelerating'])),
+    ('maintain', np.random.choice(['be closer', 'be further'])),
+    ('already in', np.random.choice(['approaching', 'departing from'])),
+    ('approaching', np.random.choice(['already in', 'departing from'])),
+    ('departing from', np.random.choice(['already in', 'approaching'])),
+    ('left', 'right'),
+    ('faster', 'slower'),
+    ('lead ', 'follow '),
+    ('be overtaken by', 'stay ahead of'),
+    ('right', 'left'),
+    ('stationary', 'moving'),
+    ('behind', 'in front of'),
+    ('is at', 'is not at'),
+    ('not ', ''),
+    (' no ', ' '),
+    ('without any', 'with potential'),
+    ('exit', 'enter'),
+    ('opposite ', 'same '),
+    ('same ', np.random.choice(['opposite ', 'differnt '])),
+    ('different', 'same'),
+    (' pass ', ' block '),
+    (' stop ', ' continue '),
+    ('passed by', 'block'),
+    ("will be overtaking", "will not overtake"),
+    ("moving from the side to the front of the ego agent", "remaining behind"),
+    ("continue to decelerate", "accelerate"),
+    ("remain in front", "fall behind"),
+    (' towards', ' away from'),
+    ('remains stationary', 'starts moving'),
+    ('accelerating', 'decelerating'),
+    ('decelerating', 'accelerating'),
+    ('intends to continue', 'does not intend to continue'),
+    ('managing its speed to navigate', 'stop before'),
+    ('depart from', 'enter'),
+    ('slow down', 'speed up'),
+    ('slightly', 'significantly'),
+    ('slower', 'faster'),
+    ("stay still", "move into the ego agent's path"),
+    ('continue towards', 'avoid'),
+    ('follow', 'overtake'),
+    ('overtake', 'follow'),
+    ('high', 'slow'),
+    ('adjacent', 'non-adjacent'),
+    ('due to', 'despite'),
+    ('ahead of', 'behind'),
+    (' away from', ' towards'),
+    ("managing its speed to navigate", "stop before"),
+    ('No.', 'Yes.'),
+    ('acceleration', 'deceleration'),
+    ('continues to move forward', 'slows down to avoid collision'),
+    ('to the side', 'in front of and in the path of'),
+    ('increasing', 'decreasing'),
+    ('decreasing', 'increasing'),
+    ('ahead of', 'behind'),
+    ("in close proximity to", "far from"),
+    ("suggesting a potential interaction", "indicating no interaction is expected"),
+    ("managing its speed to navigate", "stop before"),
+    ]
+    for orig, new in replacements:
+        if orig in answer:
+            change = True
+            neg_answer = neg_answer.replace(orig, new)
+    if not change:
+        neg_answer = None
+    return neg_answer
 
 def generate_negative_ego(answer):
     neg_answer = answer.copy()
@@ -62,7 +156,6 @@ def generate_negative_ego(answer):
         ('departing from', 'approaching'),
         ('only lane', f"{np.random.randint(3)} lane from the {np.random.choice(['left', 'right'])}"),
         ('no stop sign', '1 stop sign'),
-        ('heading towards', 'heading away from'),
         ('exiting', 'approaching'),
         ('is in', 'is exiting'),
         ('not ', ''),  # remove negation
@@ -87,6 +180,7 @@ def generate_negative_ego(answer):
         ('only one lane', 'multiple lanes'),
         ('four lanes on', 'no lanes on'),
         ('decreasing', 'increasing'),
+        ('increasing', 'decreasing'),
         ('will encounter a speed bump', 'will not encounter a speed bump'),
         ('maintaining its speed', 'changing its speed'),
     ]
@@ -195,6 +289,7 @@ if __name__ == '__main__':
     ego_as = []
     sur_as = []
     int_as = []
+    int_qas = []
     for idx in range(num_iter):
         if idx != num_iter - 1:
             with open(f"/data/full_version/processed/reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
@@ -203,13 +298,23 @@ if __name__ == '__main__':
                 env_qa = np.array(d['env_qa'])
                 ego_qa = np.array(d['ego_qa'])
                 sur_qa = np.array(d['sur_qa'])
-                # print('Q:',ego_qa[:, 0])
-                # print('A:', ego_qa[:, 1])
-                answer_pairs = generate_all_neg_ego(ego_qa[:, 1])
+                int_qa = np.array(d['int_qa'])
+                if len(int_qa) > 0:
+                    int_qas.append(int_qa)
+                # print('Q:',int_qa[:, 0])
+                # print('A:', int_qa[:, 1])
+                # answer_pairs = generate_all_neg(ego_qa[:, 0], ego_qa[:, 1], qa_type='ego')
+                if len(int_qa) > 0:
+                    answer_pairs = generate_all_neg(int_qa[:, 0], int_qa[:, 1], qa_type='int')
                 generation_ratio = (answer_pairs[:, 1] != None).sum() / len(answer_pairs)
                 # print(f"Negative Generation Ratio: {generation_ratio:.4f}")
+                # print('A:',answer_pairs)
                 none_mask = answer_pairs[:, 1] == None
                 none_negative = answer_pairs[none_mask]
                 if len(none_negative) > 0:
                     print('A:', none_negative)
-                int_qa = np.array(d['int_qa'])
+    # int_qas = np.concatenate(int_qas, axis=0)
+    # q_to_a = group_answers_by_unique_question(int_qas)
+    # for q, a in q_to_a.items():
+    #     print(f'{q}: {a}')
+    #     print('---------------------------------------------------------------------------')
