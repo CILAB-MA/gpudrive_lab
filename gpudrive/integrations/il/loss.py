@@ -48,6 +48,17 @@ def gmm_loss(model, context, expert_actions):
     loss = -torch.logsumexp(weighted_log_probs, dim=-1)
     return loss.mean(), loss.detach()
 
+def nll_loss(model, context, expert_actions, masks=None):
+    means, log_std = model.head.get_dist_params(context)
+    stds = torch.exp(log_std)
+
+    gaussian = Normal(means, stds)
+    log_probs = gaussian.log_prob(expert_actions.squeeze(1))
+    
+    # loss = -log_probs.sum(dim=-1)
+    # return loss.mean()
+    return -log_probs
+
 def l1_loss(model, context, expert_actions):
     pred_actions = model.get_action(context, deterministic=True)
     loss = F.smooth_l1_loss(pred_actions, expert_actions)

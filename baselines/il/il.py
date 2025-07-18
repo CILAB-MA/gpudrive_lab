@@ -20,11 +20,144 @@ from box import Box
 # GPUDrive
 from gpudrive.integrations.il.dataloader import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
-from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss, focal_loss
+from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss, focal_loss, nll_loss
 # from algorithms.il.utils import *
+import copy, random
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+class PCGrad():
+    def __init__(self, optimizer, reduction='mean'):
+        self._optim, self._reduction = optimizer, reduction
+        return
+
+    @property
+    def optimizer(self):
+        return self._optim
+
+    def zero_grad(self):
+        '''
+        clear the gradient of the parameters
+        '''
+
+        return self._optim.zero_grad(set_to_none=True)
+
+    def step(self):
+        '''
+        update the parameters with the gradient
+        '''
+
+        return self._optim.step()
+
+    def pc_backward(self, objectives):
+        '''
+        calculate the gradient of the parameters
+
+        input:
+        - objectives: a list of objectives
+        '''
+
+        grads, shapes, has_grads = self._pack_grad(objectives)
+        pc_grad = self._project_conflicting(grads, has_grads)
+        pc_grad = self._unflatten_grad(pc_grad, shapes[0])
+        self._set_grad(pc_grad)
+        return
+
+    def _project_conflicting(self, grads, has_grads, shapes=None):
+        shared = torch.stack(has_grads).prod(0).bool()
+        pc_grad, num_task = copy.deepcopy(grads), len(grads)
+        for g_i in pc_grad:
+            random.shuffle(grads)
+            for g_j in grads:
+                g_i_g_j = torch.dot(g_i, g_j)
+                if g_i_g_j < 0:
+                    g_i -= (g_i_g_j) * g_j / (g_j.norm()**2)
+        merged_grad = torch.zeros_like(grads[0]).to(grads[0].device)
+        if self._reduction:
+            merged_grad[shared] = torch.stack([g[shared]
+                                           for g in pc_grad]).mean(dim=0)
+        elif self._reduction == 'sum':
+            merged_grad[shared] = torch.stack([g[shared]
+                                           for g in pc_grad]).sum(dim=0)
+        else: exit('invalid reduction method')
+
+        merged_grad[~shared] = torch.stack([g[~shared]
+                                            for g in pc_grad]).sum(dim=0)
+        return merged_grad
+
+    def _set_grad(self, grads):
+        '''
+        set the modified gradients to the network
+        '''
+
+        idx = 0
+        for group in self._optim.param_groups:
+            for p in group['params']:
+                # if p.grad is None: continue
+                p.grad = grads[idx]
+                idx += 1
+        return
+
+    def _pack_grad(self, objectives):
+        '''
+        pack the gradient of the parameters of the network for each objective
+        
+        output:
+        - grad: a list of the gradient of the parameters
+        - shape: a list of the shape of the parameters
+        - has_grad: a list of mask represent whether the parameter has gradient
+        '''
+
+        grads, shapes, has_grads = [], [], []
+        for obj in objectives:
+            self._optim.zero_grad(set_to_none=True)
+            obj.backward(retain_graph=True)
+            grad, shape, has_grad = self._retrieve_grad()
+            grads.append(self._flatten_grad(grad, shape))
+            has_grads.append(self._flatten_grad(has_grad, shape))
+            shapes.append(shape)
+        return grads, shapes, has_grads
+
+    def _unflatten_grad(self, grads, shapes):
+        unflatten_grad, idx = [], 0
+        for shape in shapes:
+            length = np.prod(shape)
+            unflatten_grad.append(grads[idx:idx + length].view(shape).clone())
+            idx += length
+        return unflatten_grad
+
+    def _flatten_grad(self, grads, shapes):
+        flatten_grad = torch.cat([g.flatten() for g in grads])
+        return flatten_grad
+
+    def _retrieve_grad(self):
+        '''
+        get the gradient of the parameters of the network with specific 
+        objective
+        
+        output:
+        - grad: a list of the gradient of the parameters
+        - shape: a list of the shape of the parameters
+        - has_grad: a list of mask represent whether the parameter has gradient
+        '''
+
+        grad, shape, has_grad = [], [], []
+        for group in self._optim.param_groups:
+            for p in group['params']:
+                # if p.grad is None: continue
+                # tackle the multi-head scenario
+                if p.grad is None:
+                    shape.append(p.shape)
+                    grad.append(torch.zeros_like(p).to(p.device))
+                    has_grad.append(torch.zeros_like(p).to(p.device))
+                    continue
+                shape.append(p.grad.shape)
+                grad.append(p.grad.clone())
+                has_grad.append(torch.ones_like(p).to(p.device))
+        return grad, shape, has_grad
+
+
 
 MODELS = dict(early_attn=EarlyFusionAttnBCNet,)
 def parse_args():
@@ -133,7 +266,8 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
                     other_input = other_embeds # todo: [..., aux_ind * 32: (aux_ind + 1) * 32]
                 tom_loss = aux_loss(bc_policy, other_input, other_pos, aux_mask, 
                     aux_info=aux_info)
-            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            pred_loss = nll_loss(bc_policy, context, expert_action)
+            # pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
@@ -208,6 +342,7 @@ def train(exp_config=None):
     # Initialize model and optimizer
     bc_policy = MODELS[exp_config.model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
+    optimizer = PCGrad(optimizer)
     print(bc_policy)
     
     # Model Params wandb update
@@ -262,9 +397,9 @@ def train(exp_config=None):
             all_masks= [partner_masks, road_masks]
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
-
+            pred_loss = nll_loss(bc_policy, context, expert_action)
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
-            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            # pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
             
             # To write data idx that has the highest loss
@@ -278,10 +413,19 @@ def train(exp_config=None):
                 tom_loss = aux_loss(bc_policy, other_input, other_pos, aux_mask, 
                     aux_info=aux_info)
                 loss += 0.2 * tom_loss
-            loss = loss.mean()
+            # loss = loss.mean()
             # Backward pass
+            # loss.backward()
+            
+            # 각 component 별 loss 분리
+            loss_dx = pred_loss[:, 0].mean()
+            loss_dy = pred_loss[:, 1].mean()
+            loss_dyaw = pred_loss[:, 2].mean()
+
+            # PCGrad 적용
+            losses = [loss_dx, loss_dy, loss_dyaw]
             optimizer.zero_grad()
-            loss.backward()
+            optimizer.pc_backward(losses)
 
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), exp_config.grad_norm)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
@@ -303,7 +447,8 @@ def train(exp_config=None):
                 dyaw_losses += dyaw_loss
                 if exp_config.use_tom:
                     tom_losses += tom_loss.mean().item()
-            train_losses += loss.item()
+            # train_losses += loss.item()
+            train_losses += loss.mean().item()
                 
             # Evaluation loop
             if gradient_steps % exp_config.eval_freq == 0:
