@@ -15,8 +15,8 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
             files = sorted(files, key=lambda x: int(x.split('_')[2].split('.')[0]))
         return files
 
-    subset_datas = get_sorted_files(subset_path ,num_scenes, start_idx)
-    global_datas = get_sorted_files(subset_path + '/global' ,num_scenes, start_idx, concat_other='global')
+    # subset_datas = get_sorted_files(subset_path ,num_scenes, start_idx)
+    # global_datas = get_sorted_files(subset_path + '/global' ,num_scenes, start_idx, concat_other='global')
     reasoning_datas = get_sorted_files(subset_path + '/reasoning' ,num_scenes, start_idx, concat_other=
                                         'reasoning')
     obs = []
@@ -31,24 +31,24 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
     env_as, ego_as, sur_as, int_as = [], [], [], [] 
     env_masks, ego_masks, sur_masks, int_masks = [], [], [], [] 
 
-    for (subset_data, global_data, reasoning_data) in tqdm(zip(subset_datas, global_datas, reasoning_datas)):
-        subset_data_path = os.path.join(subset_path, subset_data)
-        data = np.load(subset_data_path)
-        obs.append(data['obs'])
-        print(f"{subset_data}, vehicle : {data['obs'].shape[0]}")
-        actions.append(data['actions'])
-        dead_masks.append(data['dead_mask'])
-        partner_masks.append(data['partner_mask'])
-        road_masks.append(data['road_mask'])
-        del data
-        gc.collect()
+    for (reasoning_data) in tqdm(reasoning_datas):
+        # subset_data_path = os.path.join(subset_path, subset_data)
+        # data = np.load(subset_data_path)
+        # obs.append(data['obs'])
+        # print(f"{subset_data}, vehicle : {data['obs'].shape[0]}")
+        # actions.append(data['actions'])
+        # dead_masks.append(data['dead_mask'])
+        # partner_masks.append(data['partner_mask'])
+        # road_masks.append(data['road_mask'])
+        # del data
+        # gc.collect()
 
-        global_data_path = os.path.join(subset_path + '/global', global_data)
-        data = np.load(global_data_path)
-        ego_global_poss.append(data['ego_global_pos'])
-        ego_global_rots.append(data['ego_global_rot'])
-        del data
-        gc.collect()
+        # global_data_path = os.path.join(subset_path + '/global', global_data)
+        # data = np.load(global_data_path)
+        # ego_global_poss.append(data['ego_global_pos'])
+        # ego_global_rots.append(data['ego_global_rot'])
+        # del data
+        # gc.collect()
 
         reasoning_data_path = os.path.join(subset_path + '/reasoning', reasoning_data)
         data = np.load(reasoning_data_path)
@@ -67,13 +67,13 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
         del data
         gc.collect()
 
-    obs = np.concatenate(obs, axis=0)
-    actions = np.concatenate(actions, axis=0)
-    dead_masks = np.concatenate(dead_masks, axis=0)
-    partner_masks = np.concatenate(partner_masks, axis=0)
-    road_masks = np.concatenate(road_masks, axis=0)
-    ego_global_rots = np.concatenate(ego_global_rots, axis=0)
-    ego_global_poss = np.concatenate(ego_global_poss, axis=0)
+    # obs = np.concatenate(obs, axis=0)
+    # actions = np.concatenate(actions, axis=0)
+    # dead_masks = np.concatenate(dead_masks, axis=0)
+    # partner_masks = np.concatenate(partner_masks, axis=0)
+    # road_masks = np.concatenate(road_masks, axis=0)
+    # ego_global_rots = np.concatenate(ego_global_rots, axis=0)
+    # ego_global_poss = np.concatenate(ego_global_poss, axis=0)
     env_qs = np.concatenate(env_qs, axis=0)
     ego_qs = np.concatenate(ego_qs, axis=0)
     sur_qs = np.concatenate(sur_qs, axis=0)
@@ -88,8 +88,8 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
     int_masks = np.concatenate(int_masks, axis=0)
     
     print("compressing!!!")
-    np.savez_compressed(os.path.join(save_path, save_name), obs=obs, actions=actions, dead_mask=dead_masks, partner_mask=partner_masks, road_mask=road_masks,  )
-    np.savez_compressed(os.path.join(save_path, 'global_' + save_name), ego_global_rot=ego_global_rots,ego_global_pos=ego_global_poss )
+    # np.savez_compressed(os.path.join(save_path, save_name), obs=obs, actions=actions, dead_mask=dead_masks, partner_mask=partner_masks, road_mask=road_masks,  )
+    # np.savez_compressed(os.path.join(save_path, 'global_' + save_name), ego_global_rot=ego_global_rots,ego_global_pos=ego_global_poss )
     np.savez_compressed(os.path.join(save_path, 'reasoning_' + save_name), env_qs=env_qs,ego_qs=ego_qs,
                         sur_qs=sur_qs,int_qs=int_qs,env_as=env_as,ego_as=ego_as,sur_as=sur_as,
                         int_as=int_as,env_masks=env_masks,ego_masks=ego_masks,sur_masks=sur_masks,
@@ -99,9 +99,9 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-scene', type=int, default=10000)
+    parser.add_argument('--num-scene', type=int, default=80000)
     parser.add_argument('--start-idx', type=int, default=0)
-    parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'],)
+    parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
     args = parser.parse_args()  
     save_path = f"/data/full_version/processed/final/reasoning"
     save_name = f'{args.dataset}_trajectory_{args.num_scene}.npz'

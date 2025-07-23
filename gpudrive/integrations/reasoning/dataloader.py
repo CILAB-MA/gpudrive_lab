@@ -68,14 +68,16 @@ class ReasoningDataset(torch.utils.data.Dataset):
         idx2 = int(idx2)
         # row, column -> 
         batch = ()
-        valid_qa_indices = np.where(~self.qa_masks[idx1])[0]
-        # print(idx1, idx2, valid_qa_indices)
-        if len(valid_qa_indices) == 0:
-            sample_qa = np.random.choice(np.arange(2), 1)
-        elif len(valid_qa_indices) >= self.qa_num_sample:
-            sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=False)
-        else:
-            sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=True)
+        if self.use_tom:
+            valid_qa_indices = np.where(~self.qa_masks[idx1])[0]
+            valid_qa_timesteps = (idx2 >= 10) and (idx2 < 30)
+            # print(idx1, idx2, valid_qa_indices)
+            if len(valid_qa_indices) == 0:
+                sample_qa = np.random.choice(np.arange(2), size=self.qa_num_sample)
+            elif len(valid_qa_indices) >= self.qa_num_sample:
+                sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=False)
+            else:
+                sample_qa = np.random.choice(valid_qa_indices, size=self.qa_num_sample, replace=True)
         if self.num_timestep > 1:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
@@ -83,6 +85,8 @@ class ReasoningDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
                     elif var_name in ['questions', 'answers', 'qa_masks']:
                         data = self.__dict__[var_name][idx1, sample_qa]
+                        if not valid_qa_timesteps:
+                            data = np.ones_like(data)
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name in ['other_pos', 'aux_mask']:
@@ -120,4 +124,3 @@ if __name__ == "__main__":
     unique_mask_flat[unique_indices] = True
     unique_mask = unique_mask_flat.reshape(B, M)
     qa_masks = ~((unique_mask == True) & (qa_masks == False))
-    np.savez_compressed()

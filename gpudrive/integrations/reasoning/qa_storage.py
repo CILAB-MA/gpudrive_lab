@@ -98,15 +98,13 @@ def save_qa_trajectory(env, model, jd, save_path, save_index=0):
     for time_step in tqdm(range(env.episode_len)):
         for idx, (world_idx, agent_idx) in enumerate(zip(scene_idx, qa_ego_idx)):
             if not dead_agent_mask[world_idx, agent_idx]:
-                expert_trajectory_lst[idx][time_step - 10] = obs[world_idx, agent_idx]
-                expert_actions_lst[idx][time_step - 10] = expert_actions[world_idx, agent_idx, time_step]
-                expert_partner_mask_lst[idx][time_step - 10] = partner_mask[world_idx, agent_idx]
-                expert_road_mask_lst[idx][time_step - 10] = road_mask[world_idx, agent_idx]
-                expert_global_pos_lst[idx, time_step - 10] = agent_info[world_idx, agent_idx, 0:2]
-                expert_global_rot_lst[idx, time_step - 10] = agent_info[world_idx, agent_idx, 7:8]
-            expert_dead_mask_lst[idx][time_step - 10] = dead_agent_mask[world_idx, agent_idx]
-
-        
+                expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
+                expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
+                expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
+                expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
+                expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
+                expert_global_rot_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
+            expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
         # env.step() -> gather next obs
         env.step_dynamics(expert_actions[:, :, time_step, :])
         dones = env.get_dones().to(device)
@@ -122,7 +120,7 @@ def save_qa_trajectory(env, model, jd, save_path, save_index=0):
         .to(device)
         )
         infos = env.get_infos()
-        if time_step >= 29:
+        if (dead_agent_mask == True).all():
             off_road = infos.off_road[scene_idx, qa_ego_idx]
             veh_collision = infos.collided[scene_idx, qa_ego_idx]
 
@@ -159,12 +157,12 @@ def save_qa_trajectory(env, model, jd, save_path, save_index=0):
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(save_path + '/global', exist_ok=True)
     os.makedirs(save_path + '/reasoning', exist_ok=True)
-    # np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
-    #                     obs=expert_trajectory_lst,
-    #                     actions=expert_actions_lst,
-    #                     dead_mask=expert_dead_mask_lst,
-    #                     partner_mask=expert_partner_mask_lst,
-    #                     road_mask=expert_road_mask_lst)
+    np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
+                        obs=expert_trajectory_lst,
+                        actions=expert_actions_lst,
+                        dead_mask=expert_dead_mask_lst,
+                        partner_mask=expert_partner_mask_lst,
+                        road_mask=expert_road_mask_lst)
     # np.savez_compressed(f"{save_path}/reasoning/reasoning_trajectory_{save_index}.npz", 
     #                     env_q=expert_env_q_lst,
     #                     ego_q=expert_ego_q_lst,
@@ -179,15 +177,15 @@ def save_qa_trajectory(env, model, jd, save_path, save_index=0):
     #                     sur_mask=expert_sur_mask_lst,
     #                     int_mask=expert_int_mask_lst,
     #                     )
-    # np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
-    #                     ego_global_pos=expert_global_pos_lst,
-    #                     ego_global_rot=expert_global_rot_lst)
+    np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
+                        ego_global_pos=expert_global_pos_lst,
+                        ego_global_rot=expert_global_rot_lst)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -235,7 +233,7 @@ if __name__ == "__main__":
     env_count, ego_count= [], []
     for idx in tqdm(range(num_iter)):
         if idx != num_iter - 1:
-            with open(f"/data/full_version/processed/reasoning/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
+            with open(f"/data/full_version/processed/reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
                 jd = json.load(f)
         save_qa_trajectory(env, model, jd, save_path, idx * args.scene_batch_size)
         if idx != num_iter - 1:
