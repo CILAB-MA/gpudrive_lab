@@ -227,7 +227,8 @@ def train(exp_config=None):
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
     if exp_config.use_tom == 'PCGrad':
         use_pcgrad = True
-    
+    else:
+        use_pcgrad = False
     if use_pcgrad:
         optimizer = PCGrad(optimizer) 
     print(bc_policy)
