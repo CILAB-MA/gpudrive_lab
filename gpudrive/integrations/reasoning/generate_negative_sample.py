@@ -11,6 +11,8 @@ import os
 import re
 from collections import defaultdict
 import random
+from sentence_transformers import SentenceTransformer
+
 def group_answers_by_unique_question(int_qa):
     q_to_a = defaultdict(list)
     for q, a in int_qa:
@@ -138,8 +140,10 @@ def generate_negative_env(question, answer):
         ('exiting', 'approaching'),
         ("There are crosswalks present.",
          "No crosswalks are visible."),
+        ("various", "constant"),
         ("are in the", "are far from"),
         ("near ", "far from "),
+        ('Vehicles are moving on the road.', 'Vehicles are stopping on the road.'),
         ("traveling", "stationary"),
         ("There are stop signs and a crosswalk.",
          "There are no stop signs or crosswalks present."),
@@ -153,6 +157,8 @@ def generate_negative_env(question, answer):
          "Vehicles are only moving in one direction on the road."),
         ("There is an intersection.",
          "There is no intersection in the current view."),
+        ('The intersection layout affects the driving scene by providing a point where the ego agent and surrounding agents can enter or exit.',
+         'The intersection layout plays no role in enabling entry or exit for the ego agent or surrounding agents in the driving scene.'),
         ("The intersection layout affects the driving scenario by providing entry or exit points for the vehicles.",
          "The intersection layout does not influence vehicle behavior."),
         ("The intersection layout affects the driving conditions by providing entry or exit paths for the ego agent.",
@@ -355,7 +361,9 @@ def generate_negative_sur(question, answer):
     if answer == 'No':
         change = True
         neg_answer = 'Yes.'
-        
+    if answer == 'Yes':
+        change = True
+        neg_answer = 'No.'
     if not change:
         neg_answer = None
     return neg_answer
@@ -506,9 +514,9 @@ def generate_negative_ego(answer):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -527,35 +535,93 @@ if __name__ == '__main__':
     int_qas = []
     sur_qas = []
     env_qas = []
-    for idx in range(num_iter):
+    ego_qas = []
+    model = SentenceTransformer('all-MiniLM-L6-v2') 
+    model.eval()
+    qa_types = ["env", "ego", "sur", "int"]
+    for idx in tqdm(range(num_iter)):
         if idx != num_iter - 1:
-            with open(f"reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
+            with open(f"/data/full_version/processed/reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
                 jd = json.load(f)
-            for d in jd.values():
-                env_qa = np.array(d['env_qa'])
-                ego_qa = np.array(d['ego_qa'])
-                sur_qa = np.array(d['sur_qa'])
-                int_qa = np.array(d['int_qa'])
-                if len(sur_qa) > 0:
-                    sur_qas.append(sur_qa)
-                if len(int_qa) > 0:
-                    int_qas.append(int_qa)
-                env_qas.append(env_qa)
-                # print('Q:',sur_qa[:, 0])
-                # answer_pairs = generate_all_neg(ego_qa[:, 0], ego_qa[:, 1], qa_type='ego')
-                if len(sur_qa) > 0:
-                    answer_pairs = generate_all_neg(env_qa[:, 0], env_qa[:, 1], qa_type='env')
-                generation_ratio = (answer_pairs[:, 1] != None).sum() / len(answer_pairs)
-                # print(f"Negative Generation Ratio: {generation_ratio:.4f}")
-                # print('A:',answer_pairs)
-                none_mask = answer_pairs[:, 1] == None
-                none_negative = answer_pairs[none_mask]
-                if len(none_negative) > 0:
-                    print('A:', none_negative)
-    # env_qas = np.concatenate(env_qas, axis=0)
-    # q_to_a = group_answers_by_unique_question(env_qas)
-    # for i, (q, a) in enumerate(q_to_a.items()):
-    #     if i == 10:
-    #         break
-    #     print(f'{q}: {np.unique(a)}')
-    #     print('---------------------------------------------------------------------------')
+            valid_agent = len(jd)
+            expert_env_q_lst = np.zeros((valid_agent, 20, 384))
+            expert_ego_q_lst = np.zeros((valid_agent, 20, 384))
+            expert_sur_q_lst = np.zeros((valid_agent, 120, 384))
+            expert_int_q_lst = np.zeros((valid_agent, 30, 384))
+
+            expert_env_ap_lst = np.zeros((valid_agent, 20, 384))
+            expert_ego_ap_lst = np.zeros((valid_agent, 20, 384))
+            expert_sur_ap_lst = np.zeros((valid_agent, 120, 384))
+            expert_int_ap_lst = np.zeros((valid_agent, 30, 384))
+
+            expert_env_an_lst = np.zeros((valid_agent, 20, 384))
+            expert_ego_an_lst = np.zeros((valid_agent, 20, 384))
+            expert_sur_an_lst = np.zeros((valid_agent, 120, 384))
+            expert_int_an_lst = np.zeros((valid_agent, 30, 384))
+            q_npy = [expert_env_q_lst, expert_ego_q_lst, expert_sur_q_lst, expert_int_q_lst]
+            ap_npy = [expert_env_ap_lst, expert_ego_ap_lst, expert_sur_ap_lst, expert_int_ap_lst]
+            an_npy = [expert_env_an_lst, expert_ego_an_lst, expert_sur_an_lst, expert_int_an_lst]
+
+            expert_env_mask_lst = np.ones((valid_agent, 20), dtype=bool)
+            expert_ego_mask_lst = np.ones((valid_agent, 20), dtype=bool)
+            expert_sur_mask_lst = np.ones((valid_agent, 120), dtype=bool)
+            expert_int_mask_lst = np.ones((valid_agent, 30), dtype=bool)
+            qa_mask_npy = [expert_env_mask_lst, expert_ego_mask_lst, expert_sur_mask_lst, expert_int_mask_lst]
+            for i, data in enumerate(jd.values()):
+                for qa, qa_type in enumerate(qa_types):
+                    qas = data[f"{qa_type}_qa"]
+                    if qas:
+                        qs, ans = zip(*qas) 
+                    else:
+                        continue
+                    q_embeddings  = model.encode(qs, convert_to_tensor=True)  
+                    answer_pairs = generate_all_neg(np.array(qs), np.array(ans), qa_type=qa_type)
+                    q_embeddings =  q_embeddings.cpu().numpy()  #
+                    a_pos_embeddings  = model.encode(answer_pairs[:, 0], convert_to_tensor=True)  
+                    a_pos_embeddings =  a_pos_embeddings.cpu().numpy()  #
+                    a_neg_embeddings  = model.encode(answer_pairs[:, 1], convert_to_tensor=True)  
+                    a_neg_embeddings =  a_neg_embeddings.cpu().numpy()  #
+                    num = min(len(q_embeddings), q_npy[qa].shape[1])
+                    q_npy[qa][i, :num] = q_embeddings[:num]
+                    ap_npy[qa][i, :num] = a_pos_embeddings[:num]
+                    an_npy[qa][i, :num] = a_neg_embeddings[:num]
+                    qa_mask_npy[qa][i, :num] = False
+            expert_env_q_lst = q_npy[0]
+            expert_ego_q_lst = q_npy[1]
+            expert_sur_q_lst = q_npy[2]
+            expert_int_q_lst = q_npy[3]
+
+            expert_env_ap_lst = ap_npy[0]
+            expert_ego_ap_lst = ap_npy[1]
+            expert_sur_ap_lst = ap_npy[2]
+            expert_int_ap_lst = ap_npy[3]
+
+            expert_env_an_lst = an_npy[0]
+            expert_ego_an_lst = an_npy[1]
+            expert_sur_an_lst = an_npy[2]
+            expert_int_an_lst = an_npy[3]
+
+            expert_env_mask_lst = qa_mask_npy[0]
+            expert_ego_mask_lst = qa_mask_npy[1]
+            expert_sur_mask_lst = qa_mask_npy[2]
+            expert_int_mask_lst = qa_mask_npy[3]
+            save_path = f'/data/full_version/processed/final/reasoning_{args.data_dir}_subset'
+            os.makedirs(save_path + '/reasoning_posneg', exist_ok=True)
+            np.savez_compressed(f"{save_path}/reasoning_posneg/reasoning_trajectory_{idx * args.scene_batch_size}.npz", 
+                    env_q=expert_env_q_lst,
+                    ego_q=expert_ego_q_lst,
+                    sur_q=expert_sur_q_lst,
+                    int_q=expert_int_q_lst,
+                    env_pos_a=expert_env_ap_lst,
+                    ego_pos_a=expert_ego_ap_lst,
+                    sur_pos_a=expert_sur_ap_lst,
+                    int_pos_a=expert_int_ap_lst,
+                    env_neg_a=expert_env_an_lst,
+                    ego_neg_a=expert_ego_an_lst,
+                    sur_neg_a=expert_sur_an_lst,
+                    int_neg_a=expert_int_an_lst,
+                    env_mask=expert_env_mask_lst,
+                    ego_mask=expert_ego_mask_lst,
+                    sur_mask=expert_sur_mask_lst,
+                    int_mask=expert_int_mask_lst,
+                    )
