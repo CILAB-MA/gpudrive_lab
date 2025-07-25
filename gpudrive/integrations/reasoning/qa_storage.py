@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import argparse
-import mediapy as media
 import numpy as np
 
 from gpudrive.env.env_torch import GPUDriveTorchEnv
@@ -25,7 +24,7 @@ import os
 #     embeddings  = model.encode(questions, convert_to_tensor=True)  
 #     return embeddings.cpu().numpy()  # (N, hidden_dim)
 
-def save_qa_trajectory(env, model, jd, save_path, save_index=0):
+def save_qa_trajectory(env, reasoning_embedding, jd, save_path, save_index=0):
     """
     Save the trajectory, partner_mask and road_mask in the environment, distinguishing them by each scene and agent.
     
@@ -33,57 +32,39 @@ def save_qa_trajectory(env, model, jd, save_path, save_index=0):
         env (GPUDriveTorchEnv): Initialized environment class.
     """
     qa_types = ["env", "ego", "sur", "int"]
-    valid_agent = len(jd)
+
+    valid_agent = len(reasoning_embedding)
     qa_timesteps = env.episode_len
-    # expert_env_q_lst = np.zeros((valid_agent, 20, 384))
-    # expert_ego_q_lst = np.zeros((valid_agent, 20, 384))
-    # expert_sur_q_lst = np.zeros((valid_agent, 120, 384))
-    # expert_int_q_lst = np.zeros((valid_agent, 30, 384))
-
-    # expert_env_a_lst = np.zeros((valid_agent, 20, 384))
-    # expert_ego_a_lst = np.zeros((valid_agent, 20, 384))
-    # expert_sur_a_lst = np.zeros((valid_agent, 120, 384))
-    # expert_int_a_lst = np.zeros((valid_agent, 30, 384))
-    # q_npy = [expert_env_q_lst, expert_ego_q_lst, expert_sur_q_lst, expert_int_q_lst]
-    # a_npy = [expert_env_a_lst, expert_ego_a_lst, expert_sur_a_lst, expert_int_a_lst]
-
-    # expert_env_mask_lst = np.ones((valid_agent, 20), dtype=bool)
-    # expert_ego_mask_lst = np.ones((valid_agent, 20), dtype=bool)
-    # expert_sur_mask_lst = np.ones((valid_agent, 120), dtype=bool)
-    # expert_int_mask_lst = np.ones((valid_agent, 30), dtype=bool)
-    # qa_mask_npy = [expert_env_mask_lst, expert_ego_mask_lst, expert_sur_mask_lst, expert_int_mask_lst]
-    # for i, data in enumerate(jd.values()):
-    #     for qa, qa_type in enumerate(qa_types):
-    #         qas = data[f"{qa_type}_qa"]
-    #         if qas:
-    #             qs, ans = zip(*qas) 
-    #         else:
-    #             continue
-    #         q_embeddings  = model.encode(qs, convert_to_tensor=True)  
-    #         q_embeddings =  q_embeddings.cpu().numpy()  #
-    #         a_embeddings  = model.encode(ans, convert_to_tensor=True)  
-    #         a_embeddings =  a_embeddings.cpu().numpy()  #
-    #         num = min(len(q_embeddings), qa_timesteps)
-    #         q_npy[qa][i, :num] = q_embeddings[:num]
-    #         a_npy[qa][i, :num] = a_embeddings[:num]
-    #         qa_mask_npy[qa][i, :num] = False
+    
     obs = env.reset()
     expert_actions, _, _, _ , _ = env.get_expert_actions() # (num_worlds, num_agents, episode_len, action_dim)
     road_mask = env.get_road_mask()
     partner_mask = env.get_partner_mask()
     # partner_id = env.get_partner_id().unsqueeze(-1)
     device = env.device
-    cont_agent_mask = env.cont_agent_mask.to(device)  # (num_worlds, num_agents)
     scene_idx = np.array([int(k) for k in jd.keys()])
     qa_ego_idx = np.array([int(jd[sid]['ego_idx']) for sid in jd.keys()])
-    # trajectory information
-    expert_trajectory_lst = torch.zeros((valid_agent, qa_timesteps, obs.shape[-1]), device=device)
-    expert_actions_lst = torch.zeros((valid_agent, qa_timesteps, 3), device=device)
-    expert_dead_mask_lst = torch.ones((valid_agent, qa_timesteps), device=device, dtype=torch.bool)
-    expert_partner_mask_lst = torch.full((valid_agent, qa_timesteps, 127), 2, device=device, dtype=torch.long)
-    expert_road_mask_lst = torch.ones((valid_agent, qa_timesteps, 200), device=device, dtype=torch.bool)
-    expert_global_pos_lst = torch.zeros((valid_agent, qa_timesteps, 2), device=device) # global pos (2)
-    expert_global_rot_lst = torch.zeros((valid_agent, qa_timesteps, 1), device=device) # global actions (1)
+    
+    env_q = reasoning_embedding['env_q']
+    env_pos_a = reasoning_embedding['env_pos_a']
+    env_neg_a = reasoning_embedding['env_neg_a']
+    
+    ego_q = reasoning_embedding['ego_q']
+    ego_pos_a = reasoning_embedding['ego_pos_a']
+    ego_neg_a = reasoning_embedding['ego_neg_a']
+    
+    sur_q = reasoning_embedding['sur_q']
+    sur_pos_a = reasoning_embedding['sur_pos_a']
+    sur_neg_a = reasoning_embedding['sur_neg_a']
+
+    int_q = reasoning_embedding['int_q']
+    int_pos_a = reasoning_embedding['int_pos_a']
+    int_neg_a = reasoning_embedding['int_neg_a']
+
+    env_mask = reasoning_embedding['env_mask']
+    ego_mask = reasoning_embedding['ego_mask']
+    sur_mask = reasoning_embedding['sur_mask']
+    int_mask = reasoning_embedding['int_mask']
 
     # qa information
     # Initialize dead agent mask
@@ -96,15 +77,6 @@ def save_qa_trajectory(env, model, jd, save_path, save_index=0):
     road_mask = env.get_road_mask()
 
     for time_step in tqdm(range(env.episode_len)):
-        for idx, (world_idx, agent_idx) in enumerate(zip(scene_idx, qa_ego_idx)):
-            if not dead_agent_mask[world_idx, agent_idx]:
-                expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
-                expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
-                expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
-                expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
-                expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
-                expert_global_rot_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
-            expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
         # env.step() -> gather next obs
         env.step_dynamics(expert_actions[:, :, time_step, :])
         dones = env.get_dones().to(device)
@@ -128,64 +100,64 @@ def save_qa_trajectory(env, model, jd, save_path, save_index=0):
             veh_coll_rate = veh_collision.sum().float() / valid_agent
             collision = (veh_collision + off_road > 0)
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate}')
-            print(f'Save number w/o collision {len(expert_trajectory_lst[~collision])} / {len(expert_trajectory_lst)}')
             break
     
-    expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
-    expert_actions_lst = expert_actions_lst[~collision].to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
-    # global pos
-    expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
-    expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
 
-    # expert_env_q_lst = q_npy[0][~collision.cpu().numpy()]
-    # expert_ego_q_lst = q_npy[1][~collision.cpu().numpy()]
-    # expert_sur_q_lst = q_npy[2][~collision.cpu().numpy()]
-    # expert_int_q_lst = q_npy[3][~collision.cpu().numpy()]
+    expert_env_q_lst = env_q[~collision.cpu().numpy()]
+    expert_ego_q_lst = ego_q[~collision.cpu().numpy()]
+    expert_sur_q_lst = sur_q[~collision.cpu().numpy()]
+    expert_int_q_lst = int_q[~collision.cpu().numpy()]
 
-    # expert_env_a_lst = a_npy[0][~collision.cpu().numpy()]
-    # expert_ego_a_lst = a_npy[1][~collision.cpu().numpy()]
-    # expert_sur_a_lst = a_npy[2][~collision.cpu().numpy()]
-    # expert_int_a_lst = a_npy[3][~collision.cpu().numpy()]
+    expert_env_pa_lst = env_pos_a[~collision.cpu().numpy()]
+    expert_ego_pa_lst = ego_pos_a[~collision.cpu().numpy()]
+    expert_sur_pa_lst = sur_pos_a[~collision.cpu().numpy()]
+    expert_int_pa_lst = int_pos_a[~collision.cpu().numpy()]
 
-    # expert_env_mask_lst = qa_mask_npy[0][~collision.cpu().numpy()]
-    # expert_ego_mask_lst = qa_mask_npy[1][~collision.cpu().numpy()]
-    # expert_sur_mask_lst = qa_mask_npy[2][~collision.cpu().numpy()]
-    # expert_int_mask_lst = qa_mask_npy[3][~collision.cpu().numpy()]
-    os.makedirs(save_path, exist_ok=True)
-    os.makedirs(save_path + '/global', exist_ok=True)
-    os.makedirs(save_path + '/reasoning', exist_ok=True)
-    np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
-                        obs=expert_trajectory_lst,
-                        actions=expert_actions_lst,
-                        dead_mask=expert_dead_mask_lst,
-                        partner_mask=expert_partner_mask_lst,
-                        road_mask=expert_road_mask_lst)
-    # np.savez_compressed(f"{save_path}/reasoning/reasoning_trajectory_{save_index}.npz", 
-    #                     env_q=expert_env_q_lst,
-    #                     ego_q=expert_ego_q_lst,
-    #                     sur_q=expert_sur_q_lst,
-    #                     int_q=expert_int_q_lst,
-    #                     env_a=expert_env_a_lst,
-    #                     ego_a=expert_ego_a_lst,
-    #                     sur_a=expert_sur_a_lst,
-    #                     int_a=expert_int_a_lst,
-    #                     env_mask=expert_env_mask_lst,
-    #                     ego_mask=expert_ego_mask_lst,
-    #                     sur_mask=expert_sur_mask_lst,
-    #                     int_mask=expert_int_mask_lst,
-    #                     )
-    np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
-                        ego_global_pos=expert_global_pos_lst,
-                        ego_global_rot=expert_global_rot_lst)
+    expert_env_na_lst = env_neg_a[~collision.cpu().numpy()]
+    expert_ego_na_lst = ego_neg_a[~collision.cpu().numpy()]
+    expert_sur_na_lst = sur_neg_a[~collision.cpu().numpy()]
+    expert_int_na_lst = int_neg_a[~collision.cpu().numpy()]
+
+    expert_env_mask_lst = env_mask[~collision.cpu().numpy()]
+    expert_ego_mask_lst = ego_mask[~collision.cpu().numpy()]
+    expert_sur_mask_lst = sur_mask[~collision.cpu().numpy()]
+    expert_int_mask_lst = int_mask[~collision.cpu().numpy()]
+    # os.makedirs(save_path, exist_ok=True)
+    # os.makedirs(save_path + '/global', exist_ok=True)
+    os.makedirs(save_path + '/reasoning_final', exist_ok=True)
+    # np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
+    #                     obs=expert_trajectory_lst,
+    #                     actions=expert_actions_lst,
+    #                     dead_mask=expert_dead_mask_lst,
+    #                     partner_mask=expert_partner_mask_lst,
+    #                     road_mask=expert_road_mask_lst)
+    np.savez_compressed(f"{save_path}/reasoning_final/reasoning_trajectory_{save_index}.npz", 
+                        env_q=expert_env_q_lst,
+                        ego_q=expert_ego_q_lst,
+                        sur_q=expert_sur_q_lst,
+                        int_q=expert_int_q_lst,
+                        env_pos_a=expert_env_pa_lst,
+                        ego_pos_a=expert_ego_pa_lst,
+                        sur_pos_a=expert_sur_pa_lst,
+                        int_pos_a=expert_int_pa_lst,
+                        env_neg_a=expert_env_na_lst,
+                        ego_neg_a=expert_ego_na_lst,
+                        sur_neg_a=expert_sur_na_lst,
+                        int_neg_a=expert_int_na_lst,
+                        env_mask=expert_env_mask_lst,
+                        ego_mask=expert_ego_mask_lst,
+                        sur_mask=expert_sur_mask_lst,
+                        int_mask=expert_int_mask_lst,
+                        )
+    # np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
+    #                     ego_global_pos=expert_global_pos_lst,
+    #                     ego_global_rot=expert_global_rot_lst)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -235,7 +207,9 @@ if __name__ == "__main__":
         if idx != num_iter - 1:
             with open(f"/data/full_version/processed/reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
                 jd = json.load(f)
-        save_qa_trajectory(env, model, jd, save_path, idx * args.scene_batch_size)
+            np_path = f"{save_path}/reasoning_posneg/reasoning_trajectory_{idx * args.scene_batch_size}.npz"
+            reasoning_embedding = np.load(np_path)
+        save_qa_trajectory(env, reasoning_embedding, jd, save_path, idx * args.scene_batch_size)
         if idx != num_iter - 1:
             env.swap_data_batch()
     env.close()
