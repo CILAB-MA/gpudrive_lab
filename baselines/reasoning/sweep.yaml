@@ -6,7 +6,7 @@ metric:
   name: eval/loss
 parameters:
   seed:
-    values: [11, 42]
+    values: [42]
   num_scene:
     values: [80000]
   total_gradient_steps:

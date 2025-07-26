@@ -40,11 +40,12 @@ class AuxHead(nn.Module):
         return aux_preds
 
 class QADataset(Dataset):
-    def __init__(self, question, answer, masks, obs=None, obs_masks=None, exp_model='baseline',
+    def __init__(self, question, pos_answer, neg_answer, masks, obs=None, obs_masks=None, exp_model='baseline',
                  start_idx=0):
         B, MAX_LEN = question.shape[:2]
         self.qs = torch.from_numpy(question[~masks]).float()
-        self.as_ = torch.from_numpy(answer[~masks]).float()
+        self.pas_ = torch.from_numpy(pos_answer[~masks]).float()
+        self.nas_ = torch.from_numpy(neg_answer[~masks]).float()
         if obs is not None:
             self._obs = torch.from_numpy(obs[:, start_idx:start_idx + 5]).float()
             self._obs = self._obs.reshape(B, -1).unsqueeze(1)
@@ -69,25 +70,25 @@ class QADataset(Dataset):
 
     def __getitem__(self, idx):
         if self.exp_model == 'baseline':
-            return self.qs[idx], self.as_[idx]
+            return self.qs[idx], self.pas_[idx], self.nas_[idx]
         else:
-            return self.qs[idx], self.as_[idx], self._obs[idx], self._partner_mask[idx], self._road_mask[idx]
+            return self.qs[idx], self.pas_[idx], self.nas_[idx], self._obs[idx], self._partner_mask[idx], self._road_mask[idx]
         
 def get_dataloader(data_path, data_file, isshuffle=True, traj_file=None, 
                    model='baseline', start_idx=0):
     qa_names = ['env', 'ego', 'sur', 'int']
     with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
         questions = np.concatenate([npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
-        answers = np.concatenate([npz[f'{qa_name}_as'] for qa_name in qa_names], axis=1)
+        pos_answers = np.concatenate([npz[f'{qa_name}_pos_as'] for qa_name in qa_names], axis=1)
+        neg_answers = np.concatenate([npz[f'{qa_name}_neg_as'] for qa_name in qa_names], axis=1)
         masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
         B, M = questions.shape[:2]
-        concat_vecs = np.concatenate([questions, answers], axis=-1)
-        flat_vecs = concat_vecs.reshape(-1, 768)
-        _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
-        unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
-        unique_mask_flat[unique_indices] = True
-        unique_mask = unique_mask_flat.reshape(B, M)
-        final_mask = ~((unique_mask == True) & (masks == False))
+        # flat_vecs = concat_vecs.reshape(-1, 768)
+        # _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
+        # unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
+        # unique_mask_flat[unique_indices] = True
+        # unique_mask = unique_mask_flat.reshape(B, M)
+        # final_mask = ~((unique_mask == True) & (masks == False))
 
     obs = None
     obs_masks = None
@@ -98,7 +99,7 @@ def get_dataloader(data_path, data_file, isshuffle=True, traj_file=None,
              road_mask = npz['road_mask']
              obs_masks = [partner_mask, road_mask]
 
-    dataset = QADataset(questions, answers, final_mask, obs, obs_masks=obs_masks, exp_model=model,
+    dataset = QADataset(questions, pos_answers, neg_answers, masks, obs, obs_masks=obs_masks, exp_model=model,
                         start_idx=start_idx)
     data_len = len(dataset)
     dataloader = DataLoader(
@@ -116,21 +117,23 @@ def evaluate(dataloader, model, bc_policy, exp_model='baseline'):
     eval_losses = 0
     for i, batch in enumerate(dataloader):
         if exp_model == 'baseline':
-            question, answer = batch
+            question, pos, neg = batch
         else:
-            question, answer, obs, partner_masks, road_masks = batch
+            question, pos, neg, obs, partner_masks, road_masks = batch
             obs = obs.cuda()
             partner_masks = partner_masks.cuda().unsqueeze(1)
             road_masks = road_masks.cuda().unsqueeze(1)
             all_masks= [partner_masks, road_masks]
             context, *_  = bc_policy.get_context(obs, all_masks)
         question = question.cuda()
-        answer = answer.cuda()
+        pos = pos.cuda()
+        neg = neg.cuda()
+        triplet_loss_fn = nn.TripletMarginLoss(margin=1.0, p=2)
         if exp_model != 'baseline':
             question = torch.cat([question, context], dim=-1)
         with torch.no_grad():
             pred_answer = model(question)
-            loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
+            loss = triplet_loss_fn(pred_answer, pos, neg).mean()
         eval_losses += loss
     return eval_losses / (i + 1)
 
@@ -177,24 +180,27 @@ def train(args):
         wandb.run.save()
     pbar = tqdm(total=20000, desc="Gradient Steps", ncols=100)
     optimizer = AdamW(model.parameters(), lr=4e-4, eps=0.0001)
+    triplet_loss_fn = nn.TripletMarginLoss(margin=1.0, p=2)
     while gradient_steps < 20000:
         train_losses = 0
         for n, batch in enumerate(tr_loader):
             if exp_model == 'baseline':
-                question, answer = batch
+                question, pos, neg = batch
             else:
-                question, answer, obs, partner_masks, road_masks = batch
+                question, pos, neg, obs, partner_masks, road_masks = batch
                 obs = obs.cuda()
                 partner_masks = partner_masks.cuda().unsqueeze(1)
                 road_masks = road_masks.cuda().unsqueeze(1)
                 all_masks= [partner_masks, road_masks]
                 context, *_  = bc_policy.get_context(obs, all_masks)
             question = question.cuda()
-            answer = answer.cuda()
+            pos = pos.cuda()
+            neg = neg.cuda()
             if exp_model != 'baseline':
                 question = torch.cat([question, context], dim=-1)
             pred_answer = model(question)
-            loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
+            # cos_loss = 1 - F.cosine_similarity(pred_answer, pos, dim=-1).mean()
+            loss = triplet_loss_fn(pred_answer, pos, neg).mean()
             # loss = 1 - F.cosine_similarity(pred_answer, answer, dim=-1).mean()
             optimizer.zero_grad()
             loss.backward()
