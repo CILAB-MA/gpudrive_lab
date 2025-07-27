@@ -1,6 +1,6 @@
 program: gpudrive/integrations/reasoning/baseline
 method: grid
-name: triplet_baseline
+name: triplet_pretrained
 metric:
   goal: minimize
   name: eval/loss
@@ -8,8 +8,8 @@ parameters:
   # qa_name:
   #   values: ["env", "ego", "sur", "int"]
   model_name:
-    values: ["baseline"]
+    values: ["pretrained"]
   seed:
     values: [3, 11, 42]
   start_idx: 
-    values: [0]
+    values: [0, 5, 10]

@@ -47,7 +47,7 @@ class QADataset(Dataset):
         self.pas_ = torch.from_numpy(pos_answer[~masks]).float()
         self.nas_ = torch.from_numpy(neg_answer[~masks]).float()
         if obs is not None:
-            self._obs = torch.from_numpy(obs[:, start_idx:start_idx + 5]).float()
+            self._obs = torch.from_numpy(obs[:, start_idx + 10:start_idx + 15]).float()
             self._obs = self._obs.reshape(B, -1).unsqueeze(1)
             self._obs = self._obs.repeat(1, MAX_LEN, 1)
             self._obs = self._obs[~masks]
@@ -76,11 +76,15 @@ class QADataset(Dataset):
         
 def get_dataloader(data_path, data_file, isshuffle=True, traj_file=None, 
                    model='baseline', start_idx=0):
-    qa_names = ['env', 'ego', 'sur', 'int']
-    with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
+    qa_names = ['env', 'ego', 'int']
+    train_val = "training" if data_file == 80000 else "validation"
+    data_name = f"{train_val}_trajectory_{data_file}.npz"
+    with np.load(os.path.join(data_path, f"reasoning_question_{data_name}"), mmap_mode='r') as npz:
         questions = np.concatenate([npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
+    with np.load(os.path.join(data_path, f"reasoning_answer_{data_name}"), mmap_mode='r') as npz:
         pos_answers = np.concatenate([npz[f'{qa_name}_pos_as'] for qa_name in qa_names], axis=1)
         neg_answers = np.concatenate([npz[f'{qa_name}_neg_as'] for qa_name in qa_names], axis=1)
+    with np.load(os.path.join(data_path, f"reasoning_mask_{data_name}"), mmap_mode='r') as npz:
         masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
         B, M = questions.shape[:2]
         # flat_vecs = concat_vecs.reshape(-1, 768)
@@ -159,9 +163,9 @@ def train(args):
     if exp_model != 'baseline':
         traj_train_file = "training_trajectory_80000.npz"
         traj_valid_file = "validation_trajectory_10000.npz"
-    tr_loader, tr_len = get_dataloader(data_path, "reasoning_training_trajectory_80000.npz",
+    tr_loader, tr_len = get_dataloader(data_path, 80000,
                                        traj_file=traj_train_file, model=exp_model, start_idx=start_idx)
-    te_loader, te_len = get_dataloader(data_path, "reasoning_validation_trajectory_10000.npz", 
+    te_loader, te_len = get_dataloader(data_path, 10000, 
                                isshuffle=False, traj_file=traj_valid_file, model=exp_model, start_idx=start_idx)
     bc_policy = None
     if exp_model == 'pretrained':

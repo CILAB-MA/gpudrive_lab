@@ -99,20 +99,22 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
     print("compressing!!!")
     # np.savez_compressed(os.path.join(save_path, save_name), obs=obs, actions=actions, dead_mask=dead_masks, partner_mask=partner_masks, road_mask=road_masks,  )
     # np.savez_compressed(os.path.join(save_path, 'global_' + save_name), ego_global_rot=ego_global_rots,ego_global_pos=ego_global_poss )
-    np.savez_compressed(os.path.join(save_path, 'reasoning_' + save_name), env_qs=env_qs,ego_qs=ego_qs,
-                        sur_qs=sur_qs,int_qs=int_qs,
-                        env_pos_as=env_pas,ego_pos_as=ego_pas,sur_pos_as=sur_pas, int_pos_as=int_pas,
-                        env_neg_as=env_nas,ego_neg_as=ego_nas,sur_neg_as=sur_nas, int_neg_as=int_nas,
-                        env_masks=env_masks,ego_masks=ego_masks,sur_masks=sur_masks,
-                        int_masks=int_masks,)
+    np.savez_compressed(os.path.join(save_path, 'reasoning_question_' + save_name), env_qs=env_qs,ego_qs=ego_qs,
+                        sur_qs=sur_qs,int_qs=int_qs,)
+    # np.savez_compressed(os.path.join(save_path, 'reasoning_answer_' + save_name),     
+    #                     env_pos_as=env_pas,ego_pos_as=ego_pas,sur_pos_as=sur_pas, int_pos_as=int_pas,
+    #                     env_neg_as=env_nas,ego_neg_as=ego_nas,sur_neg_as=sur_nas, int_neg_as=int_nas,)
+    # np.savez_compressed(os.path.join(save_path, 'reasoning_mask_' + save_name),
+    #                     env_masks=env_masks,ego_masks=ego_masks,sur_masks=sur_masks,
+    #                     int_masks=int_masks,)
     print("done!!!")
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-scene', type=int, default=10000)
+    parser.add_argument('--num-scene', type=int, default=80000)
     parser.add_argument('--start-idx', type=int, default=0)
-    parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'],)
+    parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
     args = parser.parse_args()  
     save_path = f"/data/full_version/processed/final/reasoning"
     save_name = f'{args.dataset}_trajectory_{args.num_scene}.npz'
