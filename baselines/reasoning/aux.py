@@ -68,7 +68,9 @@ def get_grad_norm(params, step=None):
     return max_grad_norm, grad_name
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
-    with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
+    train_val = "training" if data_file == 80000 else "validation"
+    data_name = f"{train_val}_trajectory_{data_file}.npz"
+    with np.load(os.path.join(data_path, data_name), mmap_mode='r') as npz:
         expert_obs = npz['obs']
         expert_actions = npz['actions']
         expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
@@ -77,12 +79,17 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     questions = None
     answers = None
     qa_masks = None
-    if config.use_tom:
-        qa_names = ['ego', 'env', 'sur', 'int']
-        with np.load(os.path.join(data_path, "reasoning_" + data_file)) as qa_npz:
-            questions = np.concatenate([qa_npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
-            answers = np.concatenate([qa_npz[f'{qa_name}_as'] for qa_name in qa_names], axis=1)
-            qa_masks = np.concatenate([qa_npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
+    if exp_config.exp != 'baseline':
+        qa_names = ['env', 'ego', 'int']
+        data_name = f"{train_val}_trajectory_{data_file}.npz"
+        with np.load(os.path.join(data_path, f"reasoning_question_{data_name}"), mmap_mode='r') as npz:
+            questions = np.concatenate([npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
+        with np.load(os.path.join(data_path, f"reasoning_answer_{data_name}"), mmap_mode='r') as npz:
+            pos_answers = np.concatenate([npz[f'{qa_name}_pos_as'] for qa_name in qa_names], axis=1)
+            neg_answers = np.concatenate([npz[f'{qa_name}_neg_as'] for qa_name in qa_names], axis=1)
+        with np.load(os.path.join(data_path, f"reasoning_mask_{data_name}"), mmap_mode='r') as npz:
+            masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
+            B, M = questions.shape[:2]
         # B, M = questions.shape[:2]
         # concat_vecs = np.concatenate([questions, answers], axis=-1)
         # flat_vecs = concat_vecs.reshape(-1, 768)
@@ -94,7 +101,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     dataset = ReasoningDataset(
         expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, 
-        use_tom=config.use_tom, questions=questions, answers=answers,
+        exp=config.exp, questions=questions, pos=pos_answers, neg=neg_answers,
         qa_masks=qa_masks
 
     )
@@ -125,11 +132,18 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     for i, batch in enumerate(eval_expert_data_loader):
         batch_size = batch[0].size(0)
         total_samples += batch_size
-        if config.use_tom:
-            obs, expert_action, partner_masks, road_masks, questions, answers, qa_masks, _ = batch
-            questions = questions.to(exp_config.device).float()
-            answers = answers.to(exp_config.device).float()
-            qa_masks = qa_masks.to(exp_config.device)
+        if 'neg' in config.exp:
+            obs, expert_action, partner_masks, road_masks, questions, pos, neg, qa_masks, _ = batch
+            questions = questions.to(config.device).float()
+            pos = pos.to(config.device).float()
+            neg = neg.to(config.device).float()
+            qa_masks = qa_masks.to(config.device)
+        elif config.exp != 'baseline':
+            obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, _ = batch
+            questions = questions.to(config.device).float()
+            pos = pos.to(config.device).float()
+            neg = None
+            qa_masks = qa_masks.to(config.device)
         else:
             obs, expert_action, partner_masks, road_masks, data_idx = batch 
         obs, expert_action = obs.to(config.device), expert_action.to(config.device)
@@ -141,8 +155,8 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
-            if config.use_tom:
-                tom_loss = aux_loss(bc_policy, context, questions, answers, 
+            if config.exp != 'baseline':
+                tom_loss = aux_loss(bc_policy, context, questions, pos, neg,
                     qa_masks=qa_masks)
             pred_actions = bc_policy.get_action(context, deterministic=True)
             action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
@@ -174,7 +188,7 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             dyaw_std2_count += dyaw_std2_mask.sum()
 
             losses += loss.mean().item()
-            if config.use_tom:
+            if config.exp != 'baseline':
                 tom_losses += tom_loss.mean().item()
     test_loss = losses / (i + 1) 
     dx_loss = dx_losses / (i + 1) 
@@ -210,13 +224,13 @@ def train(exp_config=None):
             else:    
                 wandb_dict[k] = v    
         exp_config = Box(wandb_dict)
-        if exp_config.use_tom != False:
+        if exp_config.exp != 'baseline':
             model_name = 'aux_attn'
         else:
             model_name = 'early_attn'
         wandb.run.name = f"{model_name}_{exp_config.seed}"
         wandb.run.save()
-    if exp_config.use_tom != False:
+    if exp_config.exp != 'baseline':
         model_name = 'aux_attn'
     else:
         model_name = 'early_attn'
@@ -225,7 +239,7 @@ def train(exp_config=None):
     # Initialize model and optimizer
     bc_policy = MODELS[model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
-    if exp_config.use_tom == 'PCGrad':
+    if 'pcgrad' in exp_config.exp:
         use_pcgrad = True
     else:
         use_pcgrad = False
@@ -246,8 +260,8 @@ def train(exp_config=None):
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     eval_data_file =  f"validation_trajectory_10000.npz"
-    expert_data_loader = get_dataloader(train_data_path, train_data_file, exp_config)
-    eval_expert_data_loader = get_dataloader(eval_data_path, eval_data_file, exp_config,
+    expert_data_loader = get_dataloader(train_data_path, 80000, exp_config)
+    eval_expert_data_loader = get_dataloader(eval_data_path, 10000, exp_config,
                                             isshuffle=False)
     num_train_sample = len(expert_data_loader.dataset)
     best_loss = 9999999
@@ -274,10 +288,17 @@ def train(exp_config=None):
         for n, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
-            if exp_config.use_tom != False:
-                obs, expert_action, partner_masks, road_masks, questions, answers, qa_masks, _ = batch
+            if 'neg' in exp_config.exp:
+                obs, expert_action, partner_masks, road_masks, questions, pos, neg, qa_masks, _ = batch
                 questions = questions.to(exp_config.device).float()
-                answers = answers.to(exp_config.device).float()
+                pos = pos.to(exp_config.device).float()
+                neg = neg.to(exp_config.device).float()
+                qa_masks = qa_masks.to(exp_config.device)
+            elif exp_config.exp != 'baseline':
+                obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, _ = batch
+                questions = questions.to(exp_config.device).float()
+                pos = pos.to(exp_config.device).float()
+                neg = None
                 qa_masks = qa_masks.to(exp_config.device)
             else:
                 obs, expert_action, partner_masks, road_masks, data_idx = batch 
@@ -291,8 +312,8 @@ def train(exp_config=None):
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
-            if exp_config.use_tom != False:
-                tom_loss = aux_loss(bc_policy, context, questions, answers, 
+            if exp_config.exp != 'baseline':
+                tom_loss = aux_loss(bc_policy, context, questions, pos, neg,
                     qa_masks=qa_masks)
                 loss += 0.2 * tom_loss
 
@@ -300,7 +321,7 @@ def train(exp_config=None):
             # Backward pass
             optimizer.zero_grad()
 
-            if exp_config.use_tom != False:
+            if exp_config.exp != 'baseline':
                 backbone_modules = [
                     bc_policy.ego_state_net,
                     bc_policy.road_object_net,
@@ -351,7 +372,7 @@ def train(exp_config=None):
                 dx_losses += dx_loss
                 dy_losses += dy_loss
                 dyaw_losses += dyaw_loss
-                if exp_config.use_tom != False:
+                if exp_config.exp != 'baseline':
                     tom_losses += tom_loss.mean().item()
             train_losses += pred_loss.item()
                 
@@ -370,7 +391,8 @@ def train(exp_config=None):
                             "eval/dy_std2_loss": test_dy_std2_loss,
                             "eval/dyaw_std2_loss": test_dyaw_std2_loss,
                         }
-                    if exp_config.use_tom != False:
+                    if exp_config.exp != 'baseline':
+
                         log_dict['eval/tom_loss'] = test_tom_losses
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
@@ -386,7 +408,7 @@ def train(exp_config=None):
                     "train/dyaw_loss": dyaw_losses / (n + 1),
                     "train/max_grad_norm": max_norms / (n + 1),
                 }
-            if exp_config.use_tom != False:
+            if exp_config.exp != 'baseline':
                 log_dict['train/tom_loss'] = tom_losses / (n + 1)
                 log_dict['train/conflict_grad'] = conflict_count / (n + 1)
                 log_dict['train/cosine_similarity'] = cos_sims / (n + 1)

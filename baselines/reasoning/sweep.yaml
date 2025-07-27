@@ -6,7 +6,7 @@ metric:
   name: eval/loss
 parameters:
   seed:
-    values: [42]
+    values: [3, 11, 42]
   num_scene:
     values: [80000]
   total_gradient_steps:
@@ -19,5 +19,5 @@ parameters:
   num_layer:
     values: [[4, 3]]
   # AUXCONFIG
-  use_tom:
-    values: [False] # null, 'guide_weighted', 'no_guide_no_weighted', 'no_guide_weighted', 'guide_no_weighted'
+  exp:
+    values: ["vanilla"] # baseline, vanilla, neg, pcgrad, neg_pcgrad

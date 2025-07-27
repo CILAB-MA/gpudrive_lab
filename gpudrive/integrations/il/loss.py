@@ -1,24 +1,30 @@
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 from torch.distributions import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import numpy as np
 
-def aux_loss(model, context, questions, answers, qa_masks=None):
+def aux_loss(model, context, questions, pos, neg=None, qa_masks=None):
     '''
     compute the l1 loss between the predicted and expert actions
     TODO: should be fixed with new version
     '''
+    triplet_loss_fn = nn.TripletMarginLoss(margin=1.0, p=2)
     context_repeat = context.unsqueeze(1).repeat(1, questions.shape[1], 1)
     aux_input = torch.cat([context_repeat, questions], dim=-1)
     aux_input = aux_input.reshape(-1, 768)
     qa_masks = qa_masks.reshape(-1)
-    answers = answers.reshape(-1, 384)
+    pos = pos.reshape(-1, 384)
     pred_answer = model.aux_head(aux_input)
-
     pred_answer = pred_answer[~qa_masks]
-    answers = answers[~qa_masks]
-    loss = 1 - F.cosine_similarity(pred_answer, answers, dim=-1).mean()
+    pos = pos[~qa_masks]
+    if neg is not None:
+        neg = neg.reshape(-1, 384)
+        neg = neg[~qa_masks]
+        loss = triplet_loss_fn(pred_answer, pos, neg).mean()
+    else:
+        loss = 1 - F.cosine_similarity(pred_answer, pos, dim=-1).mean()
     return loss
 
 def gmm_loss(model, context, expert_actions):

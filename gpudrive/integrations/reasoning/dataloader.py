@@ -4,8 +4,8 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class ReasoningDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None,
-                 rollout_len=5, pred_len=1, questions=None, answers=None, qa_masks=None,
-                 use_tom=False):
+                 rollout_len=5, pred_len=1, questions=None, pos=None, neg=None, 
+                 qa_masks=None, exp="baseline"):
         # obs
         self.obs = np.pad(obs, ((0, 0), (rollout_len - 1, 0), (0, 0)))
 
@@ -29,7 +29,8 @@ class ReasoningDataset(torch.utils.data.Dataset):
         self.other_pos = None
         if use_tom:
             self.questions = questions
-            self.answers = answers
+            self.pos = pos
+            self.neg = neg
             self.qa_masks = qa_masks
             self.qa_len = self.questions.shape[1]
             self.qa_num_sample = 50
@@ -48,9 +49,11 @@ class ReasoningDataset(torch.utils.data.Dataset):
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
         self.full_var = ['obs', 'actions', 'partner_mask', 'road_mask']
-        self.use_tom = use_tom
-        if use_tom:
-            self.full_var += ['questions', 'answers', 'qa_masks']
+        self.exp = exp
+        if exp != 'baseline':
+            self.full_var += ['questions', 'pos', 'qa_masks']
+            if 'neg' in exp:
+                self.full_var += ['neg']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -83,7 +86,7 @@ class ReasoningDataset(torch.utils.data.Dataset):
                 if self.__dict__[var_name] is not None:
                     if var_name in ['obs', 'road_mask', 'partner_mask']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
-                    elif var_name in ['questions', 'answers', 'qa_masks']:
+                    elif var_name in ['questions', 'pos', 'neg', 'qa_masks']:
                         data = self.__dict__[var_name][idx1, sample_qa]
                         if not valid_qa_timesteps:
                             data = np.ones_like(data)
