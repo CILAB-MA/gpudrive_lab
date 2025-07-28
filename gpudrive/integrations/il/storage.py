@@ -26,15 +26,16 @@ def save_trajectory(env, save_path, save_index=0):
     alive_agent_num = env.cont_agent_mask.sum().item()
     print("alive_agent_num : ", alive_agent_num)
     
-    expert_trajectory_lst = torch.zeros((alive_agent_num, env.episode_len, obs.shape[-1]), device=device)
-    expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
-    expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
-    expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
-    expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_global_pos_lst = torch.zeros((alive_agent_num, env.episode_len, 2), device=device) # global pos (2)
-    expert_global_rot_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
+    # expert_trajectory_lst = torch.zeros((alive_agent_num, env.episode_len, obs.shape[-1]), device=device)
+    # expert_actions_lst = torch.zeros((alive_agent_num, env.episode_len, 3), device=device)
+    # expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
+    # expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
+    # expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
+    # expert_global_pos_lst = torch.zeros((alive_agent_num, env.episode_len, 2), device=device) # global pos (2)
+    # expert_global_rot_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
     expert_partner_id_lst = torch.zeros((alive_agent_num, env.episode_len, 127), device=device) # global actions (1)
     expert_ego_id_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
+    expert_scene_id_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
     # Initialize dead agent mask
     agent_info = (
             env.sim.absolute_self_observation_tensor()
@@ -49,15 +50,16 @@ def save_trajectory(env, save_path, save_index=0):
     for time_step in tqdm(range(env.episode_len)):
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
-                expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
-                expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
-                expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
-                expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
-                expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
-                expert_global_rot_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
+                # expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
+                # expert_actions_lst[idx][time_step] = expert_actions[world_idx, agent_idx, time_step]
+                # expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
+                # expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
+                # expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
+                # expert_global_rot_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
                 expert_partner_id_lst[idx, time_step] = env.partner_ids[world_idx, agent_idx].clone()
                 expert_ego_id_lst[idx, time_step] = agent_info[world_idx, agent_idx, -1]
-            expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
+                expert_scene_id_lst[idx, time_step] = world_idx
+            # expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
 
         
         # env.step() -> gather next obs
@@ -91,30 +93,32 @@ def save_trajectory(env, save_path, save_index=0):
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
             break
     
-    expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
-    expert_actions_lst = expert_actions_lst[~collision].to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
-    # global pos
-    expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
-    expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
+    # expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
+    # expert_actions_lst = expert_actions_lst[~collision].to('cpu')
+    # expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
+    # expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
+    # expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
+    # # global pos
+    # expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
+    # expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
     expert_partner_id_lst = expert_partner_id_lst[~collision].to('cpu')
     expert_ego_id_lst = expert_ego_id_lst[~collision].to('cpu')
+    expert_scene_id_lst = expert_scene_id_lst[~collision].to('cpu')
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(save_path + '/global', exist_ok=True)
     os.makedirs(save_path + '/id', exist_ok=True)
-    np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
-                        obs=expert_trajectory_lst,
-                        actions=expert_actions_lst,
-                        dead_mask=expert_dead_mask_lst,
-                        partner_mask=expert_partner_mask_lst,
-                        road_mask=expert_road_mask_lst)
-    np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
-                        ego_global_pos=expert_global_pos_lst,
-                        ego_global_rot=expert_global_rot_lst)
+    # np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
+    #                     obs=expert_trajectory_lst,
+    #                     actions=expert_actions_lst,
+    #                     dead_mask=expert_dead_mask_lst,
+    #                     partner_mask=expert_partner_mask_lst,
+    #                     road_mask=expert_road_mask_lst)
+    # np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
+    #                     ego_global_pos=expert_global_pos_lst,
+    #                     ego_global_rot=expert_global_rot_lst)
     np.savez_compressed(f"{save_path}/id/id_trajectory_{save_index}.npz", 
                         ego_id=expert_ego_id_lst,
+                        scene_id=expert_scene_id_lst,
                         partner_id=expert_partner_id_lst)
 if __name__ == "__main__":
     import argparse
