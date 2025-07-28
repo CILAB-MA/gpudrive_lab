@@ -33,6 +33,8 @@ def save_trajectory(env, save_path, save_index=0):
     expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
     expert_global_pos_lst = torch.zeros((alive_agent_num, env.episode_len, 2), device=device) # global pos (2)
     expert_global_rot_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
+    expert_partner_id_lst = torch.zeros((alive_agent_num, env.episode_len, 127), device=device) # global actions (1)
+    expert_ego_id_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
     # Initialize dead agent mask
     agent_info = (
             env.sim.absolute_self_observation_tensor()
@@ -53,6 +55,8 @@ def save_trajectory(env, save_path, save_index=0):
                 expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
                 expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
                 expert_global_rot_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
+                expert_partner_id_lst[idx, time_step] = env.partner_ids[world_idx, agent_idx].clone()
+                expert_ego_id_lst[idx, time_step] = agent_info[world_idx, agent_idx, -1]
             expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
 
         
@@ -85,7 +89,6 @@ def save_trajectory(env, save_path, save_index=0):
             veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
             collision = (veh_collision + off_road > 0)
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
-            print(f'Save number w/o collision {len(expert_trajectory_lst[~collision])} / {len(expert_trajectory_lst)}')
             break
     
     expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
@@ -96,8 +99,11 @@ def save_trajectory(env, save_path, save_index=0):
     # global pos
     expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
     expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
+    expert_partner_id_lst = expert_partner_id_lst[~collision].to('cpu')
+    expert_ego_id_lst = expert_ego_id_lst[~collision].to('cpu')
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(save_path + '/global', exist_ok=True)
+    os.makedirs(save_path + '/id', exist_ok=True)
     np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
                         obs=expert_trajectory_lst,
                         actions=expert_actions_lst,
@@ -107,17 +113,19 @@ def save_trajectory(env, save_path, save_index=0):
     np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
                         ego_global_pos=expert_global_pos_lst,
                         ego_global_rot=expert_global_rot_lst)
-
+    np.savez_compressed(f"{save_path}/id/id_trajectory_{save_index}.npz", 
+                        ego_id=expert_ego_id_lst,
+                        partner_id=expert_partner_id_lst)
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_stack', type=int, default=1)
     parser.add_argument('--save_path', type=str, default='/data/full_version/processed')
-    parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
+    parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'],)
     parser.add_argument('--function', type=str, default='save_trajectory', 
                         choices=[
                             'save_trajectory'])
-    parser.add_argument('--dataset-size', type=int, default=80000) # total_world
+    parser.add_argument('--dataset-size', type=int, default=10000) # total_world
     parser.add_argument('--batch-size', type=int, default=100) # num_world
     args = parser.parse_args()
 
