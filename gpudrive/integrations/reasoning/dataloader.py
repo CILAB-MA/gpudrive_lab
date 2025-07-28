@@ -27,7 +27,8 @@ class ReasoningDataset(torch.utils.data.Dataset):
         self.aux_valid_mask = None
         self.other_info = None
         self.other_pos = None
-        if use_tom:
+        self.exp = exp
+        if exp != 'baseline':
             self.questions = questions
             self.pos = pos
             self.neg = neg
@@ -71,7 +72,7 @@ class ReasoningDataset(torch.utils.data.Dataset):
         idx2 = int(idx2)
         # row, column -> 
         batch = ()
-        if self.use_tom:
+        if self.exp != 'baseline':
             valid_qa_indices = np.where(~self.qa_masks[idx1])[0]
             valid_qa_timesteps = (idx2 >= 10) and (idx2 < 30)
             # print(idx1, idx2, valid_qa_indices)

@@ -77,8 +77,9 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
         road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
     questions = None
-    answers = None
     qa_masks = None
+    pos = None
+    neg = None
     if exp_config.exp != 'baseline':
         qa_names = ['env', 'ego', 'int']
         data_name = f"{train_val}_trajectory_{data_file}.npz"
@@ -88,7 +89,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
             pos_answers = np.concatenate([npz[f'{qa_name}_pos_as'] for qa_name in qa_names], axis=1)
             neg_answers = np.concatenate([npz[f'{qa_name}_neg_as'] for qa_name in qa_names], axis=1)
         with np.load(os.path.join(data_path, f"reasoning_mask_{data_name}"), mmap_mode='r') as npz:
-            masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
+            qa_masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
             B, M = questions.shape[:2]
         # B, M = questions.shape[:2]
         # concat_vecs = np.concatenate([questions, answers], axis=-1)
