@@ -11,15 +11,15 @@ lr: 0.0005
 sample_per_epoch: 438763
 seed: 3
 early_stop_num: 100000
-base_path: '/data/full_version'
+base_path: '/scratch/cilab/'
 model_path: 'model'
-data_path: 'processed/final'
+data_path: 'final'
 num_scene: 1000
 grad_norm: 10
 
 # DATA CONFIG
-num_workers: 4
-prefetch_factor: 2
+num_workers: 64
+prefetch_factor: 4
 pin_memory: True
 rollout_len: 5
 pred_len: 1

@@ -30,10 +30,10 @@ MODELS = dict(early_attn=EarlyFusionAttnBCNet,)
 def parse_args():
     parser = argparse.ArgumentParser("Most of vars are in il.yaml. These are for different server.")
     # DATALOADER
-    parser.add_argument('--num-workers', '-nw', type=int, default=8)
+    parser.add_argument('--num-workers', '-nw', type=int, default=64)
     parser.add_argument('--prefetch-factor', '-pf', type=int, default=4)
     parser.add_argument('--pin-memory', '-pm', action='store_true')
-    
+    parser.add_argument('--load-path', type=str, default=None)
     # EXPERIMENT
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--sweep-id', type=str, default=None)
@@ -91,7 +91,8 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         shuffle=isshuffle,
         num_workers=config.num_workers,
         prefetch_factor=config.prefetch_factor,
-        pin_memory=config.pin_memory
+        pin_memory=config.pin_memory,
+        persistent_workers=True
     )
     del dataset
     return dataloader
@@ -205,11 +206,19 @@ def train(exp_config=None):
         wandb.run.save()
     exp_config.update(vars(args))
     set_seed(exp_config.seed)
+    scaler = torch.cuda.amp.GradScaler()
     # Initialize model and optimizer
     bc_policy = MODELS[exp_config.model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
     print(bc_policy)
-    
+    load_path = exp_config.get('load_path', None)
+    if load_path and os.path.exists(load_path):
+        ckpt = torch.load(load_path[:-4] + '_optim.pth', map_location=exp_config.device)
+        bc_policy = torch.load(load_path)
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        gradient_steps = ckpt.get('gradient_steps', 0)
+        scaler.load_state_dict(ckpt['scaler_state_dict']) 
+        print(f"Loaded checkpoint from {load_path} with step {gradient_steps}")
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
     non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
@@ -263,32 +272,22 @@ def train(exp_config=None):
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
 
-            # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
-            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
-            loss = pred_loss
-            
-            # To write data idx that has the highest loss
-                
-            if exp_config.use_tom:
-                aux_info  = ['pos', other_weights.mean(axis=-1), config.use_tom]
-                if 'no_guide_no_weighted' in exp_config.use_tom:
-                    other_input = other_embeds
-                else:
-                    other_input = other_embeds# todo: [..., aux_ind * 32: (aux_ind + 1) * 32]
-                tom_loss = aux_loss(bc_policy, other_input, other_pos, aux_mask, 
-                    aux_info=aux_info)
-                loss += 0.2 * tom_loss
-            loss = loss.mean()
-            # Backward pass
+            with torch.cuda.amp.autocast():
+                context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
+                pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+                loss = pred_loss
+                loss = loss.mean()
+
             optimizer.zero_grad()
-            loss.backward()
+            scaler.scale(loss).backward()
 
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), exp_config.grad_norm)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
 
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             gradient_steps += 1
             pbar.update(1)
             with torch.no_grad():
@@ -301,8 +300,7 @@ def train(exp_config=None):
                 dx_losses += dx_loss
                 dy_losses += dy_loss
                 dyaw_losses += dyaw_loss
-                if exp_config.use_tom:
-                    tom_losses += tom_loss.mean().item()
+
             train_losses += loss.item()
                 
             # Evaluation loop
@@ -320,10 +318,16 @@ def train(exp_config=None):
                             "eval/dy_std2_loss": dy_std2_loss,
                             "eval/dyaw_std2_loss": dyaw_std2_loss,
                         }
-                    if exp_config.use_tom:
-                        log_dict['eval/tom_loss'] = tom_loss
+
                     wandb.log(log_dict, step=gradient_steps)
                 if test_loss < best_loss:
+                    save_dict = {
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'gradient_steps': gradient_steps,
+                        'exp_config': dict(exp_config),
+                        'scaler_state_dict': scaler.state_dict(),
+                    }
+                    torch.save(save_dict, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}_optim.pth")
                     torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}.pth")
                     best_loss = test_loss
                     print(f'STEP {gradient_steps} gets BEST!')
