@@ -6,7 +6,8 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 class FutureDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, road_mask=None,
                  rollout_len=5, pred_len=1, future_step=1, exp='other', xy_range=None, 
-                 partner_labels=None, ego_labels=None):
+                 partner_labels=None, ego_labels=None,
+                 ego_id=None, scene_id=None, partner_id=None):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -31,6 +32,16 @@ class FutureDataset(torch.utils.data.Dataset):
             self.partner_labels = partner_labels_new
         if ego_labels is not None:
             self.ego_labels = ego_labels
+        if ego_id is not None:
+            partner_id_pad = np.zeros((partner_id.shape[0], future_step, *partner_id.shape[2:]), dtype=np.int16)
+            partner_id_new = np.concatenate([partner_id, partner_id_pad], axis=1)[:, future_step:]
+            self.partner_id = partner_id_new
+            ego_id_pad = np.zeros((ego_id.shape[0], future_step, *ego_id.shape[2:]), dtype=np.int16)
+            ego_id_new = np.concatenate([ego_id, ego_id_pad], axis=1)[:, future_step:]
+            self.ego_id = ego_id_new
+            scene_id_pad = np.zeros((scene_id.shape[0], future_step, *scene_id.shape[2:]), dtype=np.int16)
+            scene_id_new = np.concatenate([scene_id, scene_id_pad], axis=1)[:, future_step:]
+            self.scene_id = scene_id_new
         if exp == 'other':
             # future partner_mask
             partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
@@ -78,6 +89,8 @@ class FutureDataset(torch.utils.data.Dataset):
             self.full_var += ['partner_labels']
         if ego_labels is not None:
             self.full_var += ['ego_labels']
+        if ego_id is not None:
+            self.full_var += ['ego_id', 'scene_id', 'partner_id']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -226,7 +239,7 @@ class FutureDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name == 'valid_masks':
                         data = self.__dict__[var_name][idx1 ,idx2 + self.rollout_len + self.pred_len - 2] # idx 0 -> (0, 10 + 5 - 2) -> (0, 13) & padding = 9 -> end with last action timestep
-                    elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask', 'ego_pos', 'partner_labels']:
+                    elif var_name in ['aux_mask', 'other_pos', 'future_valid_mask', 'ego_pos', 'partner_labels', 'ego_id', 'scene_id', 'partner_id']:
                         data = self.__dict__[var_name][idx1, idx2]
                     elif var_name == 'ego_labels':
                         data = self.__dict__[var_name][idx1]
@@ -236,6 +249,7 @@ class FutureDataset(torch.utils.data.Dataset):
                     if var_name == 'valid_masks':
                         ego_mask_data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len]
                         batch = batch + (ego_mask_data, )
+            batch = batch + (idx2, )
         else:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
