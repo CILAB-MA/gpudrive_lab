@@ -33,7 +33,7 @@ def parse_args():
     # DATALOADER
     parser.add_argument('--num-workers', '-nw', type=int, default=8)
     parser.add_argument('--prefetch-factor', '-pf', type=int, default=4)
-    
+    parser.add_argument('--load-path', type=str, default=None)
     # EXPERIMENT
     parser.add_argument('--use-wandb', action='store_true')
     parser.add_argument('--sweep-id', type=str, default=None)
@@ -237,6 +237,7 @@ def train(exp_config=None):
         model_name = 'early_attn'
     exp_config.update(vars(args))
     set_seed(exp_config.seed)
+    scaler = torch.cuda.amp.GradScaler()
     # Initialize model and optimizer
     bc_policy = MODELS[model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
@@ -247,7 +248,14 @@ def train(exp_config=None):
     if use_mt_optim:
         mtl_opt = UnitaryScalarization(optimizer) 
     print(bc_policy)
-    
+    load_path = exp_config.get('load_path', None)
+    if load_path and os.path.exists(load_path):
+        ckpt = torch.load(load_path[:-4] + '_optim.pth', map_location=exp_config.device)
+        bc_policy = torch.load(load_path)
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        gradient_steps = ckpt.get('gradient_steps', 0)
+        scaler.load_state_dict(ckpt['scaler_state_dict']) 
+        print(f"Loaded checkpoint from {load_path} with step {gradient_steps}")
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
     non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
@@ -356,14 +364,15 @@ def train(exp_config=None):
                 mtl_opt.iterate([pred_loss, 0.2 * tom_loss], shared_repr=context)
                 # optimizer.pc_backward([pred_loss, 0.2 * tom_loss])
             else:
-                loss.backward()
+                 scaler.scale(loss).backward()
 
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), exp_config.grad_norm)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
-
-            optimizer.step()
+            if not use_mt_optim:
+                scaler.step(optimizer)
+                scaler.update()
             gradient_steps += 1
             pbar.update(1)
             with torch.no_grad():
