@@ -91,6 +91,8 @@ class ReasoningDataset(torch.utils.data.Dataset):
                         data = self.__dict__[var_name][idx1, sample_qa]
                         if not valid_qa_timesteps:
                             data = np.ones_like(data)
+                            if var_name == 'qa_masks':
+                                data = data.astype('bool')
                     elif var_name in ['actions']:
                         data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
                     elif var_name in ['other_pos', 'aux_mask']:

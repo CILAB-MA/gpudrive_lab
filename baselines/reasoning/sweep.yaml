@@ -1,6 +1,6 @@
 program: baselines/reasoning/aux.py
 method: grid
-name: vanilla
+name: neg
 metric:
   goal: minimize
   name: eval/loss
@@ -20,4 +20,4 @@ parameters:
     values: [[4, 3]]
   # AUXCONFIG
   exp:
-    values: ["vanilla"] # baseline, vanilla, neg, pcgrad, neg_pcgrad
+    values: ["neg"] # baseline, vanilla, neg, pcgrad, neg_pcgrad

@@ -22,7 +22,7 @@ from gpudrive.integrations.reasoning.dataloader import ReasoningDataset
 from gpudrive.integrations.reasoning.model import EarlyFusionAttnAuxNet
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
 from gpudrive.integrations.il.loss import gmm_loss, aux_loss
-from gpudrive.integrations.reasoning.pcgrad import PCGrad
+from gpudrive.integrations.reasoning.utils import UnitaryScalarization
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -89,7 +89,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
             pos_answers = np.concatenate([npz[f'{qa_name}_pos_as'] for qa_name in qa_names], axis=1)
             neg_answers = np.concatenate([npz[f'{qa_name}_neg_as'] for qa_name in qa_names], axis=1)
         with np.load(os.path.join(data_path, f"reasoning_mask_{data_name}"), mmap_mode='r') as npz:
-            qa_masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1)
+            qa_masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1).astype('bool')
             B, M = questions.shape[:2]
         # B, M = questions.shape[:2]
         # concat_vecs = np.concatenate([questions, answers], axis=-1)
@@ -134,17 +134,17 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
         batch_size = batch[0].size(0)
         total_samples += batch_size
         if 'neg' in config.exp:
-            obs, expert_action, partner_masks, road_masks, questions, pos, neg, qa_masks, _ = batch
+            obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, neg, _ = batch
             questions = questions.to(config.device).float()
             pos = pos.to(config.device).float()
             neg = neg.to(config.device).float()
-            qa_masks = qa_masks.to(config.device)
+            qa_masks = qa_masks.to(config.device).bool()
         elif config.exp != 'baseline':
             obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, _ = batch
             questions = questions.to(config.device).float()
             pos = pos.to(config.device).float()
             neg = None
-            qa_masks = qa_masks.to(config.device)
+            qa_masks = qa_masks.to(config.device).bool()
         else:
             obs, expert_action, partner_masks, road_masks, data_idx = batch 
         obs, expert_action = obs.to(config.device), expert_action.to(config.device)
@@ -240,12 +240,12 @@ def train(exp_config=None):
     # Initialize model and optimizer
     bc_policy = MODELS[model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
-    if 'pcgrad' in exp_config.exp:
-        use_pcgrad = True
+    if 'mt_optim' in exp_config.exp:
+        use_mt_optim = True
     else:
-        use_pcgrad = False
-    if use_pcgrad:
-        optimizer = PCGrad(optimizer) 
+        use_mt_optim = False
+    if use_mt_optim:
+        mtl_opt = UnitaryScalarization(optimizer) 
     print(bc_policy)
     
     # Model Params wandb update
@@ -290,17 +290,17 @@ def train(exp_config=None):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
             if 'neg' in exp_config.exp:
-                obs, expert_action, partner_masks, road_masks, questions, pos, neg, qa_masks, _ = batch
+                obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, neg, _ = batch
                 questions = questions.to(exp_config.device).float()
                 pos = pos.to(exp_config.device).float()
                 neg = neg.to(exp_config.device).float()
-                qa_masks = qa_masks.to(exp_config.device)
+                qa_masks = qa_masks.to(exp_config.device).bool()
             elif exp_config.exp != 'baseline':
                 obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, _ = batch
                 questions = questions.to(exp_config.device).float()
                 pos = pos.to(exp_config.device).float()
                 neg = None
-                qa_masks = qa_masks.to(exp_config.device)
+                qa_masks = qa_masks.to(exp_config.device).bool()
             else:
                 obs, expert_action, partner_masks, road_masks, data_idx = batch 
             obs, expert_action = obs.to(exp_config.device), expert_action.to(exp_config.device)
@@ -316,11 +316,13 @@ def train(exp_config=None):
             if exp_config.exp != 'baseline':
                 tom_loss = aux_loss(bc_policy, context, questions, pos, neg,
                     qa_masks=qa_masks)
-                loss += 0.2 * tom_loss
+                if not use_mt_optim:
+                    loss += 0.2 * tom_loss
 
             loss = loss.mean()
             # Backward pass
-            optimizer.zero_grad()
+            if not use_mt_optim:
+                optimizer.zero_grad()
 
             if exp_config.exp != 'baseline':
                 backbone_modules = [
@@ -350,8 +352,9 @@ def train(exp_config=None):
                 if torch.dot(main_vec, aux_vec) < 0:
                     conflict_count += 1
                 cos_sims += cos_sim
-            if use_pcgrad:
-                optimizer.pc_backward([pred_loss, 0.2 * tom_loss])
+            if use_mt_optim:
+                mtl_opt.iterate([pred_loss, 0.2 * tom_loss], shared_repr=context)
+                # optimizer.pc_backward([pred_loss, 0.2 * tom_loss])
             else:
                 loss.backward()
 
