@@ -206,7 +206,7 @@ def train(exp_config=None):
         wandb.run.save()
     exp_config.update(vars(args))
     set_seed(exp_config.seed)
-    scaler = torch.cuda.amp.GradScaler()
+    # scaler = torch.cuda.amp.GradScaler()
     # Initialize model and optimizer
     bc_policy = MODELS[exp_config.model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
@@ -217,7 +217,6 @@ def train(exp_config=None):
         bc_policy = torch.load(load_path)
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         gradient_steps = ckpt.get('gradient_steps', 0)
-        scaler.load_state_dict(ckpt['scaler_state_dict']) 
         print(f"Loaded checkpoint from {load_path} with step {gradient_steps}")
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
@@ -272,22 +271,21 @@ def train(exp_config=None):
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
 
-            with torch.cuda.amp.autocast():
-                context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
-                pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
-                loss = pred_loss
-                loss = loss.mean()
-
+            # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
+            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            loss = pred_loss
+            loss = loss.mean()
             optimizer.zero_grad()
-            scaler.scale(loss).backward()
-
+            # scaler.scale(loss).backward()
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), exp_config.grad_norm)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
 
-            scaler.step(optimizer)
-            scaler.update()
+            # scaler.step(optimizer)
+            # scaler.update()
+            optimizer.step()
             gradient_steps += 1
             pbar.update(1)
             with torch.no_grad():
@@ -325,7 +323,6 @@ def train(exp_config=None):
                         'optimizer_state_dict': optimizer.state_dict(),
                         'gradient_steps': gradient_steps,
                         'exp_config': dict(exp_config),
-                        'scaler_state_dict': scaler.state_dict(),
                     }
                     torch.save(save_dict, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}_optim.pth")
                     torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}.pth")
