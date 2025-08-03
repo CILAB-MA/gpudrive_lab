@@ -237,7 +237,6 @@ def train(exp_config=None):
         model_name = 'early_attn'
     exp_config.update(vars(args))
     set_seed(exp_config.seed)
-    scaler = torch.cuda.amp.GradScaler()
     # Initialize model and optimizer
     bc_policy = MODELS[model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
@@ -254,7 +253,6 @@ def train(exp_config=None):
         bc_policy = torch.load(load_path)
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         gradient_steps = ckpt.get('gradient_steps', 0)
-        scaler.load_state_dict(ckpt['scaler_state_dict']) 
         print(f"Loaded checkpoint from {load_path} with step {gradient_steps}")
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
@@ -334,10 +332,6 @@ def train(exp_config=None):
 
             if exp_config.exp != 'baseline':
                 backbone_modules = [
-                    bc_policy.ego_state_net,
-                    bc_policy.road_object_net,
-                    bc_policy.road_graph_net,
-                    bc_policy.fusion_attn,
                     bc_policy.ro_attn,
                     bc_policy.rg_attn,
                     bc_policy.ego_ro_attn,
@@ -363,16 +357,13 @@ def train(exp_config=None):
             if use_mt_optim:
                 mtl_opt.iterate([pred_loss, 0.2 * tom_loss], shared_repr=context)
                 # optimizer.pc_backward([pred_loss, 0.2 * tom_loss])
-            else:
-                 scaler.scale(loss).backward()
-
+            loss.backward()
+            
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), exp_config.grad_norm)
             max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
             max_norms += max_norm
             max_names.append(max_name)
-            if not use_mt_optim:
-                scaler.step(optimizer)
-                scaler.update()
+            optimizer.step()
             gradient_steps += 1
             pbar.update(1)
             with torch.no_grad():

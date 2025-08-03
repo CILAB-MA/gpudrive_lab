@@ -1,12 +1,12 @@
 program: baselines/reasoning/aux.py
 method: grid
-name: neg
+name: vanilla_pt2
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   seed:
-    values: [3, 11, 42]
+    values: [42]
   num_scene:
     values: [80000]
   total_gradient_steps:
@@ -20,4 +20,4 @@ parameters:
     values: [[4, 3]]
   # AUXCONFIG
   exp:
-    values: ["neg"] # baseline, vanilla, neg, pcgrad, neg_pcgrad
+    values: ["vanilla"] # baseline, vanilla, neg, pcgrad, neg_pcgrad

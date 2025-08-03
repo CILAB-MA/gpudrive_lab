@@ -1,0 +1,28 @@
+program: baselines/reasoning/linear_prob.py
+method: grid
+name: (aux)vanilla
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  # MODEL
+  model_path:
+    value: "/data/full_version/reasoning/model/vanilla"
+  model_name:
+    values: ["aux_attn_s11_0728_120515"]
+  # DATA
+  future_step:
+    values: [10, 20, 30, 40]
+  exp:
+    values: ['other']
+  model:
+    values: ['early_lp', 'final_lp']
+  # EXPERIMENT
+  batch_size:
+    values: [256]
+  total_gradient_steps:
+    values: [35_000]
+  lr:
+    values: [0.0015]
+  seed:
+    values: [3, 11, 42]
