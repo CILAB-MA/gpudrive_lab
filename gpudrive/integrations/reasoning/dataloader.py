@@ -5,7 +5,8 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 class ReasoningDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None,
                  rollout_len=5, pred_len=1, questions=None, pos=None, neg=None, 
-                 qa_masks=None, exp="baseline"):
+                 qa_masks=None, exp="baseline", questions_nlp=None, pos_nlp=None,
+                 neg_nlp=None):
         # obs
         self.obs = np.pad(obs, ((0, 0), (rollout_len - 1, 0), (0, 0)))
 
@@ -35,6 +36,9 @@ class ReasoningDataset(torch.utils.data.Dataset):
             self.qa_masks = qa_masks
             self.qa_len = self.questions.shape[1]
             self.qa_num_sample = 50
+            self.questions_nlp = questions_nlp
+            self.pos_nlp = pos_nlp
+            self.neg_nlp = neg_nlp
         self.partner_mask = np.pad(partner_mask, ((0, 0), (rollout_len - 1, 0), (0, 0)), constant_values=2)
         self.partner_mask = (self.partner_mask == 2)
         road_mask = road_mask.astype(bool)

@@ -12,19 +12,10 @@ from tqdm import tqdm
 
 # from sentence_transformers import SentenceTransformer
 import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import os
 
-# @torch.no_grad()
-# def compute_sentence_embeddings(questions, model_name='all-MiniLM-L6-v2', device='cuda', name='env'):
-#     model = SentenceTransformer('all-MiniLM-L6-v2') 
-#     model.eval()
-#     embeddings  = model.encode(questions, convert_to_tensor=True)  
-#     return embeddings.cpu().numpy()  # (N, hidden_dim)
-
-def save_qa_trajectory(env, reasoning_embedding, jd, save_path, save_index=0):
+def save_qa_trajectory(env, reasoning_embedding, reasoning_nlp, jd, save_path, save_index=0):
     """
     Save the trajectory, partner_mask and road_mask in the environment, distinguishing them by each scene and agent.
     
@@ -48,18 +39,30 @@ def save_qa_trajectory(env, reasoning_embedding, jd, save_path, save_index=0):
     env_q = reasoning_embedding['env_q']
     env_pos_a = reasoning_embedding['env_pos_a']
     env_neg_a = reasoning_embedding['env_neg_a']
-    
+    env_q_nlp = reasoning_nlp['env_q']
+    env_pos_nlp = reasoning_nlp['env_pos_a']
+    env_neg_nlp = reasoning_nlp['env_neg_a']
+
     ego_q = reasoning_embedding['ego_q']
     ego_pos_a = reasoning_embedding['ego_pos_a']
     ego_neg_a = reasoning_embedding['ego_neg_a']
-    
+    ego_q_nlp = reasoning_nlp['ego_q']
+    ego_pos_nlp = reasoning_nlp['ego_pos_a']
+    ego_neg_nlp = reasoning_nlp['ego_neg_a']
+
     sur_q = reasoning_embedding['sur_q']
     sur_pos_a = reasoning_embedding['sur_pos_a']
     sur_neg_a = reasoning_embedding['sur_neg_a']
+    sur_q_nlp = reasoning_nlp['sur_q']
+    sur_pos_nlp = reasoning_nlp['sur_pos_a']
+    sur_neg_nlp = reasoning_nlp['sur_neg_a']
 
     int_q = reasoning_embedding['int_q']
     int_pos_a = reasoning_embedding['int_pos_a']
     int_neg_a = reasoning_embedding['int_neg_a']
+    int_q_nlp = reasoning_nlp['int_q']
+    int_pos_nlp = reasoning_nlp['int_pos_a']
+    int_neg_nlp = reasoning_nlp['int_neg_a']
 
     env_mask = reasoning_embedding['env_mask']
     ego_mask = reasoning_embedding['ego_mask']
@@ -107,16 +110,28 @@ def save_qa_trajectory(env, reasoning_embedding, jd, save_path, save_index=0):
     expert_ego_q_lst = ego_q[~collision.cpu().numpy()]
     expert_sur_q_lst = sur_q[~collision.cpu().numpy()]
     expert_int_q_lst = int_q[~collision.cpu().numpy()]
+    expert_env_nlp_q_lst = env_q_nlp[~collision.cpu().numpy()]
+    expert_ego_nlp_q_lst = ego_q_nlp[~collision.cpu().numpy()]
+    expert_sur_nlp_q_lst = sur_q_nlp[~collision.cpu().numpy()]
+    expert_int_nlp_q_lst = int_q_nlp[~collision.cpu().numpy()]
 
     expert_env_pa_lst = env_pos_a[~collision.cpu().numpy()]
     expert_ego_pa_lst = ego_pos_a[~collision.cpu().numpy()]
     expert_sur_pa_lst = sur_pos_a[~collision.cpu().numpy()]
     expert_int_pa_lst = int_pos_a[~collision.cpu().numpy()]
+    expert_env_pos_nlp_lst = env_pos_nlp[~collision.cpu().numpy()]
+    expert_ego_pos_nlp_lst = ego_pos_nlp[~collision.cpu().numpy()]
+    expert_sur_pos_nlp_lst = sur_pos_nlp[~collision.cpu().numpy()]
+    expert_int_pos_nlp_lst = int_pos_nlp[~collision.cpu().numpy()]
 
     expert_env_na_lst = env_neg_a[~collision.cpu().numpy()]
     expert_ego_na_lst = ego_neg_a[~collision.cpu().numpy()]
     expert_sur_na_lst = sur_neg_a[~collision.cpu().numpy()]
     expert_int_na_lst = int_neg_a[~collision.cpu().numpy()]
+    expert_env_neg_nlp_lst = env_neg_nlp[~collision.cpu().numpy()]
+    expert_ego_neg_nlp_lst = ego_neg_nlp[~collision.cpu().numpy()]
+    expert_sur_neg_nlp_lst = sur_neg_nlp[~collision.cpu().numpy()]
+    expert_int_neg_nlp_lst = int_neg_nlp[~collision.cpu().numpy()]
 
     expert_env_mask_lst = env_mask[~collision.cpu().numpy()]
     expert_ego_mask_lst = ego_mask[~collision.cpu().numpy()]
@@ -125,29 +140,44 @@ def save_qa_trajectory(env, reasoning_embedding, jd, save_path, save_index=0):
     # os.makedirs(save_path, exist_ok=True)
     # os.makedirs(save_path + '/global', exist_ok=True)
     os.makedirs(save_path + '/reasoning_final', exist_ok=True)
+    os.makedirs(save_path + '/reasoning_final/nlp', exist_ok=True)
     # np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz", 
     #                     obs=expert_trajectory_lst,
     #                     actions=expert_actions_lst,
     #                     dead_mask=expert_dead_mask_lst,
     #                     partner_mask=expert_partner_mask_lst,
     #                     road_mask=expert_road_mask_lst)
-    np.savez_compressed(f"{save_path}/reasoning_final/reasoning_trajectory_{save_index}.npz", 
-                        env_q=expert_env_q_lst,
-                        ego_q=expert_ego_q_lst,
-                        sur_q=expert_sur_q_lst,
-                        int_q=expert_int_q_lst,
-                        env_pos_a=expert_env_pa_lst,
-                        ego_pos_a=expert_ego_pa_lst,
-                        sur_pos_a=expert_sur_pa_lst,
-                        int_pos_a=expert_int_pa_lst,
-                        env_neg_a=expert_env_na_lst,
-                        ego_neg_a=expert_ego_na_lst,
-                        sur_neg_a=expert_sur_na_lst,
-                        int_neg_a=expert_int_na_lst,
-                        env_mask=expert_env_mask_lst,
-                        ego_mask=expert_ego_mask_lst,
-                        sur_mask=expert_sur_mask_lst,
-                        int_mask=expert_int_mask_lst,
+    # np.savez_compressed(f"{save_path}/reasoning_final/reasoning_trajectory_{save_index}.npz", 
+    #                     env_q=expert_env_q_lst,
+    #                     ego_q=expert_ego_q_lst,
+    #                     sur_q=expert_sur_q_lst,
+    #                     int_q=expert_int_q_lst,
+    #                     env_pos_a=expert_env_pa_lst,
+    #                     ego_pos_a=expert_ego_pa_lst,
+    #                     sur_pos_a=expert_sur_pa_lst,
+    #                     int_pos_a=expert_int_pa_lst,
+    #                     env_neg_a=expert_env_na_lst,
+    #                     ego_neg_a=expert_ego_na_lst,
+    #                     sur_neg_a=expert_sur_na_lst,
+    #                     int_neg_a=expert_int_na_lst,
+    #                     env_mask=expert_env_mask_lst,
+    #                     ego_mask=expert_ego_mask_lst,
+    #                     sur_mask=expert_sur_mask_lst,
+    #                     int_mask=expert_int_mask_lst,
+    #                     )
+    np.savez_compressed(f"{save_path}/reasoning_final/nlp/reasoning_trajectory_{save_index}.npz", 
+                        env_q=expert_env_nlp_q_lst,
+                        ego_q=expert_ego_nlp_q_lst,
+                        sur_q=expert_sur_nlp_q_lst,
+                        int_q=expert_int_nlp_q_lst,
+                        env_pos_a=expert_env_pos_nlp_lst,
+                        ego_pos_a=expert_ego_pos_nlp_lst,
+                        sur_pos_a=expert_sur_pos_nlp_lst,
+                        int_pos_a=expert_int_pos_nlp_lst,
+                        env_neg_a=expert_env_neg_nlp_lst,
+                        ego_neg_a=expert_ego_neg_nlp_lst,
+                        sur_neg_a=expert_sur_neg_nlp_lst,
+                        int_neg_a=expert_int_neg_nlp_lst,
                         )
     # np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz", 
     #                     ego_global_pos=expert_global_pos_lst,
@@ -208,8 +238,10 @@ if __name__ == "__main__":
             with open(f"/data/full_version/processed/reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
                 jd = json.load(f)
             np_path = f"{save_path}/reasoning_posneg/reasoning_trajectory_{idx * args.scene_batch_size}.npz"
+            nlp_path = f"{save_path}/reasoning_posneg/nlp/reasoning_trajectory_{idx * args.scene_batch_size}.npz"
             reasoning_embedding = np.load(np_path)
-        save_qa_trajectory(env, reasoning_embedding, jd, save_path, idx * args.scene_batch_size)
+            reasoning_nlp = np.load(nlp_path, allow_pickle=True)
+        save_qa_trajectory(env, reasoning_embedding, reasoning_nlp, jd, save_path, idx * args.scene_batch_size)
         if idx != num_iter - 1:
             env.swap_data_batch()
     env.close()

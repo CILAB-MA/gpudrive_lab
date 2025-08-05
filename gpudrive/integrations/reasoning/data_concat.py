@@ -17,7 +17,9 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
 
     # subset_datas = get_sorted_files(subset_path ,num_scenes, start_idx)
     # global_datas = get_sorted_files(subset_path + '/global' ,num_scenes, start_idx, concat_other='global')
-    reasoning_datas = get_sorted_files(subset_path + '/reasoning_final' ,num_scenes, start_idx, concat_other=
+    # reasoning_datas = get_sorted_files(subset_path + '/reasoning_final' ,num_scenes, start_idx, concat_other=
+    #                                     'reasoning')
+    nlp_datas = get_sorted_files(subset_path + '/reasoning_posneg/nlp' ,num_scenes, start_idx, concat_other=
                                         'reasoning')
     obs = []
     actions = []
@@ -32,7 +34,7 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
     env_nas, ego_nas, sur_nas, int_nas = [], [], [], [] 
     env_masks, ego_masks, sur_masks, int_masks = [], [], [], [] 
 
-    for (reasoning_data) in tqdm(reasoning_datas):
+    for (reasoning_data) in tqdm(nlp_datas):
         # subset_data_path = os.path.join(subset_path, subset_data)
         # data = np.load(subset_data_path)
         # obs.append(data['obs'])
@@ -65,10 +67,10 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
         ego_nas.append(data['ego_neg_a'])
         sur_nas.append(data['sur_neg_a'])
         int_nas.append(data['int_neg_a'])
-        env_masks.append(data['env_mask'])
-        ego_masks.append(data['ego_mask'])
-        sur_masks.append(data['sur_mask'])
-        int_masks.append(data['int_mask'])
+        # env_masks.append(data['env_mask'])
+        # ego_masks.append(data['ego_mask'])
+        # sur_masks.append(data['sur_mask'])
+        # int_masks.append(data['int_mask'])
         del data
         gc.collect()
 
@@ -91,16 +93,21 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
     ego_pas = np.concatenate(ego_pas, axis=0)
     sur_pas = np.concatenate(sur_pas, axis=0)
     int_pas = np.concatenate(int_pas, axis=0) 
-    env_masks = np.concatenate(env_masks, axis=0)
-    ego_masks = np.concatenate(ego_masks, axis=0)
-    sur_masks = np.concatenate(sur_masks, axis=0)
-    int_masks = np.concatenate(int_masks, axis=0)
+    # env_masks = np.concatenate(env_masks, axis=0)
+    # ego_masks = np.concatenate(ego_masks, axis=0)
+    # sur_masks = np.concatenate(sur_masks, axis=0)
+    # int_masks = np.concatenate(int_masks, axis=0)
     
     print("compressing!!!")
     # np.savez_compressed(os.path.join(save_path, save_name), obs=obs, actions=actions, dead_mask=dead_masks, partner_mask=partner_masks, road_mask=road_masks,  )
     # np.savez_compressed(os.path.join(save_path, 'global_' + save_name), ego_global_rot=ego_global_rots,ego_global_pos=ego_global_poss )
-    np.savez_compressed(os.path.join(save_path, 'reasoning_question_' + save_name), env_qs=env_qs,ego_qs=ego_qs,
+    # np.savez_compressed(os.path.join(save_path, 'reasoning_question_' + save_name), env_qs=env_qs,ego_qs=ego_qs,
+    #                     sur_qs=sur_qs,int_qs=int_qs,)
+    np.savez_compressed(os.path.join(save_path, 'nlp_question_' + save_name), env_qs=env_qs,ego_qs=ego_qs,
                         sur_qs=sur_qs,int_qs=int_qs,)
+    np.savez_compressed(os.path.join(save_path, 'nlp_answer_' + save_name),     
+                        env_pos_as=env_pas,ego_pos_as=ego_pas,sur_pos_as=sur_pas, int_pos_as=int_pas,
+                        env_neg_as=env_nas,ego_neg_as=ego_nas,sur_neg_as=sur_nas, int_neg_as=int_nas,)
     # np.savez_compressed(os.path.join(save_path, 'reasoning_answer_' + save_name),     
     #                     env_pos_as=env_pas,ego_pos_as=ego_pas,sur_pos_as=sur_pas, int_pos_as=int_pas,
     #                     env_neg_as=env_nas,ego_neg_as=ego_nas,sur_neg_as=sur_nas, int_neg_as=int_nas,)
@@ -112,9 +119,9 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-scene', type=int, default=80000)
+    parser.add_argument('--num-scene', type=int, default=10000)
     parser.add_argument('--start-idx', type=int, default=0)
-    parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
+    parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'],)
     args = parser.parse_args()  
     save_path = f"/data/full_version/processed/final/reasoning"
     save_name = f'{args.dataset}_trajectory_{args.num_scene}.npz'

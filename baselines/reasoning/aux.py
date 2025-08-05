@@ -104,7 +104,6 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         rollout_len=config.rollout_len, pred_len=config.pred_len, 
         exp=config.exp, questions=questions, pos=pos_answers, neg=neg_answers,
         qa_masks=qa_masks
-
     )
     dataloader = DataLoader(
         dataset,
