@@ -1,16 +1,16 @@
 program: baselines/reasoning/aux.py
 method: grid
-name: vanilla_pt2
+name: vanilla
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   seed:
-    values: [42]
+    values: [3, 11, 42, 0]
   num_scene:
     values: [80000]
   total_gradient_steps:
-    values: [100000]
+    values: [150000]
   # ILCONFIG
   network_dim:
     values: [128]

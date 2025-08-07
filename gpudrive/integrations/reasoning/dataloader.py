@@ -5,8 +5,7 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 class ReasoningDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None,
                  rollout_len=5, pred_len=1, questions=None, pos=None, neg=None, 
-                 qa_masks=None, exp="baseline", questions_nlp=None, pos_nlp=None,
-                 neg_nlp=None):
+                 qa_masks=None, exp="baseline"):
         # obs
         self.obs = np.pad(obs, ((0, 0), (rollout_len - 1, 0), (0, 0)))
 
@@ -36,9 +35,7 @@ class ReasoningDataset(torch.utils.data.Dataset):
             self.qa_masks = qa_masks
             self.qa_len = self.questions.shape[1]
             self.qa_num_sample = 50
-            self.questions_nlp = questions_nlp
-            self.pos_nlp = pos_nlp
-            self.neg_nlp = neg_nlp
+
         self.partner_mask = np.pad(partner_mask, ((0, 0), (rollout_len - 1, 0), (0, 0)), constant_values=2)
         self.partner_mask = (self.partner_mask == 2)
         road_mask = road_mask.astype(bool)
@@ -59,7 +56,6 @@ class ReasoningDataset(torch.utils.data.Dataset):
             self.full_var += ['questions', 'pos', 'qa_masks']
             if 'neg' in exp:
                 self.full_var += ['neg']
-
     def __len__(self):
         return len(self.valid_indices)
 
@@ -109,6 +105,7 @@ class ReasoningDataset(torch.utils.data.Dataset):
                         if ego_mask_data != True:
                             print('Not valid data!!!')
             batch = batch + (torch.tensor([idx1, idx2]),)
+            batch = batch + (sample_qa, )
         else:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:

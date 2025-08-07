@@ -33,7 +33,7 @@ if __name__ == '__main__':
             history = run.history()  # 충분히 커야 함
             if '_step' not in history.keys():
                 continue
-            step20 = history[history['_step'] == 14000]
+            step20 = history[history['_step'] == 32000]
 
             if step20.empty:
                 continue  # 해당 step 없으면 스킵
@@ -49,12 +49,13 @@ if __name__ == '__main__':
             eval_summary[future_step] = config.get(future_step)
             eval_summary["model"] = config.get("model")
             eval_summary["seed"] = config.get("seed")
+            eval_summary["name"] = config.get("name")
             eval_summary["experiment"] = config.get("exp")
             all_runs.append(eval_summary)
 
 
     df = pd.DataFrame(all_runs)
     print(df)
-    csv_filename = f"/data/full_version/linear_probingv2/{args.linear_probing}_{args.save_name}.csv"
-    os.makedirs(f"/data/full_version/linear_probingv2", exist_ok=True)
+    csv_filename = f"/data/full_version/linear_probing_reasoning/{args.linear_probing}_{args.save_name}.csv"
+    os.makedirs(f"/data/full_version/linear_probing_reasoning", exist_ok=True)
     df.to_csv(csv_filename, index=False)

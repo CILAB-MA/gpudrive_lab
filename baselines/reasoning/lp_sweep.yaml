@@ -1,6 +1,6 @@
 program: baselines/reasoning/linear_prob.py
 method: grid
-name: (aux)vanilla
+name: (aux)vanilla_pt2
 metric:
   goal: minimize
   name: eval/loss
@@ -12,11 +12,11 @@ parameters:
     values: ["aux_attn_s11_0728_120515"]
   # DATA
   future_step:
-    values: [10, 20, 30, 40]
+    values: [20]
   exp:
     values: ['other']
   model:
-    values: ['early_lp', 'final_lp']
+    values: ['early_lp']
   # EXPERIMENT
   batch_size:
     values: [256]
@@ -25,4 +25,4 @@ parameters:
   lr:
     values: [0.0015]
   seed:
-    values: [3, 11, 42]
+    values: [11]

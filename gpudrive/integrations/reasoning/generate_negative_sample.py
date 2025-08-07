@@ -514,9 +514,9 @@ def generate_negative_ego(answer):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -548,19 +548,35 @@ if __name__ == '__main__':
             expert_ego_q_lst = np.zeros((valid_agent, 20, 384))
             expert_sur_q_lst = np.zeros((valid_agent, 120, 384))
             expert_int_q_lst = np.zeros((valid_agent, 30, 384))
+            expert_env_q_nlp = np.empty((valid_agent, 20, ), dtype=object)
+            expert_ego_q_nlp = np.empty((valid_agent, 20, ), dtype=object)
+            expert_sur_q_nlp = np.empty((valid_agent, 120, ), dtype=object)
+            expert_int_q_nlp = np.empty((valid_agent, 30, ), dtype=object)
 
             expert_env_ap_lst = np.zeros((valid_agent, 20, 384))
             expert_ego_ap_lst = np.zeros((valid_agent, 20, 384))
             expert_sur_ap_lst = np.zeros((valid_agent, 120, 384))
             expert_int_ap_lst = np.zeros((valid_agent, 30, 384))
-
+            expert_env_ap_nlp = np.empty((valid_agent, 20, ), dtype=object)
+            expert_ego_ap_nlp = np.empty((valid_agent, 20, ), dtype=object)
+            expert_sur_ap_nlp = np.empty((valid_agent, 120, ), dtype=object)
+            expert_int_ap_nlp = np.empty((valid_agent, 30, ), dtype=object)
+            
             expert_env_an_lst = np.zeros((valid_agent, 20, 384))
             expert_ego_an_lst = np.zeros((valid_agent, 20, 384))
             expert_sur_an_lst = np.zeros((valid_agent, 120, 384))
             expert_int_an_lst = np.zeros((valid_agent, 30, 384))
+            expert_env_an_nlp = np.empty((valid_agent, 20, ), dtype=object)
+            expert_ego_an_nlp = np.empty((valid_agent, 20, ), dtype=object)
+            expert_sur_an_nlp = np.empty((valid_agent, 120, ), dtype=object)
+            expert_int_an_nlp = np.empty((valid_agent, 30, ), dtype=object)
+
             q_npy = [expert_env_q_lst, expert_ego_q_lst, expert_sur_q_lst, expert_int_q_lst]
+            q_nlp = [expert_env_q_nlp, expert_ego_q_nlp, expert_sur_q_nlp, expert_int_q_nlp]
             ap_npy = [expert_env_ap_lst, expert_ego_ap_lst, expert_sur_ap_lst, expert_int_ap_lst]
+            ap_nlp = [expert_env_ap_nlp, expert_ego_ap_nlp, expert_sur_ap_nlp, expert_int_ap_nlp]
             an_npy = [expert_env_an_lst, expert_ego_an_lst, expert_sur_an_lst, expert_int_an_lst]
+            an_nlp = [expert_env_an_nlp, expert_ego_an_nlp, expert_sur_an_nlp, expert_int_an_nlp]
 
             expert_env_mask_lst = np.ones((valid_agent, 20), dtype=bool)
             expert_ego_mask_lst = np.ones((valid_agent, 20), dtype=bool)
@@ -577,14 +593,20 @@ if __name__ == '__main__':
                     q_embeddings  = model.encode(qs, convert_to_tensor=True)  
                     answer_pairs = generate_all_neg(np.array(qs), np.array(ans), qa_type=qa_type)
                     q_embeddings =  q_embeddings.cpu().numpy()  #
-                    a_pos_embeddings  = model.encode(answer_pairs[:, 0], convert_to_tensor=True)  
+                    qs = np.array(qs)
+                    a_pos = answer_pairs[:, 0]
+                    a_neg = answer_pairs[:, 1]
+                    a_pos_embeddings  = model.encode(a_pos, convert_to_tensor=True)  
                     a_pos_embeddings =  a_pos_embeddings.cpu().numpy()  #
-                    a_neg_embeddings  = model.encode(answer_pairs[:, 1], convert_to_tensor=True)  
+                    a_neg_embeddings  = model.encode(a_neg, convert_to_tensor=True)  
                     a_neg_embeddings =  a_neg_embeddings.cpu().numpy()  #
                     num = min(len(q_embeddings), q_npy[qa].shape[1])
                     q_npy[qa][i, :num] = q_embeddings[:num]
+                    q_nlp[qa][i, :num] = qs[:num]
                     ap_npy[qa][i, :num] = a_pos_embeddings[:num]
+                    ap_nlp[qa][i, :num] = a_pos[:num]
                     an_npy[qa][i, :num] = a_neg_embeddings[:num]
+                    an_nlp[qa][i, :num] = a_neg[:num]
                     qa_mask_npy[qa][i, :num] = False
             expert_env_q_lst = q_npy[0]
             expert_ego_q_lst = q_npy[1]
@@ -601,13 +623,29 @@ if __name__ == '__main__':
             expert_sur_an_lst = an_npy[2]
             expert_int_an_lst = an_npy[3]
 
+            expert_env_q_nlp = q_nlp[0]
+            expert_ego_q_nlp = q_nlp[1]
+            expert_sur_q_nlp = q_nlp[2]
+            expert_int_q_nlp = q_nlp[3]
+
+            expert_env_ap_nlp = ap_nlp[0]
+            expert_ego_ap_nlp = ap_nlp[1]
+            expert_sur_ap_nlp = ap_nlp[2]
+            expert_int_ap_nlp = ap_nlp[3]
+
+            expert_env_an_nlp = an_nlp[0]
+            expert_ego_an_nlp = an_nlp[1]
+            expert_sur_an_nlp = an_npy[2]
+            expert_int_an_nlp = an_nlp[3]
+
             expert_env_mask_lst = qa_mask_npy[0]
             expert_ego_mask_lst = qa_mask_npy[1]
             expert_sur_mask_lst = qa_mask_npy[2]
             expert_int_mask_lst = qa_mask_npy[3]
-            save_path = f'/data/full_version/processed/final/reasoning_{args.data_dir}_subset'
-            os.makedirs(save_path + '/reasoning_posneg', exist_ok=True)
-            np.savez_compressed(f"{save_path}/reasoning_posneg/reasoning_trajectory_{idx * args.scene_batch_size}.npz", 
+            save_path = f'/data/full_version/reasoning/processed/{args.data_dir}_subset'
+            os.makedirs(save_path + '/reasoning', exist_ok=True)
+            os.makedirs(save_path + '/nlp', exist_ok=True)
+            np.savez_compressed(f"{save_path}/reasoning/reasoning_trajectory_{idx * args.scene_batch_size}.npz", 
                     env_q=expert_env_q_lst,
                     ego_q=expert_ego_q_lst,
                     sur_q=expert_sur_q_lst,
@@ -625,3 +663,17 @@ if __name__ == '__main__':
                     sur_mask=expert_sur_mask_lst,
                     int_mask=expert_int_mask_lst,
                     )
+            np.savez_compressed(f"{save_path}/nlp/reasoning_trajectory_{idx * args.scene_batch_size}.npz", 
+                env_q=expert_env_q_nlp,
+                ego_q=expert_ego_q_nlp,
+                sur_q=expert_sur_q_nlp,
+                int_q=expert_int_q_nlp,
+                env_pos_a=expert_env_ap_nlp,
+                ego_pos_a=expert_ego_ap_nlp,
+                sur_pos_a=expert_sur_ap_nlp,
+                int_pos_a=expert_int_ap_nlp,
+                env_neg_a=expert_env_an_nlp,
+                ego_neg_a=expert_ego_an_nlp,
+                sur_neg_a=expert_sur_an_nlp,
+                int_neg_a=expert_int_an_nlp,
+                )

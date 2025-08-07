@@ -81,24 +81,15 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     pos = None
     neg = None
     if exp_config.exp != 'baseline':
-        qa_names = ['env', 'ego', 'int']
+        qa_names = ['env', 'ego', 'int' , 'sur']
         data_name = f"{train_val}_trajectory_{data_file}.npz"
         with np.load(os.path.join(data_path, f"reasoning_question_{data_name}"), mmap_mode='r') as npz:
             questions = np.concatenate([npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)
+            qa_masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1).astype('bool')
         with np.load(os.path.join(data_path, f"reasoning_answer_{data_name}"), mmap_mode='r') as npz:
             pos_answers = np.concatenate([npz[f'{qa_name}_pos_as'] for qa_name in qa_names], axis=1)
             neg_answers = np.concatenate([npz[f'{qa_name}_neg_as'] for qa_name in qa_names], axis=1)
-        with np.load(os.path.join(data_path, f"reasoning_mask_{data_name}"), mmap_mode='r') as npz:
-            qa_masks = np.concatenate([npz[f'{qa_name}_masks'] for qa_name in qa_names], axis=1).astype('bool')
-            B, M = questions.shape[:2]
-        # B, M = questions.shape[:2]
-        # concat_vecs = np.concatenate([questions, answers], axis=-1)
-        # flat_vecs = concat_vecs.reshape(-1, 768)
-        # _, unique_indices = np.unique(flat_vecs, axis=0, return_index=True)
-        # unique_mask_flat = np.zeros(flat_vecs.shape[0], dtype=bool)
-        # unique_mask_flat[unique_indices] = True
-        # unique_mask = unique_mask_flat.reshape(B, M)
-        # qa_masks_final = ~((unique_mask == True) & (qa_masks == False))
+
     dataset = ReasoningDataset(
         expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, 
