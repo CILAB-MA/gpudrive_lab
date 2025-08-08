@@ -193,7 +193,7 @@ if __name__ == "__main__":
     # Create data loader
     if args.dataset == 'training':
         scene_loader = SceneDataLoader(
-            root=f"/data/full_version/data/training/",
+            root=f"/scratch/cilab/data/training/",
             batch_size=args.batch_size,
             dataset_size=args.dataset_size,
             sample_with_replacement=False,
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     else:
         # Test Scene
         scene_loader = SceneDataLoader(
-            root=f"/data/full_version/data/validation/",
+            root=f"/scratch/cilab/data/validation/",
             batch_size=args.batch_size,
             dataset_size=10000,
             sample_with_replacement=False,
@@ -240,7 +240,7 @@ if __name__ == "__main__":
 
     # Train Scene
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
-    df = pd.read_csv(f'/data/full_version/expert_{args.dataset}_data_v2.csv')
+    df = pd.read_csv(f'/scratch/cilab/data/expert_{args.dataset}_data_v2.csv')
     scene_dict =df.set_index('scene_idx') .to_dict(orient='index')
     for i in tqdm(range(num_iter)):
         expert_dict = {k: scene_dict[k + i * args.batch_size] for k in range(args.batch_size) if k + i * args.batch_size in scene_dict}

@@ -392,3 +392,4 @@ if __name__ == "__main__":
             wandb.agent(sweep_id, function=train)
     else:
         train(exp_config)
+    wandb.finish()
