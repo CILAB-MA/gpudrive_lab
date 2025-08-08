@@ -124,19 +124,19 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
         batch_size = batch[0].size(0)
         total_samples += batch_size
         if 'neg' in config.exp:
-            obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, neg, _ = batch
+            obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, neg, *_ = batch
             questions = questions.to(config.device).float()
             pos = pos.to(config.device).float()
             neg = neg.to(config.device).float()
             qa_masks = qa_masks.to(config.device).bool()
         elif config.exp != 'baseline':
-            obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, _ = batch
+            obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, *_ = batch
             questions = questions.to(config.device).float()
             pos = pos.to(config.device).float()
             neg = None
             qa_masks = qa_masks.to(config.device).bool()
         else:
-            obs, expert_action, partner_masks, road_masks, data_idx = batch 
+            obs, expert_action, partner_masks, road_masks,  *_  = batch 
         obs, expert_action = obs.to(config.device), expert_action.to(config.device)
         partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
         road_masks = road_masks.to(config.device) if len(batch) > 3 else None
@@ -286,19 +286,19 @@ def train(exp_config=None):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
             if 'neg' in exp_config.exp:
-                obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, neg, _ = batch
+                obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, neg, *_ = batch
                 questions = questions.to(exp_config.device).float()
                 pos = pos.to(exp_config.device).float()
                 neg = neg.to(exp_config.device).float()
                 qa_masks = qa_masks.to(exp_config.device).bool()
             elif exp_config.exp != 'baseline':
-                obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, _ = batch
+                obs, expert_action, partner_masks, road_masks, questions, pos, qa_masks, *_ = batch
                 questions = questions.to(exp_config.device).float()
                 pos = pos.to(exp_config.device).float()
                 neg = None
                 qa_masks = qa_masks.to(exp_config.device).bool()
             else:
-                obs, expert_action, partner_masks, road_masks, data_idx = batch 
+                obs, expert_action, partner_masks, road_masks,  *_  = batch 
             obs, expert_action = obs.to(exp_config.device), expert_action.to(exp_config.device)
             partner_masks = partner_masks.to(exp_config.device) if len(batch) > 3 else None
             road_masks = road_masks.to(exp_config.device) if len(batch) > 3 else None
