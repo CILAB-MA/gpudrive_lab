@@ -1,27 +1,29 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: test_scene_label
+name: lp_10000
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/full_version/model/cov1792_clip10"
+    value: "/scratch/cilab/model/exp_10000_v2"
   model_name:
-    values: ["early_attn_s3_0630_072820_60000"]
+    values: ["early_attn_s11_0802_051525"]
   # DATA
   future_step:
     values: [10, 20, 30, 40]
+  num_scene:
+    values: [10000]
   exp:
-    values: ['other']
+    values: ['other', 'ego']
   model:
     values: ['early_lp', 'final_lp']
   # EXPERIMENT
   batch_size:
     values: [256]
   total_gradient_steps:
-    values: [20_000]
+    values: [75_000]
   lr:
     values: [0.0015]
   seed:

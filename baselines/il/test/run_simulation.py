@@ -26,11 +26,13 @@ def arg_parse():
 
 if __name__ == "__main__":
     args = arg_parse()
-    models = os.listdir(os.path.join(args.model_path, args.sweep_name))[4:]
+    models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
     for model in tqdm(models):
         for dataset in ['training', 'validation']:
             if '.pth' not in model:
+                continue
+            if 'optim' in model:
                 continue
             if args.partner_portion_test:
                 video_path = args.video_path + f"_{args.partner_portion_test}"
@@ -42,8 +44,8 @@ if __name__ == "__main__":
             arguments = f"-mc -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
             if args.make_video:
                 arguments += ' -mv'
-            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
-            
+            # command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
+            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} python baselines/il/test/simulation.py {arguments}"
             result = subprocess.run(command, shell=True)
             if result.returncode != 0:
                 print(f"Error: Command failed with return code {result.returncode}")
