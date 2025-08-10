@@ -81,7 +81,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     pos = None
     neg = None
     if exp_config.exp != 'baseline':
-        qa_names = ['env', 'ego', 'int' , 'sur']
+        qa_names = ['int' , 'sur']
         data_name = f"{train_val}_trajectory_{data_file}.npz"
         with np.load(os.path.join(data_path, f"reasoning_question_{data_name}"), mmap_mode='r') as npz:
             questions = np.concatenate([npz[f'{qa_name}_qs'] for qa_name in qa_names], axis=1)

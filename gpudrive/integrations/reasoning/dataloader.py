@@ -105,8 +105,8 @@ class ReasoningDataset(torch.utils.data.Dataset):
                         if ego_mask_data != True:
                             print('Not valid data!!!')
             batch = batch + (torch.tensor([idx1, idx2]),)
-        if self.exp != 'baseline':
-            batch = batch + (sample_qa, )
+            if self.exp != 'baseline':
+                batch = batch + (sample_qa, )
         else:
             for var_name in self.full_var:
                 if self.__dict__[var_name] is not None:
