@@ -1,6 +1,6 @@
 program: baselines/reasoning/aux.py
 method: grid
-name: vanilla_int_sur
+name: vanilla
 metric:
   goal: minimize
   name: eval/loss
