@@ -76,10 +76,6 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
     ego_global_pos = None
     ego_global_rot = None
-    if config.use_tom:
-        with np.load(os.path.join(data_path, "global_" + data_file)) as global_npz:
-            ego_global_pos = global_npz['ego_global_pos']
-            ego_global_rot = global_npz['ego_global_rot']
     dataset = ExpertDataset(
         expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step,
@@ -106,10 +102,13 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     dx_std2_losses = 0
     dy_std2_losses = 0
     dyaw_std2_losses = 0
+    dx_values = 0
+    dy_values = 0
+    dyaw_values = 0
     dx_std2_count = 0
     dy_std2_count = 0
     dyaw_std2_count = 0
-    tom_losses = 0
+    cvar95_losses = 0
     for i, batch in enumerate(eval_expert_data_loader):
         batch_size = batch[0].size(0)
         total_samples += batch_size
@@ -118,28 +117,20 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             other_pos = other_pos.to(exp_config.device)
         elif len(batch) == 5:
             obs, expert_action, partner_masks, road_masks, data_idx = batch 
-        elif len(batch) == 3:
-            obs, expert_action, data_idx = batch
+
         obs, expert_action = obs.to(config.device), expert_action.to(config.device)
         partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
         road_masks = road_masks.to(config.device) if len(batch) > 3 else None
         all_masks= [partner_masks, road_masks]
         with torch.no_grad():
             context, other_embeds, other_weights, *_  = bc_policy.get_context(obs, all_masks)
-            if config.use_tom:
-                aux_info  = ['pos', other_weights.mean(axis=-1), config.use_tom]
-                if 'no_guide_no_weighted' in config.use_tom:
-                    other_input = other_embeds
-                else:
-                    other_input = other_embeds # todo: [..., aux_ind * 32: (aux_ind + 1) * 32]
-                tom_loss = aux_loss(bc_policy, other_input, other_pos, aux_mask, 
-                    aux_info=aux_info)
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
             action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
-
+            q95 = torch.quantile(action_loss, 0.95)
+            cvar95 = action_loss[action_loss >= q95].mean()
             dx_std2_mask = expert_action[..., 0].abs() > 2 
             dy_std2_mask = expert_action[..., 1].abs() > 0.035 
             dyaw_std2_mask = expert_action[..., 2].abs() > 0.023
@@ -154,31 +145,49 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             dx_std2_loss = action_loss[..., 0][dx_std2_mask].sum() if dx_std2_mask.sum() > 0 else 0
             dy_std2_loss = action_loss[..., 1][dy_std2_mask].sum() if dy_std2_mask.sum() > 0 else 0
             dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].sum() if dyaw_std2_mask.sum() > 0 else 0
-
+            cvar95_losses += cvar95
+            # bsae loss
             dx_losses += dx_loss
             dy_losses += dy_loss
             dyaw_losses += dyaw_loss
+
+            # std2 loss
             dx_std2_losses += dx_std2_loss
             dy_std2_losses += dy_std2_loss
             dyaw_std2_losses += dyaw_std2_loss
+
+            # action values
+            dx_mean = pred_actions[..., 0].mean()
+            dy_mean = pred_actions[..., 1].mean()
+            dyaw_mean = pred_actions[..., 2].mean()
+
+            dx_values += dx_mean
+            dy_values += dy_mean
+            dyaw_values += dyaw_mean
 
             dx_std2_count += dx_std2_mask.sum()
             dy_std2_count += dy_std2_mask.sum()
             dyaw_std2_count += dyaw_std2_mask.sum()
 
             losses += loss.mean().item()
-            if config.use_tom:
-                tom_losses += tom_loss.mean().item()
+
     test_loss = losses / (i + 1) 
     dx_loss = dx_losses / (i + 1) 
     dy_loss = dy_losses / (i + 1) 
     dyaw_loss = dyaw_losses / (i + 1) 
-    tom_losses = tom_losses / (i + 1) 
+    cvar95_losses = cvar95_losses / (i + 1)
+    dx_loss = dx_losses / (i + 1) 
+    dy_loss = dy_losses / (i + 1) 
+    dyaw_loss = dyaw_losses / (i + 1) 
+
+    dx_values = dx_values / (i + 1) 
+    dy_values = dy_values / (i + 1) 
+    dyaw_values = dyaw_values / (i + 1) 
 
     dx_std2_loss = dx_std2_losses / dx_std2_count
     dy_std2_loss = dy_std2_losses / dy_std2_count
     dyaw_std2_loss = dyaw_std2_losses / dyaw_std2_count
-    return test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, tom_losses
+    return test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, cvar95_losses, dx_values, dy_values, dyaw_values
 
 def train(exp_config=None):
     env_config = EnvConfig()
@@ -210,7 +219,6 @@ def train(exp_config=None):
     # Initialize model and optimizer
     bc_policy = MODELS[exp_config.model_name](env_config, exp_config).to(exp_config.device)
     optimizer = AdamW(bc_policy.parameters(), lr=exp_config.lr, eps=0.0001)
-    print(bc_policy)
     load_path = exp_config.get('load_path', None)
     if load_path and os.path.exists(load_path):
         ckpt = torch.load(load_path[:-4] + '_optim.pth', map_location=exp_config.device)
@@ -220,12 +228,10 @@ def train(exp_config=None):
         print(f"Loaded checkpoint from {load_path} with step {gradient_steps}")
     # Model Params wandb update
     trainable_params = sum(p.numel() for p in bc_policy.parameters() if p.requires_grad)
-    non_trainable_params = sum(p.numel() for p in bc_policy.parameters() if not p.requires_grad)
-    print(f'Total params: {trainable_params + non_trainable_params}')
+    print(f'Total params: {trainable_params}')
     if exp_config.use_wandb:
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(f"trainable_params_{trainable_params}")
-        wandb_tags.append(f"non_trainable_params_{non_trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
@@ -249,9 +255,6 @@ def train(exp_config=None):
         dx_losses = 0
         dy_losses = 0
         dyaw_losses = 0
-        tom_losses = 0
-        max_norms = 0
-        max_names = []
         
         for n, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
@@ -261,8 +264,6 @@ def train(exp_config=None):
                 other_pos = other_pos.to(exp_config.device)
             elif len(batch) == 5:
                 obs, expert_action, partner_masks, road_masks, data_idx = batch 
-            elif len(batch) == 3:
-                obs, expert_action, data_idx = batch
             other_pos = other_pos.to(exp_config.device) if len(batch) > 5 else None
             obs, expert_action = obs.to(exp_config.device), expert_action.to(exp_config.device)
             partner_masks = partner_masks.to(exp_config.device) if len(batch) > 3 else None
@@ -271,26 +272,18 @@ def train(exp_config=None):
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
 
-            # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
             loss = pred_loss
             loss = loss.mean()
             optimizer.zero_grad()
-            # scaler.scale(loss).backward()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(bc_policy.parameters(), exp_config.grad_norm)
-            max_norm, max_name = get_grad_norm(bc_policy.named_parameters())
-            max_norms += max_norm
-            max_names.append(max_name)
 
-            # scaler.step(optimizer)
-            # scaler.update()
             optimizer.step()
             gradient_steps += 1
             pbar.update(1)
             with torch.no_grad():
                 pred_actions = bc_policy.get_action(context, deterministic=True)
-                # component_probs = bc_policy.head.get_component_probs().cpu().numpy() # gmm record part is now deactivated
                 action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
                 dx_loss = action_loss[..., 0].mean()
                 dy_loss = action_loss[..., 1].mean()
@@ -305,7 +298,7 @@ def train(exp_config=None):
             if gradient_steps % exp_config.eval_freq == 0:
                 bc_policy.eval()
                 test_losses = evaluate(eval_expert_data_loader, exp_config, bc_policy, num_train_sample)
-                test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, tom_losses = test_losses
+                test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, cvar95_losses, dx_vals, dy_vals, dyaw_vals = test_losses
                 if exp_config.use_wandb:
                     log_dict = {
                             "eval/loss": test_loss,
@@ -315,6 +308,10 @@ def train(exp_config=None):
                             "eval/dx_std2_loss": dx_std2_loss,
                             "eval/dy_std2_loss": dy_std2_loss,
                             "eval/dyaw_std2_loss": dyaw_std2_loss,
+                            "eval/cval_95": cvar95_losses,
+                            "eval/dx_values": dx_vals,
+                            "eval/dy_values": dy_vals,
+                            "eval/dyaw_values": dyaw_vals,
                         }
 
                     wandb.log(log_dict, step=gradient_steps)
@@ -335,10 +332,8 @@ def train(exp_config=None):
                     "train/dx_loss": dx_losses / (n + 1),
                     "train/dy_loss": dy_losses / (n + 1),
                     "train/dyaw_loss": dyaw_losses / (n + 1),
-                    "train/max_grad_norm": max_norms / (n + 1),
+                    # "train/max_grad_norm": max_norms / (n + 1),
                 }
-            if exp_config.use_tom:
-                log_dict['train/tom_loss'] = tom_losses / (n + 1)
             wandb.log(log_dict, step=gradient_steps)
     wandb.finish()
 

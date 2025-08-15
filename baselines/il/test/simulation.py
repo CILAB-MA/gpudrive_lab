@@ -193,7 +193,7 @@ if __name__ == "__main__":
     # Create data loader
     if args.dataset == 'training':
         scene_loader = SceneDataLoader(
-            root=f"/scratch/cilab/data/training/",
+            root=f"/data/full_version/data/training/",
             batch_size=args.batch_size,
             dataset_size=args.dataset_size,
             sample_with_replacement=False,
@@ -203,13 +203,13 @@ if __name__ == "__main__":
     else:
         # Test Scene
         scene_loader = SceneDataLoader(
-            root=f"/scratch/cilab/data/validation/",
+            root=f"/data/full_version/data/validation/",
             batch_size=args.batch_size,
-            dataset_size=10000,
+            dataset_size=9987,
             sample_with_replacement=False,
             shuffle=False,
         )
-        dataset_size = 10000
+        dataset_size = 9987
     print(f'{args.dataset} len scene loader {len(scene_loader)}')
     
     env_config = EnvConfig(
@@ -236,11 +236,11 @@ if __name__ == "__main__":
     print(f'model: {args.model_path}/{args.model_name}', )
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to("cuda")
     bc_policy.eval()
-    num_iter = int(dataset_size // args.batch_size)
+    num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
 
     # Train Scene
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
-    df = pd.read_csv(f'/scratch/cilab/data/expert_{args.dataset}_data_v2.csv')
+    df = pd.read_csv(f'/data/full_version/expert_{args.dataset}_data_v2.csv')
     scene_dict =df.set_index('scene_idx') .to_dict(orient='index')
     for i in tqdm(range(num_iter)):
         expert_dict = {k: scene_dict[k + i * args.batch_size] for k in range(args.batch_size) if k + i * args.batch_size in scene_dict}

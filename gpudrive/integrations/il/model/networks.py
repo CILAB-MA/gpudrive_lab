@@ -11,6 +11,7 @@ from torch import nn as nn
 from abc import abstractmethod
 from gpudrive.integrations.il import constants 
 import numpy as np
+import torch.distributions as dist
 
 def init(module, weight_init, bias_init, gain=1):
     '''
