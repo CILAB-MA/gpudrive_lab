@@ -128,16 +128,16 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
-            action_loss = torch.abs(pred_actions - expert_action).cpu().numpy()
+            action_loss = torch.abs(pred_actions - expert_action)
             q95 = torch.quantile(action_loss, 0.95)
-            cvar95 = action_loss[action_loss >= q95].mean()
+            cvar95 = action_loss[action_loss >= q95].cpu().mean().numpy()
             dx_std2_mask = expert_action[..., 0].abs() > 2 
             dy_std2_mask = expert_action[..., 1].abs() > 0.035 
             dyaw_std2_mask = expert_action[..., 2].abs() > 0.023
             dx_std2_mask = dx_std2_mask.cpu().numpy()
             dy_std2_mask = dy_std2_mask.cpu().numpy()
             dyaw_std2_mask = dyaw_std2_mask.cpu().numpy()
-
+            action_loss = action_loss.cpu().numpy()
             dx_loss = action_loss[..., 0].mean()
             dy_loss = action_loss[..., 1].mean()
             dyaw_loss = action_loss[..., 2].mean()
