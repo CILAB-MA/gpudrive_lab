@@ -34,7 +34,7 @@ class ReasoningDataset(torch.utils.data.Dataset):
             self.neg = neg
             self.qa_masks = qa_masks
             self.qa_len = self.questions.shape[1]
-            self.qa_num_sample = 50
+            self.qa_num_sample = 25
 
         self.partner_mask = np.pad(partner_mask, ((0, 0), (rollout_len - 1, 0), (0, 0)), constant_values=2)
         self.partner_mask = (self.partner_mask == 2)

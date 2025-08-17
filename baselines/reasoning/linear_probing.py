@@ -113,8 +113,7 @@ def train(exp_config=None):
         wandb.run.tags = tuple(wandb_tags)
         # Config Update
         for key, value in vars(args).items():
-            if key not in wandb.config:
-                wandb.config[key] = value
+            wandb.config[key] = value
         config = wandb.config
         wandb_dict = {}
         for k, v in dict(config).items():

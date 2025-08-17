@@ -205,8 +205,7 @@ def train(exp_config=None):
         wandb.run.tags = tuple(wandb_tags)
         # Config Update
         for key, value in vars(args).items():
-            if key not in wandb.config:
-                wandb.config[key] = value
+            wandb.config[key] = value
         config = wandb.config
         wandb_dict = {}
         for k, v in dict(config).items():
@@ -313,7 +312,7 @@ def train(exp_config=None):
                 tom_loss = aux_loss(bc_policy, context, questions, pos, neg,
                     qa_masks=qa_masks)
                 if not use_mt_optim:
-                    loss += 0.2 * tom_loss
+                    loss += 0.3 * tom_loss
 
             loss = loss.mean()
             # Backward pass
@@ -345,7 +344,7 @@ def train(exp_config=None):
                     conflict_count += 1
                 cos_sims += cos_sim
             if use_mt_optim:
-                mtl_opt.iterate([pred_loss, 0.2 * tom_loss], shared_repr=context)
+                mtl_opt.iterate([pred_loss, 0.3 * tom_loss], shared_repr=context)
                 # optimizer.pc_backward([pred_loss, 0.2 * tom_loss])
             loss.backward()
             
