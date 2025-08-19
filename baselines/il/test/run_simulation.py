@@ -18,6 +18,7 @@ def arg_parse():
     parser.add_argument('--dataset-size', type=int, default=1000) # total_world
     parser.add_argument('--batch-size', type=int, default=100) # num_world
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
+    parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play'])
     parser.add_argument('--make-video', '-mv', action='store_true')
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=0)
@@ -41,7 +42,7 @@ if __name__ == "__main__":
 
             video_path = os.path.join(video_path, args.sweep_name)
             model_path = os.path.join(args.model_path, args.sweep_name)
-            arguments = f"-mc -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
+            arguments = f"-mc -sa {args.sim_agent} -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
             if args.make_video:
                 arguments += ' -mv'
             # command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
@@ -50,8 +51,8 @@ if __name__ == "__main__":
             if result.returncode != 0:
                 print(f"Error: Command failed with return code {result.returncode}")
 
-    csv_path = f"{model_path}/result_{args.partner_portion_test}v2.csv"
-    csv_path2 = f"{model_path}/result_{args.partner_portion_test}_total.csv"
+    csv_path = f"{model_path}/{args.sim_agent}/result_{args.partner_portion_test}.csv"
+    csv_path2 = f"{model_path}/{args.sim_agent}/result_{args.partner_portion_test}_total.csv"
 
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
         print(f"CSV file {csv_path} does not exist or is empty. Exiting...")
