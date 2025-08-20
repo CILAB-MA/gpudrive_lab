@@ -14,6 +14,7 @@ class SceneDataLoader:
     seed: int = 42
     shuffle: bool = False
     scene_nums: list = None
+    start_idx: int = None
 
     """
     A data loader for sampling batches of traffic scenarios from a directory of files.
@@ -47,9 +48,16 @@ class SceneDataLoader:
         ]
 
         # Adjust dataset size based on the provided dataset_size
-        self.dataset = self.dataset[
-            : min(self.dataset_size, len(self.dataset))
-        ]
+        if self.start_idx is not None:
+            self.dataset = self.dataset[
+                self.start_idx : min(self.dataset_size, len(self.dataset))
+            ]
+            print(f"dataset is started with scene number {self.start_idx} ({self.dataset[0]})")
+        else:
+            self.dataset = self.dataset[
+                : min(self.dataset_size, len(self.dataset))
+            ]
+
         if self.scene_nums is not None:
             if sorted(self.scene_nums)[-1] >= self.dataset_size:
                 raise ValueError(
@@ -131,11 +139,12 @@ if __name__ == "__main__":
     from pprint import pprint
 
     data_loader = SceneDataLoader(
-        root="data/processed/training",
-        batch_size=5,
-        dataset_size=15,
-        sample_with_replacement=True,  # Sampling with replacement
+        root="data/processed/examples",
+        batch_size=4,
+        dataset_size=4,
+        sample_with_replacement=False,  # Sampling with replacement
         shuffle=False,  # Shuffle the dataset before batching
+        start_idx=None
     )
 
     unique_files_sampled = set()
@@ -150,11 +159,12 @@ if __name__ == "__main__":
 
     # Now without replacement
     data_loader = SceneDataLoader(
-        root="data/processed/training",
-        batch_size=5,
-        dataset_size=15,
+        root="data/processed/examples",
+        batch_size=4,
+        dataset_size=4,
         sample_with_replacement=False,  # Sampling with replacement
         shuffle=False,  # Shuffle the dataset before batching
+        start_idx=1
     )
 
     unique_files_sampled = set()
