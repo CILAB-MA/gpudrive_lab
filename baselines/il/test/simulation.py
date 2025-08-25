@@ -22,6 +22,10 @@ logger.setLevel(logging.INFO)
 def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
+    if args.sim_agent == 'delta_replay':
+        ego_idx = alive_agent_mask.float().argmax(dim=-1)
+        alive_agent_mask = torch.zeros_like(alive_agent_mask, dtype=torch.bool, device=alive_agent_mask.device).scatter_(-1, ego_idx.unsqueeze(-1), True) & alive_agent_mask.any(-1, keepdim=True)
+
     dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(args.batch_size)]
     expert_actions, _, _, _, _  = env.get_expert_actions() 
@@ -42,12 +46,12 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
         reverse_mask = torch.from_numpy(scene_labels == 'RETREAT').to("cuda")
         expert_timesteps = np.concatenate([expert_dict[k]['done_step'] for k in sorted_keys])
         expert_timesteps = torch.from_numpy(expert_timesteps).to(dtype=goal_timesteps.dtype).to("cuda")
-    alive_world = alive_agent_mask.sum(-1)
+
     off_road_ep = infos.off_road[alive_agent_mask]
     veh_collision_ep = infos.collided[alive_agent_mask]
     goal_achieved_ep = infos.goal_achieved[alive_agent_mask]
     for time_step in tqdm(range(env.episode_len)):
-        all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
+        all_actions = expert_actions[:, :, time_step].clone() if args.sim_agent == 'delta_replay' else torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
         
         # MASK
         road_mask = env.get_road_mask().to("cuda")
@@ -74,7 +78,14 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
             context, *_, = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
-        all_actions[~dead_agent_mask, :] = actions
+        if args.sim_agent == 'delta_replay':
+            actions_full = torch.zeros_like(expert_actions[:, :, 0], device=actions.device)
+            actions_full[~dead_agent_mask] = actions
+            ego_idx = (~dead_agent_mask).float().argmax(dim=-1)
+            ego_agent_mask = torch.zeros_like(dead_agent_mask, dtype=torch.bool).scatter_(-1, ego_idx.unsqueeze(-1), True) & dead_agent_mask.any(-1, keepdim=True)
+            all_actions[ego_agent_mask] = actions_full[ego_agent_mask]
+        else:
+            all_actions[~dead_agent_mask, :] = actions
 
         if args.make_video:
             sim_states = env.vis.plot_simulator_state(
@@ -195,11 +206,11 @@ if __name__ == "__main__":
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
-    parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play'])
+    parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations
-    num_cont_agents = 128 if args.sim_agent == 'self_play' else 1
+    num_cont_agents = 1 if args.sim_agent == 'log_replay' else 128
 
     # Create data loader
     if args.dataset == 'training':
@@ -251,13 +262,13 @@ if __name__ == "__main__":
 
     # Train Scene
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
-    if args.sim_agent == 'log_replay':
+    if args.sim_agent == 'log_replay' or args.sim_agent == 'delta_replay':
         df_name = f'/data/full_version/expert_{args.dataset}_data_v2.csv'
         df = pd.read_csv(df_name)
         scene_dict =df.set_index('scene_idx') .to_dict(orient='index')
 
     for i in tqdm(range(num_iter)):
-        if args.sim_agent == 'log_replay':
+        if args.sim_agent == 'log_replay' or args.sim_agent == 'delta_replay':
             expert_dict = {k: scene_dict[k + i * args.batch_size] for k in range(args.batch_size) if k + i * args.batch_size in scene_dict}
         else:
             expert_dict = None
