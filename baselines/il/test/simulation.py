@@ -21,12 +21,16 @@ logger.setLevel(logging.INFO)
 
 def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
     obs = env.reset()
-    alive_agent_mask = env.cont_agent_mask.clone()
+
     if args.sim_agent == 'delta_replay':
+        alive_agent_mask = env.cont_agent_mask.clone()
         ego_idx = alive_agent_mask.float().argmax(dim=-1)
         alive_agent_mask = torch.zeros_like(alive_agent_mask, dtype=torch.bool, device=alive_agent_mask.device).scatter_(-1, ego_idx.unsqueeze(-1), True) & alive_agent_mask.any(-1, keepdim=True)
+        dead_agent_mask = ~alive_agent_mask
+    else:
+        alive_agent_mask = env.cont_agent_mask.clone()
+        dead_agent_mask = ~env.cont_agent_mask.clone()
 
-    dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(args.batch_size)]
     expert_actions, _, _, _, _  = env.get_expert_actions() 
     obs_stack1_feat_size = int(obs.shape[-1] / 5)
@@ -39,12 +43,12 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
     if expert_dict is not None:
         # Extract expert done step
         sorted_keys = sorted(expert_dict.keys())
-        scene_labels = np.concatenate([expert_dict[k]['label'] for k in sorted_keys])
+        scene_labels = np.stack([expert_dict[k]['label'] for k in sorted_keys])
         turn_mask = torch.from_numpy(scene_labels == 'TURN').to("cuda")
         normal_mask = torch.from_numpy(scene_labels == 'NORMAL').to("cuda")
         straight_mask = torch.from_numpy(scene_labels == 'STRAIGHT').to("cuda")
         reverse_mask = torch.from_numpy(scene_labels == 'RETREAT').to("cuda")
-        expert_timesteps = np.concatenate([expert_dict[k]['done_step'] for k in sorted_keys])
+        expert_timesteps = np.stack([expert_dict[k]['done_step'] for k in sorted_keys])
         expert_timesteps = torch.from_numpy(expert_timesteps).to(dtype=goal_timesteps.dtype).to("cuda")
 
     off_road_ep = infos.off_road[alive_agent_mask]
@@ -78,14 +82,7 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
             context, *_, = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
-        if args.sim_agent == 'delta_replay':
-            actions_full = torch.zeros_like(expert_actions[:, :, 0], device=actions.device)
-            actions_full[~dead_agent_mask] = actions
-            ego_idx = (~dead_agent_mask).float().argmax(dim=-1)
-            ego_agent_mask = torch.zeros_like(dead_agent_mask, dtype=torch.bool).scatter_(-1, ego_idx.unsqueeze(-1), True) & dead_agent_mask.any(-1, keepdim=True)
-            all_actions[ego_agent_mask] = actions_full[ego_agent_mask]
-        else:
-            all_actions[~dead_agent_mask, :] = actions
+        all_actions[~dead_agent_mask, :] = actions
 
         if args.make_video:
             sim_states = env.vis.plot_simulator_state(
@@ -206,7 +203,7 @@ if __name__ == "__main__":
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
-    parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play', 'delta_replay'])
+    parser.add_argument('--sim-agent', '-sa', type=str, default='delta_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations
