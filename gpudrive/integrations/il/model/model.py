@@ -69,11 +69,15 @@ class EarlyFusionAttnBCNet(CustomLateFusionNet):
             num_v_channels=exp_config.network_dim,
         )
 
-        self.head = GMM(
-            network_type=self.__class__.__name__,
+        # self.head = GMM(
+        #     network_type=self.__class__.__name__,
+        #     input_dim= 2 * exp_config.network_dim + exp_config.network_dim,
+        #     head_config=exp_config,
+        #     time_dim=1
+        # )
+        self.head = DistHead(
             input_dim= 2 * exp_config.network_dim + exp_config.network_dim,
             head_config=exp_config,
-            time_dim=1
         )
         # self.head = ContHead(
         #     input_dim= 2 * exp_config.network_dim + exp_config.network_dim,

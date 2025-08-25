@@ -872,6 +872,56 @@ class GMM(nn.Module):
         actions = actions.squeeze(2)
 
         return actions
+    
+class DistHead(nn.Module):
+    def __init__(self, input_dim, head_config):
+        super(DistHead, self).__init__()
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, head_config.head_dim),
+            nn.ReLU()
+        )
+        
+        self.residual_block = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(head_config.head_dim, head_config.head_dim),
+                nn.ReLU(),
+            ) for _ in range(head_config.head_num_layers)
+        ])
+        
+        self.relu = nn.ReLU()
+        self.mean = nn.Linear(head_config.head_dim, head_config.action_dim)
+        self.log_std = nn.Linear(head_config.head_dim, head_config.action_dim)
+    
+    def get_dist_params(self, x):
+        """
+        Get the means, stds of the Dist Head
+        """
+        x = self.input_layer(x)
+        
+        for layer in self.residual_block:
+            residual = x
+            x = layer(x)
+            x = self.relu(x + residual)
+        
+        mean = self.mean(x)
+        log_std = self.log_std(x)
+        log_std = torch.clamp(log_std, -20, 2)
+        
+        return mean, log_std
+        
+    def forward(self, x, deterministic=None):
+        means, log_std = self.get_dist_params(x)
+        stds = torch.exp(log_std)
+        
+        if deterministic:
+            actions = means
+        else:
+            dist = torch.distributions.Normal(means, stds)
+            actions = dist.rsample()
+
+        return actions
+
+
 class CustomLateFusionNet(nn.Module):
     """Processes the env observation using a late fusion architecture."""
     def __init__(

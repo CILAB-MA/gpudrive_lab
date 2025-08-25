@@ -4,6 +4,16 @@ from torch.distributions import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import numpy as np
 
+def nll_loss(model, context, expert_actions, masks=None):
+    means, log_std = model.head.get_dist_params(context)
+    stds = torch.exp(log_std)
+
+    gaussian = Normal(means, stds)
+    log_probs = gaussian.log_prob(expert_actions)
+    
+    loss = -log_probs.sum(dim=-1)
+    return loss.mean()
+
 def aux_loss(model, context, expert_actions, masks=None, aux_info=None):
     '''
     compute the l1 loss between the predicted and expert actions

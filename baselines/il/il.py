@@ -20,7 +20,7 @@ from box import Box
 # GPUDrive
 from gpudrive.integrations.il.dataloader import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
-from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss, focal_loss
+from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss, focal_loss, nll_loss
 # from algorithms.il.utils import *
 
 logger = logging.getLogger(__name__)
@@ -124,10 +124,14 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
         all_masks= [partner_masks, road_masks]
         with torch.no_grad():
             context, other_embeds, other_weights, *_  = bc_policy.get_context(obs, all_masks)
-            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            # pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            pred_loss = nll_loss(bc_policy, context, expert_action)
             # pred_loss, _ = focal_loss(bc_policy, context, expert_action)
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
+            pred_actions = pred_actions.unsqueeze(1)
+            # print(f"pred actions shape : {pred_actions.shape}")
+            # print(f"expert actions shape : {expert_action.shape}")
             action_loss = torch.abs(pred_actions - expert_action)
             q95 = torch.quantile(action_loss, 0.95)
             cvar95 = action_loss[action_loss >= q95].cpu().mean().numpy()
@@ -137,7 +141,11 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             dx_std2_mask = dx_std2_mask.cpu().numpy()
             dy_std2_mask = dy_std2_mask.cpu().numpy()
             dyaw_std2_mask = dyaw_std2_mask.cpu().numpy()
+            # print(f"dx std2 mask shape : {dx_std2_mask.shape}")
+            # print(f"dy std2 mask shape : {dy_std2_mask.shape}")
+            # print(f"dyaw std2 mask shape : {dyaw_std2_mask.shape}")
             action_loss = action_loss.cpu().numpy()
+            # print(f"action_loss shape: {action_loss.shape}")
             dx_loss = action_loss[..., 0].mean()
             dy_loss = action_loss[..., 1].mean()
             dyaw_loss = action_loss[..., 2].mean()
@@ -271,7 +279,8 @@ def train(exp_config=None):
             context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
 
-            pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            # pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
+            pred_loss = nll_loss(bc_policy, context, expert_action)
             loss = pred_loss
             loss = loss.mean()
             optimizer.zero_grad()
