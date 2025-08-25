@@ -18,7 +18,7 @@ def arg_parse():
     parser.add_argument('--dataset-size', type=int, default=1000) # total_world
     parser.add_argument('--batch-size', type=int, default=100) # num_world
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
-    parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play'])
+    parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--make-video', '-mv', action='store_true')
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=0)

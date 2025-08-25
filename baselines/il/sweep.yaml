@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: exp_20000_pt2
+name: exp_40000
 metric:
   goal: minimize
   name: eval/loss
@@ -8,11 +8,11 @@ parameters:
   model_name:
     values: ["early_attn"]
   seed:
-    values: [3]
+    values: [3, 11, 42]
   num_scene:
-    values: [20000]
+    values: [40000]
   total_gradient_steps:
-    values: [550000]
+    values: [700000]
   # ILCONFIG
   network_dim:
     values: [128]
