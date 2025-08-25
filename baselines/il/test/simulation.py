@@ -256,9 +256,12 @@ if __name__ == "__main__":
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to("cuda")
     bc_policy.eval()
     num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
-
+    if args.sim_agent == 'log_replay':
+        remove_controlled_agents = False
+    else:
+        remove_controlled_agents = True
     # Train Scene
-    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
+    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=remove_controlled_agents)
     if args.sim_agent == 'log_replay' or args.sim_agent == 'delta_replay':
         df_name = f'/data/full_version/expert_{args.dataset}_data_v2.csv'
         df = pd.read_csv(df_name)
@@ -273,6 +276,6 @@ if __name__ == "__main__":
         if i != num_iter - 1:
             print('SWAP!!')
             env.swap_data_batch()
-            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
+            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=remove_controlled_agents)
     env.close()
 
