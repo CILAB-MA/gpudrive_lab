@@ -198,7 +198,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_20000')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s42_0808_044406.pth') # early_attn_s11_0808_043910
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s11_0808_043910.pth') # early_attn_s11_0808_043910
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')

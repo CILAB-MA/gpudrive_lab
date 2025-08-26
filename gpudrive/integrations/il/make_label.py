@@ -66,11 +66,12 @@ if __name__ == "__main__":
     parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
-    parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
+    parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
 
-    SAVE_DIR = f"/data/full_version/processed/{args.data_dir}_subset_v2/label"
+    SAVE_DIR = f"/data/full_version/processed/{args.data_dir}_subset_logreplay/label"
+    os.makedirs(SAVE_DIR, exist_ok=True)
     DATA_DIR = os.path.join("/data/full_version/data", args.data_dir)
     TOTAL_NUM_WORLDS = args.total_scene_size
     NUM_WORLDS = args.scene_batch_size
@@ -105,7 +106,8 @@ if __name__ == "__main__":
         alive_agent_num = env.cont_agent_mask.sum().item()
         expert_partner_label_lst = np.full((alive_agent_num, env.episode_len, 127), -1)
         expert_ego_label_lst = np.full((alive_agent_num, 1), 4)
-        expert_partner_id_lst = torch.full((alive_agent_num, env.episode_len, 127), -1, device="cuda", dtype=torch.long)
+        expert_partner_id_lst = torch.full((alive_agent_num, env.episode_len, 127), -1, device="cuda", dtype=torch.long)\
+        
         expert_actions, _, _, _, expert_valids = env.get_expert_actions()
         alive_agent_mask = env.cont_agent_mask.clone()
         alive_sum = alive_agent_mask.sum(-1)

@@ -135,7 +135,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
-    save_path = os.path.join(args.save_path, f'{args.dataset}_subset_v5')
+    save_path = os.path.join(args.save_path, f'{args.dataset}_subset_logreplay')
     print()
     print("num_stack : ", args.num_stack)
     print("save_path : ", save_path)
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
-        max_cont_agents=128,  # Number of agents to control
+        max_cont_agents=1,  # Number of agents to control
         device="cuda",
         action_type="continuous",
     )
