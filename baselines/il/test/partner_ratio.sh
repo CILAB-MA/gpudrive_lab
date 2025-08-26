@@ -6,8 +6,10 @@
 BATCH_SIZE=${1:-200}  # 기본값 200
 DATASET_SIZE=${2:-5000}  # 기본값 5000
 SWEEP_NAME=${3:-"early_attn5000"}  # 기본값 "early_attn5000"
-GPU_ID=${4:-0}  # 기본값 "early_attn5000"
-PARTNER_AGENT = ${5:-"delta_replay"}
+GPU_ID=${4:-0}  # 기본값 "0"
+PARTNER_AGENT=${5:-"delta_replay"}
+RANDOM_EGO=${6} # --random-ego
+
 # pp 값 리스트
 PP_VALUES=(0.0 0.2 0.4 0.6 0.8 0.99) # max = 0.99
 
@@ -15,5 +17,6 @@ PP_VALUES=(0.0 0.2 0.4 0.6 0.8 0.99) # max = 0.99
 for PP in "${PP_VALUES[@]}"; do
     python baselines/il/test/run_simulation.py --sweep-name "$SWEEP_NAME" \
         --dataset-size "$DATASET_SIZE" --batch-size "$BATCH_SIZE" \
-        -pp "$PP" --gpu-id "$GPU_ID" -SA "$PARTNER_AGENT"
+        -pp "$PP" --gpu-id "$GPU_ID" -sa "$PARTNER_AGENT" \
+        ${RANDOM_EGO:+$RANDOM_EGO}
 done

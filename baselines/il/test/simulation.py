@@ -29,6 +29,7 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
             valid_scenes = alive_agent_mask.sum(dim=-1) > 0
             random_idx = torch.multinomial(alive_agent_mask[valid_scenes].float(), 1).squeeze(-1)
             ego_idx[valid_scenes] = random_idx
+            print(f"random index : {random_idx}")
         else:
             ego_idx = alive_agent_mask.float().argmax(dim=-1)
         alive_agent_mask = torch.zeros_like(alive_agent_mask, dtype=torch.bool, device=alive_agent_mask.device).scatter_(-1, ego_idx.unsqueeze(-1), True) & alive_agent_mask.any(-1, keepdim=True)
@@ -48,7 +49,7 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
     off_road_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to("cuda")
     if expert_dict is not None:
         # Extract expert done step
-        alive_scene_idx = alive_agent_mask.sum(dim=-1).nonzero() + scene_batch_idx * args.batch_size
+        alive_scene_idx = alive_agent_mask.sum(dim=-1).nonzero()
         sorted_keys = sorted(expert_dict.keys())
         sorted_keys = [k for k in sorted_keys if k in alive_scene_idx] if args.sim_agent == 'delta_replay' else sorted_keys
         scene_labels = np.stack([expert_dict[k]['label'] for k in sorted_keys])
@@ -156,9 +157,11 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
     if expert_dict is not None:
         print(f'Goal Reached Time : {goal_time_avg}')
     if args.make_csv:
-        if not os.path.exists(f"{args.model_path}/{args.sim_agent}"):
-            os.makedirs(f"{args.model_path}/{args.sim_agent}")
-        csv_path = f"{args.model_path}/{args.sim_agent}/result_{args.partner_portion_test}.csv"
+        base_path = f"{args.model_path}/{args.sim_agent}"
+        base_path = os.path.join(base_path, "random_ego") if args.random_ego else base_path
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+        csv_path = f"{base_path}/result_{args.partner_portion_test}.csv"
         file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
         with open(csv_path, 'a', encoding='utf-8') as f:
             if file_is_empty:

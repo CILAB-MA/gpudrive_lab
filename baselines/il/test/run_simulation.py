@@ -20,6 +20,7 @@ def arg_parse():
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--make-video', '-mv', action='store_true')
+    parser.add_argument('--random-ego', '-rd', action='store_true', help="for delta replay, randomly select an ego vehicle from controllable vehicles")
     # GPU SETTINGS
     parser.add_argument('--gpu-id', '-g', type=int, default=0)
     return parser.parse_args()
@@ -45,14 +46,18 @@ if __name__ == "__main__":
             arguments = f"-mc -sa {args.sim_agent} -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
             if args.make_video:
                 arguments += ' -mv'
+            if args.random_ego:
+                arguments += ' -rd'
             # command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
             command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} python baselines/il/test/simulation.py {arguments}"
             result = subprocess.run(command, shell=True)
             if result.returncode != 0:
                 print(f"Error: Command failed with return code {result.returncode}")
 
-    csv_path = f"{model_path}/{args.sim_agent}/result_{args.partner_portion_test}.csv"
-    csv_path2 = f"{model_path}/{args.sim_agent}/result_{args.partner_portion_test}_total.csv"
+    base_path = f"{model_path}/{args.sim_agent}"
+    base_path = os.path.join(base_path, "random_ego") if args.random_ego else base_path
+    csv_path = os.path.join(base_path, f"result_{args.partner_portion_test}.csv")
+    csv_path2 = os.path.join(base_path, f"result_{args.partner_portion_test}_total.csv")
 
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
         print(f"CSV file {csv_path} does not exist or is empty. Exiting...")
