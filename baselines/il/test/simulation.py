@@ -42,6 +42,8 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
     off_road_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to("cuda")
     if expert_dict is not None:
         # Extract expert done step
+        alive_scene_idx = alive_agent_mask.sum(dim=-1).nonzero() + scene_batch_idx * args.batch_size
+        sorted_keys = [k for k in sorted_keys if k in alive_scene_idx] if args.sim_agent == 'delta_replay' else sorted_keys
         sorted_keys = sorted(expert_dict.keys())
         scene_labels = np.stack([expert_dict[k]['label'] for k in sorted_keys])
         turn_mask = torch.from_numpy(scene_labels == 'TURN').to("cuda")
