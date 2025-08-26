@@ -2,6 +2,7 @@
 
 #include <madrona/physics.hpp>
 #include "types.hpp"
+#include <vector>
 
 namespace madrona_gpudrive
 {
@@ -115,6 +116,7 @@ namespace madrona_gpudrive
         RewardParams rewardParams;
         CollisionBehaviour collisionBehaviour = CollisionBehaviour::AgentStop; // Default: AgentStop
         uint32_t maxNumControlledAgents = 10000;                               // Arbitrary high number to by default control all vehicles
+        int32_t  controlIdx = -1; 
         bool IgnoreNonVehicles = false;                                        // Default: false
         FindRoadObservationsWith roadObservationAlgorithm{
             FindRoadObservationsWith::KNearestEntitiesWithRadiusFiltering};

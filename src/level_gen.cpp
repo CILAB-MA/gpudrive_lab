@@ -112,7 +112,7 @@ static inline bool isAgentStatic(Engine &ctx, Entity agent) {
     return !ctx.data().params.isStaticAgentControlled and isStatic;
 }
 
-static inline bool isAgentControllable(Engine &ctx, Entity agent, bool markAsExpert = false) {
+static inline bool isAgentControllable(Engine &ctx, Entity agent, int32_t agentIdx, bool markAsExpert = false) {
     auto agent_iface = ctx.get<AgentInterfaceEntity>(agent).e;
     
     // If readFromTracksToPredict is true, base controllability on isTrackToPredict flag
@@ -120,7 +120,14 @@ static inline bool isAgentControllable(Engine &ctx, Entity agent, bool markAsExp
         return ctx.data().numControlledAgents < ctx.data().params.maxNumControlledAgents &&
                ctx.get<MetaData>(agent_iface).isTrackToPredict != -1;
     }
-    
+    // Index mode
+    if (ctx.data().params.controlIdx >= 0) {
+        if (agentIdx != ctx.data().params.controlIdx) return false;
+        return (ctx.data().numControlledAgents < ctx.data().params.maxNumControlledAgents) &&
+               (ctx.get<Trajectory>(agent_iface).valids[0]) &&
+               (ctx.get<ResponseType>(agent) == ResponseType::Dynamic) &&
+               !markAsExpert;
+    }
     // Original logic for other initialization modes
     return ctx.data().numControlledAgents < ctx.data().params.maxNumControlledAgents &&
            ctx.get<Trajectory>(agent_iface).valids[0] &&
@@ -128,7 +135,7 @@ static inline bool isAgentControllable(Engine &ctx, Entity agent, bool markAsExp
            !markAsExpert;
 }
 
-static inline Entity createAgent(Engine &ctx, const MapObject &agentInit) {
+static inline Entity createAgent(Engine &ctx, const MapObject &agentInit, int32_t agentIdx) {
     assert(agentInit.type >= EntityType::Vehicle && agentInit.type <= EntityType::Cyclist);
 
     // The following components do not vary within an episode and so need only
@@ -148,8 +155,9 @@ static inline Entity createAgent(Engine &ctx, const MapObject &agentInit) {
 
     //Applying custom rules
     ctx.get<ResponseType>(agent) = isAgentStatic(ctx, agent) ? ResponseType::Static : ResponseType::Dynamic;
-    ctx.get<ControlledState>(agent_iface) = ControlledState{.controlled = isAgentControllable(ctx, agent, agentInit.markAsExpert)};
-    ctx.data().numControlledAgents += ctx.get<ControlledState>(agent_iface).controlled;
+    bool ctrl = isAgentControllable(ctx, agent, agentIdx, agentInit.markAsExpert);
+    ctx.get<ControlledState>(agent_iface) = ControlledState{ .controlled = ctrl };
+    ctx.data().numControlledAgents += ctrl;
 
     ctx.get<MetaData>(agent_iface) = agentInit.metadata;
 
@@ -427,7 +435,7 @@ void createPersistentEntities(Engine &ctx) {
             continue;
         }
 
-        auto agent = createAgent(ctx, agentInit);
+        auto agent = createAgent(ctx, agentInit, agentIdx);
         ctx.data().agent_ifaces[agentIdx] = ctx.get<AgentInterfaceEntity>(agent).e;
         ctx.data().agents[agentIdx++] = agent;
     }

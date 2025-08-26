@@ -43,6 +43,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         config,
         data_loader,
         max_cont_agents,
+        cont_idx = -1,
         device="cuda",
         action_type="discrete",
         render_config: RenderConfig = RenderConfig(),
@@ -53,6 +54,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.data_loader = data_loader
         self.num_worlds = data_loader.batch_size
         self.max_cont_agents = max_cont_agents
+        self.cont_idx = cont_idx
         self.device = device
         self.render_config = render_config
         self.backend = backend
@@ -1582,6 +1584,7 @@ if __name__ == "__main__":
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
+        cont_idx=0,
         max_cont_agents=1,  # Number of agents to control
         device="cuda",
         action_type="continuous",
@@ -1592,7 +1595,8 @@ if __name__ == "__main__":
         obs = env.reset()
         partner_mask = env.get_partner_mask()
         partner_obs = obs[..., 6:128*6].reshape(2, 128, 127, 6)
-        print(f'no exist sum {partner_obs[partner_mask == 2].sum()} visible sum zero len {(partner_obs[partner_mask != 2].sum(-1) == 0).sum()}')
+        cont_mask = env.get_controlled_agents_mask()
+        print(f'alive agent {cont_mask}')
         road_mask = env.get_road_mask()
         frames = {f"env_{i}_head_{j}": [] for i in range(idx*NUM_WORLDS, idx*NUM_WORLDS + NUM_WORLDS) for j in range(NUM_IMPORTANCE_HEAD)}
         expert_actions, _, _, _, _ = env.get_expert_actions()

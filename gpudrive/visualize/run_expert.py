@@ -96,16 +96,17 @@ if __name__ == "__main__":
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-image', '-mi', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
-    parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/training_log")
+    parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/validation_log/log_replay")
     parser.add_argument("--action-image-dir", "-aid", type=str, default="/data/full_version/expert_actions_full_veh/validation_label")
     parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
-    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
+    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
+    parser.add_argument("--agent-idx", "-ai", type=int, default=1)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
 
     DATA_DIR = os.path.join("/data/full_version/data", args.data_dir)
-    VIDEO_DIR = args.video_dir
+    VIDEO_DIR = os.path.join(args.video_dir, f'ego_idx_{args.agent_idx}')
     TOTAL_NUM_WORLDS = args.total_scene_size
     NUM_WORLDS = args.scene_batch_size
     action_image_dir = args.action_image_dir
@@ -126,6 +127,7 @@ if __name__ == "__main__":
         data_loader=train_loader,
         max_cont_agents=args.max_cont_agents,  # Number of agents to control
         device="cuda",
+        cont_idx=args.agent_idx,
         action_type="continuous",
     )
     # env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=True)
