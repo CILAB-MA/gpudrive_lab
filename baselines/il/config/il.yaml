@@ -11,9 +11,9 @@ lr: 0.0005
 sample_per_epoch: 438763
 seed: 3
 early_stop_num: 100000
-base_path: '/scratch/cilab'
+base_path: '/data/full_version'
 model_path: 'model'
-data_path: 'final'
+data_path: 'processed/final/log_replay'
 num_scene: 1000
 grad_norm: 10
 

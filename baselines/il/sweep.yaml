@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: exp_40000
+name: log_replay_test
 metric:
   goal: minimize
   name: eval/loss
@@ -10,9 +10,9 @@ parameters:
   seed:
     values: [3, 11, 42]
   num_scene:
-    values: [40000]
+    values: [80000]
   total_gradient_steps:
-    values: [700000]
+    values: [400000]
   # ILCONFIG
   network_dim:
     values: [128]
