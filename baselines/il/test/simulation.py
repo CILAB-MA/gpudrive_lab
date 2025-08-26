@@ -24,7 +24,13 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
 
     if args.sim_agent == 'delta_replay':
         alive_agent_mask = env.cont_agent_mask.clone()
-        ego_idx = alive_agent_mask.float().argmax(dim=-1)
+        if args.random_ego:
+            ego_idx = torch.zeros((args.batch_size, ), dtype=torch.int64).to("cuda")
+            valid_scenes = alive_agent_mask.sum(dim=-1) > 0
+            random_idx = torch.multinomial(alive_agent_mask[valid_scenes].float(), 1).squeeze(-1)
+            ego_idx[valid_scenes] = random_idx
+        else:
+            ego_idx = alive_agent_mask.float().argmax(dim=-1)
         alive_agent_mask = torch.zeros_like(alive_agent_mask, dtype=torch.bool, device=alive_agent_mask.device).scatter_(-1, ego_idx.unsqueeze(-1), True) & alive_agent_mask.any(-1, keepdim=True)
         dead_agent_mask = ~alive_agent_mask
     else:
@@ -43,8 +49,8 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
     if expert_dict is not None:
         # Extract expert done step
         alive_scene_idx = alive_agent_mask.sum(dim=-1).nonzero() + scene_batch_idx * args.batch_size
-        sorted_keys = [k for k in sorted_keys if k in alive_scene_idx] if args.sim_agent == 'delta_replay' else sorted_keys
         sorted_keys = sorted(expert_dict.keys())
+        sorted_keys = [k for k in sorted_keys if k in alive_scene_idx] if args.sim_agent == 'delta_replay' else sorted_keys
         scene_labels = np.stack([expert_dict[k]['label'] for k in sorted_keys])
         turn_mask = torch.from_numpy(scene_labels == 'TURN').to("cuda")
         normal_mask = torch.from_numpy(scene_labels == 'NORMAL').to("cuda")
@@ -206,7 +212,8 @@ if __name__ == "__main__":
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='delta_replay', choices=['log_replay', 'self_play', 'delta_replay'])
-    parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
+    parser.add_argument('--random-ego', '-rd', action='store_true', help="for delta replay, randomly select an ego vehicle from controllable vehicles")
+    parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 1 if args.sim_agent == 'log_replay' else 128
