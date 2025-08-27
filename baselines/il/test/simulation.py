@@ -177,7 +177,7 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
             f.write(data + ",\n")
 
     if args.make_video:
-        video_path = os.path.join(args.video_path, args.dataset, args.model_name, str(args.partner_portion_test))
+        video_path = os.path.join(args.video_path, args.dataset, args.model_name, args.sim_agent, str(args.partner_portion_test))
         if not os.path.exists(video_path):
             os.makedirs(video_path)
         for world_render_idx in range(args.batch_size):
@@ -197,13 +197,13 @@ if __name__ == "__main__":
     parser.add_argument('--dataset-size', type=int, default=50) # total_world
     parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_20000')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s42_0808_044406.pth') # early_attn_s11_0808_043910
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/log_replay_test')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0826_035640.pth') # early_attn_s11_0808_043910
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
-    parser.add_argument('--sim-agent', '-sa', type=str, default='delta_replay', choices=['log_replay', 'self_play', 'delta_replay'])
+    parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations

@@ -70,7 +70,8 @@ if __name__ == "__main__":
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
 
-    SAVE_DIR = f"/data/full_version/processed/{args.data_dir}_subset_v2/label"
+    SAVE_DIR = f"/data/full_version/processed/{args.data_dir}_only_goal/label"
+    os.makedirs(SAVE_DIR, exist_ok=True)
     DATA_DIR = os.path.join("/data/full_version/data", args.data_dir)
     TOTAL_NUM_WORLDS = args.total_scene_size
     NUM_WORLDS = args.scene_batch_size
@@ -99,6 +100,7 @@ if __name__ == "__main__":
     num_iter = int(TOTAL_NUM_WORLDS // NUM_WORLDS)
     for idx in tqdm(range(num_iter)):
         obs = env.reset()
+        goal_achieved = 0
         off_road = 0
         veh_collision = 0
         road_mask = env.get_road_mask()
@@ -132,6 +134,7 @@ if __name__ == "__main__":
             obs = env.get_obs()
             done = env.get_dones()
             infos = env.get_infos()
+            goal_achieved += infos.goal_achieved[cont_agent_mask]
             off_road += infos.off_road[cont_agent_mask]
             veh_collision += infos.collided[cont_agent_mask]
             off_road = torch.clamp(off_road, max=1.0)
@@ -139,6 +142,7 @@ if __name__ == "__main__":
             mask = (done[alive_agent_mask] == 1.0) & (done_step == 0)
             done_step[mask] = t
             if done.all():
+                goal_mask = goal_achieved > 0
                 collision = (veh_collision + off_road > 0)
                 scene_labels = get_label(log_actions.cpu().numpy(), idx * NUM_WORLDS , (idx + 1) * NUM_WORLDS, done_step, index_array)
                 break
@@ -156,9 +160,9 @@ if __name__ == "__main__":
         partner_ids_flat = expert_partner_id_lst.reshape(-1)
         scene_idx_flat = scene_idx_expanded.reshape(-1).numpy()
         labels_flat = np.array([id_to_label.get((s, pid), -1) for s, pid in zip(scene_idx_flat, partner_ids_flat)])
-        partner_labels = labels_flat.reshape(N, T, M)[~collision.cpu()]
-        done_step = done_step[~collision.cpu()]
-        scene_labels = scene_labels[~collision.cpu()]
+        partner_labels = labels_flat.reshape(N, T, M)[goal_mask.cpu()]
+        done_step = done_step[goal_mask.cpu()]
+        scene_labels = scene_labels[goal_mask.cpu()]
         np.savez_compressed(f'{SAVE_DIR}/label_trajectory_{args.scene_batch_size * idx}.npz',
                             partner_label=partner_labels,
                             ego_label=scene_labels)

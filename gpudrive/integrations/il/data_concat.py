@@ -10,6 +10,7 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
         if not concat_other:
             files.remove('global')
             files.remove('label')
+            files.remove('id')
             files = [f for f in files if int(f.split('_')[1].split('.')[0]) < num_scenes and int(f.split('_')[1].split('.')[0]) >= start_idx]
             files = sorted(files, key=lambda x: int(x.split('_')[1].split('.')[0]))
         else:
@@ -67,18 +68,18 @@ def run(save_path, save_name, subset_path, num_scenes, start_idx):
     np.savez_compressed(os.path.join(save_path, save_name), obs=obs, actions=actions, 
                         dead_mask=dead_masks, partner_mask=partner_masks, 
                         road_mask=road_masks, partner_labels=partner_labels, ego_labels=ego_labels)
-    # np.savez_compressed(os.path.join(save_path, 'global_' + save_name), ego_global_rot=ego_global_rots,ego_global_pos=ego_global_poss )
+    np.savez_compressed(os.path.join(save_path, 'global_' + save_name), ego_global_rot=ego_global_rots,ego_global_pos=ego_global_poss )
     print("done!!!")
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-scene', type=int, default=2500)
+    parser.add_argument('--num-scene', type=int, default=10000)
     parser.add_argument('--start-idx', type=int, default=0)
-    parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'],)
+    parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
     args = parser.parse_args()
-    save_path = "/data/full_version/processed/final"
-    save_name = f'label/{args.dataset}_trajectory_{args.num_scene}.npz'
-    subset_path = f"/data/full_version/processed/{args.dataset}_subset_v2"
+    save_path = "/data/full_version/processed/final/only_goal"
+    save_name = f'{args.dataset}_trajectory_{args.num_scene}.npz'
+    subset_path = f"/data/full_version/processed/{args.dataset}_only_goal"
     os.makedirs(save_path, exist_ok=True)
     run(save_path, save_name, subset_path, args.num_scene, args.start_idx)

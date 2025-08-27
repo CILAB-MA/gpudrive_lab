@@ -90,20 +90,21 @@ def save_trajectory(env, save_path, save_index=0):
             off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
             veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
             collision = (veh_collision + off_road > 0)
+            goal_mask = goal_achieved > 0
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
             break
     
-    expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
-    expert_actions_lst = expert_actions_lst[~collision].to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
+    expert_trajectory_lst = expert_trajectory_lst[goal_mask].to('cpu')
+    expert_actions_lst = expert_actions_lst[goal_mask].to('cpu')
+    expert_dead_mask_lst = expert_dead_mask_lst[goal_mask].to('cpu')
+    expert_partner_mask_lst = expert_partner_mask_lst[goal_mask].to('cpu')
+    expert_road_mask_lst = expert_road_mask_lst[goal_mask].to('cpu')
     # global pos
-    expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
-    expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
-    expert_partner_id_lst = expert_partner_id_lst[~collision].to('cpu')
-    expert_ego_id_lst = expert_ego_id_lst[~collision].to('cpu')
-    expert_scene_id_lst = expert_scene_id_lst[~collision].to('cpu')
+    expert_global_pos_lst = expert_global_pos_lst[goal_mask].to('cpu')
+    expert_global_rot_lst = expert_global_rot_lst[goal_mask].to('cpu')
+    expert_partner_id_lst = expert_partner_id_lst[goal_mask].to('cpu')
+    expert_ego_id_lst = expert_ego_id_lst[goal_mask].to('cpu')
+    expert_scene_id_lst = expert_scene_id_lst[goal_mask].to('cpu')
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(save_path + '/global', exist_ok=True)
     os.makedirs(save_path + '/id', exist_ok=True)
@@ -124,7 +125,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_stack', type=int, default=1)
-    parser.add_argument('--save_path', type=str, default='/data/full_version/processed')
+    parser.add_argument('--save_path', type=str, default='/data/full_version/processed/')
     parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
     parser.add_argument('--function', type=str, default='save_trajectory', 
                         choices=[
@@ -135,7 +136,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
-    save_path = os.path.join(args.save_path, f'{args.dataset}_subset_v5')
+    save_path = os.path.join(args.save_path, f'{args.dataset}_only_goal')
     print()
     print("num_stack : ", args.num_stack)
     print("save_path : ", save_path)
