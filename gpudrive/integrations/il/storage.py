@@ -125,13 +125,13 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_stack', type=int, default=1)
-    parser.add_argument('--save_path', type=str, default='/scratch/cilab/log_replay')
+    parser.add_argument('--save_path', type=str, default='/app/log_replay')
     parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
     parser.add_argument('--function', type=str, default='save_trajectory', 
                         choices=[
                             'save_trajectory'])
     parser.add_argument('--dataset-size', type=int, default=80000) # total_world
-    parser.add_argument('--batch-size', type=int, default=400) # num_world
+    parser.add_argument('--batch-size', type=int, default=200) # num_world
     parser.add_argument("--agent-idx", "-ai", type=int, default=0)
     parser.add_argument('--start-idx', type=int, default=None, help="start scene number of dataset")
     args = parser.parse_args()
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     print('Scene Loader')
     # Create data loader
     train_loader = SceneDataLoader(
-        root=f"/scratch/cilab/data/{args.dataset}/",
+        root=f"/app/data/{args.dataset}/",
         batch_size=args.batch_size,
         dataset_size=args.dataset_size,
         sample_with_replacement=False,
