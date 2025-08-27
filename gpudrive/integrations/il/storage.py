@@ -90,20 +90,21 @@ def save_trajectory(env, save_path, save_index=0):
             off_road_rate = off_road.sum().float() / cont_agent_mask.sum().float()
             veh_coll_rate = veh_collision.sum().float() / cont_agent_mask.sum().float()
             collision = (veh_collision + off_road > 0)
+            goal_mask = goal_achieved > 0
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
             break
     
-    expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
-    expert_actions_lst = expert_actions_lst[~collision].to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
+    expert_trajectory_lst = expert_trajectory_lst[goal_mask].to('cpu')
+    expert_actions_lst = expert_actions_lst[goal_mask].to('cpu')
+    expert_dead_mask_lst = expert_dead_mask_lst[goal_mask].to('cpu')
+    expert_partner_mask_lst = expert_partner_mask_lst[goal_mask].to('cpu')
+    expert_road_mask_lst = expert_road_mask_lst[goal_mask].to('cpu')
     # global pos
-    expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
-    expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
-    expert_partner_id_lst = expert_partner_id_lst[~collision].to('cpu')
-    expert_ego_id_lst = expert_ego_id_lst[~collision].to('cpu')
-    expert_scene_id_lst = expert_scene_id_lst[~collision].to('cpu')
+    expert_global_pos_lst = expert_global_pos_lst[goal_mask].to('cpu')
+    expert_global_rot_lst = expert_global_rot_lst[goal_mask].to('cpu')
+    expert_partner_id_lst = expert_partner_id_lst[goal_mask].to('cpu')
+    expert_ego_id_lst = expert_ego_id_lst[goal_mask].to('cpu')
+    expert_scene_id_lst = expert_scene_id_lst[goal_mask].to('cpu')
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(save_path + '/global', exist_ok=True)
     os.makedirs(save_path + '/id', exist_ok=True)
@@ -124,18 +125,19 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_stack', type=int, default=1)
-    parser.add_argument('--save_path', type=str, default='/data/full_version/processed')
+    parser.add_argument('--save_path', type=str, default='/scratch/cilab/log_replay')
     parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
     parser.add_argument('--function', type=str, default='save_trajectory', 
                         choices=[
                             'save_trajectory'])
     parser.add_argument('--dataset-size', type=int, default=80000) # total_world
-    parser.add_argument('--batch-size', type=int, default=100) # num_world
+    parser.add_argument('--batch-size', type=int, default=400) # num_world
+    parser.add_argument("--agent-idx", "-ai", type=int, default=0)
     parser.add_argument('--start-idx', type=int, default=None, help="start scene number of dataset")
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
-    save_path = os.path.join(args.save_path, f'{args.dataset}_subset_logreplay')
+    save_path = os.path.join(args.save_path, f'{args.dataset}_subset/ego_idx_{args.agent_idx}')
     print()
     print("num_stack : ", args.num_stack)
     print("save_path : ", save_path)
@@ -154,7 +156,7 @@ if __name__ == "__main__":
     print('Scene Loader')
     # Create data loader
     train_loader = SceneDataLoader(
-        root=f"/data/full_version/data/{args.dataset}/",
+        root=f"/scratch/cilab/data/{args.dataset}/",
         batch_size=args.batch_size,
         dataset_size=args.dataset_size,
         sample_with_replacement=False,
@@ -168,6 +170,7 @@ if __name__ == "__main__":
         data_loader=train_loader,
         max_cont_agents=1,  # Number of agents to control
         device="cuda",
+        cont_idx=args.agent_idx,
         action_type="continuous",
     )
     print('Launch Env')
@@ -175,7 +178,6 @@ if __name__ == "__main__":
     init_iter = 0 if args.start_idx is None else args.start_idx // args.batch_size
     
     for i in tqdm(range(init_iter, total_iter), total=total_iter, initial=init_iter):
-        print(env.data_batch)
         if args.function == 'save_trajectory':
             save_trajectory(env, save_path, i * args.batch_size)
         else:
