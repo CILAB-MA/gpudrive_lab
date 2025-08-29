@@ -247,7 +247,7 @@ def train(exp_config=None):
     pbar = tqdm(total=exp_config.total_gradient_steps, desc="Gradient Steps", ncols=100)
     stop_training = False
     if not os.path.exists(model_path):
-        os.makedirs(model_path)
+        os.makedirs(os.path.join(model_path, 'checkpoints'))
     while gradient_steps < exp_config.total_gradient_steps and not stop_training:
         bc_policy.train()
         train_losses = 0
@@ -314,12 +314,16 @@ def train(exp_config=None):
                         }
 
                     wandb.log(log_dict, step=gradient_steps)
+                
+                # model save
+                save_dict = {
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'gradient_steps': gradient_steps,
+                    'exp_config': dict(exp_config),
+                }
+                torch.save(bc_policy, f"{model_path}/checkpoints/{exp_config.model_name}_s{exp_config.seed}_{current_time}_step_{gradient_steps}.pth")
+                torch.save(save_dict, f"{model_path}/checkpoints/{exp_config.model_name}_s{exp_config.seed}_{current_time}_step_{gradient_steps}_optim.pth")
                 if test_loss < best_loss:
-                    save_dict = {
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'gradient_steps': gradient_steps,
-                        'exp_config': dict(exp_config),
-                    }
                     torch.save(save_dict, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}_optim.pth")
                     torch.save(bc_policy, f"{model_path}/{exp_config.model_name}_s{exp_config.seed}_{current_time}.pth")
                     best_loss = test_loss
