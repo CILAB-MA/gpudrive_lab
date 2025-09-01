@@ -129,8 +129,6 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             loss = pred_loss
             pred_actions = bc_policy.get_action(context, deterministic=True)
             action_loss = torch.abs(pred_actions - expert_action)
-            q95 = torch.quantile(action_loss, 0.95)
-            cvar95 = action_loss[action_loss >= q95].cpu().mean().numpy()
             dx_std2_mask = expert_action[..., 0].abs() > 2 
             dy_std2_mask = expert_action[..., 1].abs() > 0.035 
             dyaw_std2_mask = expert_action[..., 2].abs() > 0.023
@@ -145,7 +143,6 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             dx_std2_loss = action_loss[..., 0][dx_std2_mask].sum() if dx_std2_mask.sum() > 0 else 0
             dy_std2_loss = action_loss[..., 1][dy_std2_mask].sum() if dy_std2_mask.sum() > 0 else 0
             dyaw_std2_loss = action_loss[..., 2][dyaw_std2_mask].sum() if dyaw_std2_mask.sum() > 0 else 0
-            cvar95_losses += cvar95
             # bsae loss
             dx_losses += dx_loss
             dy_losses += dy_loss
@@ -157,9 +154,9 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
             dyaw_std2_losses += dyaw_std2_loss
 
             # action values
-            dx_mean = pred_actions[..., 0].mean()
-            dy_mean = pred_actions[..., 1].mean()
-            dyaw_mean = pred_actions[..., 2].mean()
+            dx_mean = pred_actions[..., 0][dx_std2_mask].sum() if dx_std2_mask.sum() > 0 else 0
+            dy_mean = pred_actions[..., 1][dy_std2_mask].sum() if dy_std2_mask.sum() > 0 else 0
+            dyaw_mean = pred_actions[..., 2][dyaw_std2_mask].sum() if dyaw_std2_mask.sum() > 0 else 0
 
             dx_values += dx_mean
             dy_values += dy_mean
@@ -180,14 +177,14 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     dy_loss = dy_losses / (i + 1) 
     dyaw_loss = dyaw_losses / (i + 1) 
 
-    dx_values = dx_values / (i + 1) 
-    dy_values = dy_values / (i + 1) 
-    dyaw_values = dyaw_values / (i + 1) 
+    dx_values = dx_values / dx_std2_count
+    dy_values = dy_values / dy_std2_count
+    dyaw_values = dyaw_values / dyaw_std2_count
 
     dx_std2_loss = dx_std2_losses / dx_std2_count
     dy_std2_loss = dy_std2_losses / dy_std2_count
     dyaw_std2_loss = dyaw_std2_losses / dyaw_std2_count
-    return test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, cvar95_losses, dx_values, dy_values, dyaw_values
+    return test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, dx_values, dy_values, dyaw_values
 
 def train(exp_config=None):
     env_config = EnvConfig()
@@ -297,7 +294,7 @@ def train(exp_config=None):
             if gradient_steps % exp_config.eval_freq == 0:
                 bc_policy.eval()
                 test_losses = evaluate(eval_expert_data_loader, exp_config, bc_policy, num_train_sample)
-                test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, cvar95_losses, dx_vals, dy_vals, dyaw_vals = test_losses
+                test_loss, dx_loss, dy_loss, dyaw_loss, dx_std2_loss, dy_std2_loss, dyaw_std2_loss, dx_vals, dy_vals, dyaw_vals = test_losses
                 if exp_config.use_wandb:
                     log_dict = {
                             "eval/loss": test_loss,
@@ -307,7 +304,6 @@ def train(exp_config=None):
                             "eval/dx_std2_loss": dx_std2_loss,
                             "eval/dy_std2_loss": dy_std2_loss,
                             "eval/dyaw_std2_loss": dyaw_std2_loss,
-                            "eval/cval_95": cvar95_losses,
                             "eval/dx_values": dx_vals,
                             "eval/dy_values": dy_vals,
                             "eval/dyaw_values": dyaw_vals,
