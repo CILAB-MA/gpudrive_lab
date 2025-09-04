@@ -126,10 +126,10 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
         collisions = []
         for label_mask in label_masks:
             num_labels.append(label_mask.sum())
-            offroads.append(off_road[label_mask].sum())
-            veh_colls.append(veh_collision[label_mask].sum())
-            collisions.append(veh_collision[label_mask].sum() + off_road[label_mask].sum())
-            goals.append(goal_achieved[label_mask].sum())
+            offroads.append(off_road_ep[label_mask].sum())
+            veh_colls.append(veh_collision_ep[label_mask].sum())
+            collisions.append(veh_collision_ep[label_mask].sum() + off_road_ep[label_mask].sum())
+            goals.append(goal_achieved_ep[label_mask].sum())
             goal_progresses.append((1 - goal_progress_ratio)[label_mask].sum())
             label_timesteps = goal_timesteps[label_mask]
             label_timesteps = label_timesteps[label_timesteps >= 0].float()
