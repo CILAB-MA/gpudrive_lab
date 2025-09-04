@@ -173,7 +173,6 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
                 data += f"{goal_time_avg},"
                 for l in range(4):
                     data += f"{num_labels[l]},{offroads[l]},{veh_colls[l]},{goals[l]},{collisions[l]},{goal_progresses[l]},{goal_time_avgs[l]},"
-                    data += f"{goal_time_avgs[l]},"
             f.write(data + ",\n")
 
     if args.make_video:
