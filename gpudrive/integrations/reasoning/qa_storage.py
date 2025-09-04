@@ -83,9 +83,12 @@ def save_qa_trajectory(env, reasoning_embedding, reasoning_nlp, jd, save_path, s
             .to_torch()
             .to(device)
         )
+    cont_agent_mask = env.cont_agent_mask.to(device)
     dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
     road_mask = env.get_road_mask()
-
+    goal_achieved = 0
+    off_road = 0
+    veh_collision = 0
     for time_step in tqdm(range(env.episode_len)):
         for idx, (world_idx, agent_idx) in enumerate(zip(scene_idx, qa_ego_idx)):
             if not dead_agent_mask[world_idx, agent_idx]:
@@ -111,6 +114,14 @@ def save_qa_trajectory(env, reasoning_embedding, reasoning_nlp, jd, save_path, s
         .to(device)
         )
         infos = env.get_infos()
+
+        goal_achieved += infos.goal_achieved[scene_idx, qa_ego_idx]
+        off_road += infos.off_road[scene_idx, qa_ego_idx]
+        veh_collision += infos.collided[scene_idx, qa_ego_idx]
+        goal_achieved = torch.clamp(goal_achieved, max=1.0)
+        off_road = torch.clamp(off_road, max=1.0)
+        veh_collision = torch.clamp(veh_collision, max=1.0)
+
         if (dead_agent_mask == True).all():
             off_road = infos.off_road[scene_idx, qa_ego_idx]
             veh_collision = infos.collided[scene_idx, qa_ego_idx]
@@ -118,49 +129,50 @@ def save_qa_trajectory(env, reasoning_embedding, reasoning_nlp, jd, save_path, s
             off_road_rate = off_road.sum().float() / valid_agent
             veh_coll_rate = veh_collision.sum().float() / valid_agent
             collision = (veh_collision + off_road > 0)
+            goal_mask = goal_achieved > 0
             print(f'Offroad {off_road_rate} VehCol {veh_coll_rate}')
             break
     
-    expert_trajectory_lst = expert_trajectory_lst[~collision].to('cpu')
-    expert_actions_lst = expert_actions_lst[~collision].to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst[~collision].to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst[~collision].to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst[~collision].to('cpu')
+    expert_trajectory_lst = expert_trajectory_lst[goal_mask].to('cpu')
+    expert_actions_lst = expert_actions_lst[goal_mask].to('cpu')
+    expert_dead_mask_lst = expert_dead_mask_lst[goal_mask].to('cpu')
+    expert_partner_mask_lst = expert_partner_mask_lst[goal_mask].to('cpu')
+    expert_road_mask_lst = expert_road_mask_lst[goal_mask].to('cpu')
     # global pos
-    expert_global_pos_lst = expert_global_pos_lst[~collision].to('cpu')
-    expert_global_rot_lst = expert_global_rot_lst[~collision].to('cpu')
+    expert_global_pos_lst = expert_global_pos_lst[goal_mask].to('cpu')
+    expert_global_rot_lst = expert_global_rot_lst[goal_mask].to('cpu')
 
-    expert_env_q_lst = env_q[~collision.cpu().numpy()]
-    expert_ego_q_lst = ego_q[~collision.cpu().numpy()]
-    expert_sur_q_lst = sur_q[~collision.cpu().numpy()]
-    expert_int_q_lst = int_q[~collision.cpu().numpy()]
-    expert_env_nlp_q_lst = env_q_nlp[~collision.cpu().numpy()]
-    expert_ego_nlp_q_lst = ego_q_nlp[~collision.cpu().numpy()]
-    expert_sur_nlp_q_lst = sur_q_nlp[~collision.cpu().numpy()]
-    expert_int_nlp_q_lst = int_q_nlp[~collision.cpu().numpy()]
+    expert_env_q_lst = env_q[goal_mask.cpu().numpy()]
+    expert_ego_q_lst = ego_q[goal_mask.cpu().numpy()]
+    expert_sur_q_lst = sur_q[goal_mask.cpu().numpy()]
+    expert_int_q_lst = int_q[goal_mask.cpu().numpy()]
+    expert_env_nlp_q_lst = env_q_nlp[goal_mask.cpu().numpy()]
+    expert_ego_nlp_q_lst = ego_q_nlp[goal_mask.cpu().numpy()]
+    expert_sur_nlp_q_lst = sur_q_nlp[goal_mask.cpu().numpy()]
+    expert_int_nlp_q_lst = int_q_nlp[goal_mask.cpu().numpy()]
 
-    expert_env_pa_lst = env_pos_a[~collision.cpu().numpy()]
-    expert_ego_pa_lst = ego_pos_a[~collision.cpu().numpy()]
-    expert_sur_pa_lst = sur_pos_a[~collision.cpu().numpy()]
-    expert_int_pa_lst = int_pos_a[~collision.cpu().numpy()]
-    expert_env_pos_nlp_lst = env_pos_nlp[~collision.cpu().numpy()]
-    expert_ego_pos_nlp_lst = ego_pos_nlp[~collision.cpu().numpy()]
-    expert_sur_pos_nlp_lst = sur_pos_nlp[~collision.cpu().numpy()]
-    expert_int_pos_nlp_lst = int_pos_nlp[~collision.cpu().numpy()]
+    expert_env_pa_lst = env_pos_a[goal_mask.cpu().numpy()]
+    expert_ego_pa_lst = ego_pos_a[goal_mask.cpu().numpy()]
+    expert_sur_pa_lst = sur_pos_a[goal_mask.cpu().numpy()]
+    expert_int_pa_lst = int_pos_a[goal_mask.cpu().numpy()]
+    expert_env_pos_nlp_lst = env_pos_nlp[goal_mask.cpu().numpy()]
+    expert_ego_pos_nlp_lst = ego_pos_nlp[goal_mask.cpu().numpy()]
+    expert_sur_pos_nlp_lst = sur_pos_nlp[goal_mask.cpu().numpy()]
+    expert_int_pos_nlp_lst = int_pos_nlp[goal_mask.cpu().numpy()]
 
-    expert_env_na_lst = env_neg_a[~collision.cpu().numpy()]
-    expert_ego_na_lst = ego_neg_a[~collision.cpu().numpy()]
-    expert_sur_na_lst = sur_neg_a[~collision.cpu().numpy()]
-    expert_int_na_lst = int_neg_a[~collision.cpu().numpy()]
-    expert_env_neg_nlp_lst = env_neg_nlp[~collision.cpu().numpy()]
-    expert_ego_neg_nlp_lst = ego_neg_nlp[~collision.cpu().numpy()]
-    expert_sur_neg_nlp_lst = sur_neg_nlp[~collision.cpu().numpy()]
-    expert_int_neg_nlp_lst = int_neg_nlp[~collision.cpu().numpy()]
+    expert_env_na_lst = env_neg_a[goal_mask.cpu().numpy()]
+    expert_ego_na_lst = ego_neg_a[goal_mask.cpu().numpy()]
+    expert_sur_na_lst = sur_neg_a[goal_mask.cpu().numpy()]
+    expert_int_na_lst = int_neg_a[goal_mask.cpu().numpy()]
+    expert_env_neg_nlp_lst = env_neg_nlp[goal_mask.cpu().numpy()]
+    expert_ego_neg_nlp_lst = ego_neg_nlp[goal_mask.cpu().numpy()]
+    expert_sur_neg_nlp_lst = sur_neg_nlp[goal_mask.cpu().numpy()]
+    expert_int_neg_nlp_lst = int_neg_nlp[goal_mask.cpu().numpy()]
 
-    expert_env_mask_lst = env_mask[~collision.cpu().numpy()]
-    expert_ego_mask_lst = ego_mask[~collision.cpu().numpy()]
-    expert_sur_mask_lst = sur_mask[~collision.cpu().numpy()]
-    expert_int_mask_lst = int_mask[~collision.cpu().numpy()]
+    expert_env_mask_lst = env_mask[goal_mask.cpu().numpy()]
+    expert_ego_mask_lst = ego_mask[goal_mask.cpu().numpy()]
+    expert_sur_mask_lst = sur_mask[goal_mask.cpu().numpy()]
+    expert_int_mask_lst = int_mask[goal_mask.cpu().numpy()]
     # os.makedirs(save_path, exist_ok=True)
     os.makedirs(save_path + '/global', exist_ok=True)
     os.makedirs(save_path + '/filtered/reasoning', exist_ok=True)
@@ -209,11 +221,11 @@ def save_qa_trajectory(env, reasoning_embedding, reasoning_nlp, jd, save_path, s
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
-    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
-    parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
+    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
+    parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
 
@@ -260,7 +272,7 @@ if __name__ == "__main__":
     qa_types = ["env", "ego", "sur", "int"]
     for idx in tqdm(range(num_iter)):
         if idx != num_iter - 1:
-            with open(f"/data/full_version/processed/reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
+            with open(f"/data/full_version/reasoning/raw/{args.data_dir}/womd_reasoning_{NUM_WORLDS * idx}.json", "r") as f:
                 jd = json.load(f)
             np_path = f"{save_path}/reasoning/reasoning_trajectory_{idx * args.scene_batch_size}.npz"
             nlp_path = f"{save_path}/nlp/reasoning_trajectory_{idx * args.scene_batch_size}.npz"

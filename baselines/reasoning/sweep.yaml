@@ -1,12 +1,12 @@
 program: baselines/reasoning/aux.py
 method: grid
-name: (stabilize)vanilla
+name: log_replay
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   seed:
-    values: [3, 11, 42, 0]
+    values: [3, 11, 42]
   num_scene:
     values: [80000]
   total_gradient_steps:
@@ -17,7 +17,7 @@ parameters:
   head_dim:
     values: [64]
   num_layer:
-    values: [[4, 3]]
+    values: [[5, 4]]
   # AUXCONFIG
   exp:
-    values: ["vanilla"] # baseline, vanilla, neg, pcgrad, neg_pcgrad
+    values: ["vanilla", "baseline"] # baseline, vanilla, neg, pcgrad, neg_pcgrad

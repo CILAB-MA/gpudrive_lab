@@ -25,9 +25,11 @@ def filter_qa_by_id(questions, answers, qa_ids):
     ]
     return qa
 
-def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
+def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, full_ids, cont_mask, base_dir):
     scenario_data = {}
-
+    alive_world = cont_mask.sum(-1).bool()
+    alive_indices = torch.nonzero(alive_world, as_tuple=True)[0]  #
+    ego_dict = {int(idx.item()): int(eid.item()) for idx, eid in zip(alive_indices, ego_ids)}
     for idx, sid in scenario_ids.items():
         matched_files = [
             f for f in data_dir
@@ -40,13 +42,16 @@ def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
                 file_path = os.path.join(base_dir, file)
                 with open(file_path, 'r') as f:
                     jd = json.load(f)
-                    egos = ego_ids[idx].int()
-                    mask = torch.isin(egos, jd['ego'])
-                    indices = mask.nonzero(as_tuple=True)[0]
+                    if idx in ego_dict.keys():
+                        egos = ego_dict[idx]
+                    else:
+                        egos = -100
+                    mask = egos == jd['ego']
+                    indices = cont_mask[idx].nonzero(as_tuple=True)[0]
                     rel_ids = jd['rel_id']
                     rel_qa_ids = jd['rel_qa_id']
                     jd['batch_idx'] = idx
-                    if len(indices) == 0:
+                    if not mask:
                         continue
                     jd['ego_idx'] = indices[0].item()
                     env_q = jd['env_q']
@@ -59,7 +64,7 @@ def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
                     int_a = jd['int_a']
                     no_rel_id = []
                     for rel_id, qa_id in zip(rel_ids, rel_qa_ids):
-                        if rel_id not in ego_ids[idx].int():
+                        if rel_id not in full_ids[idx].int():
                             no_rel_id.append(qa_id)
                     jd['env_qa'] = filter_qa_by_id(env_q, env_a, no_rel_id)
                     jd['ego_qa'] = filter_qa_by_id(ego_q, ego_a, no_rel_id)
@@ -82,12 +87,12 @@ def load_all_scenario_jsons(data_dir, scenario_ids, ego_ids, base_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
+    parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/validation_log")
-    parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
-    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
-    parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
+    parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
+    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
+    parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
 
@@ -113,19 +118,22 @@ if __name__ == "__main__":
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
-        max_cont_agents=args.max_cont_agents,  # Number of agents to control
+        max_cont_agents=1,  # Number of agents to control
         device="cuda",
         action_type="continuous",
     )
     num_iter = int(TOTAL_NUM_WORLDS // NUM_WORLDS)
+    os.makedirs(f"/data/full_version/reasoning/raw/{args.data_dir}", exist_ok=True)
     for idx in tqdm(range(num_iter)):
         womd_reasoning_json = dict()
         obs = env.reset()
         scenario_ids = env.get_scenario_ids()
-        ego_ids = env.get_ego_ids()
-        scenario_data = load_all_scenario_jsons(json_list, scenario_ids, ego_ids, base_folder)
+        cont_mask = env.get_controlled_agents_mask().clone()
+        full_ids = env.get_ego_ids()
+        ego_ids = full_ids[cont_mask]
+        scenario_data = load_all_scenario_jsons(json_list, scenario_ids, ego_ids, full_ids, cont_mask, base_folder)
         womd_reasoning_json.update(scenario_data)
-        with open(f"/data/full_version/processed/reasoning/{args.data_dir}/womd_reasoning_{100 * idx}.json", "w") as f:
+        with open(f"/data/full_version/reasoning/raw/{args.data_dir}/womd_reasoning_{NUM_WORLDS * idx}.json", "w") as f:
             json.dump(womd_reasoning_json, f, indent=2)
         if idx != num_iter - 1:
             env.swap_data_batch()

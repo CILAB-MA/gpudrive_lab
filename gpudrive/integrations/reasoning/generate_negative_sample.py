@@ -517,8 +517,8 @@ if __name__ == '__main__':
     parser.add_argument("--data_dir", "-dd", type=str, default="training", help="training (80000) / testing (10000)")
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument("--total-scene-size", "-tss", type=int, default=80000)
-    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
-    parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
+    parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
+    parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
     TOTAL_NUM_WORLDS = args.total_scene_size
@@ -541,7 +541,7 @@ if __name__ == '__main__':
     qa_types = ["env", "ego", "sur", "int"]
     for idx in tqdm(range(num_iter)):
         if idx != num_iter - 1:
-            with open(f"/data/full_version/processed/reasoning_raw/{args.data_dir}/womd_reasoning_{100 * idx}.json", "r") as f:
+            with open(f"/data/full_version/reasoning/raw/{args.data_dir}/womd_reasoning_{NUM_WORLDS * idx}.json", "r") as f:
                 jd = json.load(f)
             valid_agent = len(jd)
             expert_env_q_lst = np.zeros((valid_agent, 20, 384))
