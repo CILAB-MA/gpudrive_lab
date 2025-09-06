@@ -42,24 +42,20 @@ def parse_args():
     
     return args
 
-def list_subset_files(exp_config):
-    base_dir = os.path.join(exp_config.base_path, exp_config.data_path)
-    candidates = []
-    if hasattr(exp_config, "subset_dir") and exp_config.subset_dir:
-        d = exp_config.subset_dir
-        candidates.append(d if os.path.isabs(d) else os.path.join(base_dir, d))
-    candidates.append(os.path.join(base_dir, "subset"))
+def get_sorted_files(path, num_scenes, start_idx=0, concat_other=False):
+    files = os.listdir(path)
+    if not concat_other:
+        files.remove('global')
+        files.remove('id')
+        files = [f for f in files if int(f.split('_')[1].split('.')[0]) < num_scenes and int(f.split('_')[1].split('.')[0]) >= start_idx]
+        files = sorted(files, key=lambda x: int(x.split('_')[1].split('.')[0]))
+    else:
+        files = [f for f in files if int(f.split('_')[2].split('.')[0]) < num_scenes and int(f.split('_')[2].split('.')[0]) >= start_idx and concat_other in f]
+        files = sorted(files, key=lambda x: int(x.split('_')[2].split('.')[0]))
+    return files
 
-    pattern = getattr(exp_config, "subset_glob", "training_trajectory_*.npz")
-    for d in candidates:
-        if os.path.isdir(d):
-            files = sorted(glob.glob(os.path.join(d, pattern)))
-            if files:
-                return files
-    return [os.path.join(base_dir, f"training_trajectory_{exp_config.num_scene}.npz")]
-
-def get_dataloader_from_npz(npz_path, config, isshuffle=True):
-    with np.load(npz_path) as npz:
+def get_dataloader_from_npz(base_path, npz_path, config, isshuffle=True):
+    with np.load(os.path.join(base_path, npz_path)) as npz:
         expert_obs = npz['obs']
         expert_actions = npz['actions']
         expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
@@ -272,10 +268,12 @@ def train(exp_config=None):
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
-    eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_2500.npz"
+    data_path = os.path.join(exp_config.base_path, exp_config.data_path)
+    eval_data_path =  os.path.join(exp_config.base_path, "processed/final")
+    eval_data_file = "validation_trajectory_2500.npz"
+    subset_files = get_sorted_files(data_path, 80000)
+    np.random.shuffle(subset_files)
     
-    subset_files = list_subset_files(exp_config)
     print(f"[Subset] found {len(subset_files)} files")
     for i, p in enumerate(subset_files[:5]): 
         print(f"  {i+1:02d}: {p}")
@@ -298,7 +296,7 @@ def train(exp_config=None):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
             print(f"\n[Subset {subset_round}:{subset_idx+1}/{len(subset_files)}] {os.path.basename(subset_path)}")
-            expert_data_loader = get_dataloader_from_npz(subset_path, exp_config, isshuffle=True)
+            expert_data_loader = get_dataloader_from_npz(data_path, subset_path, exp_config, isshuffle=True)
             bc_policy.train()
             train_losses = 0.0
             dx_losses = 0.0
