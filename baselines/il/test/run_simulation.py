@@ -30,7 +30,7 @@ if __name__ == "__main__":
     models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
     for model in tqdm(models):
-        for dataset in ['training', 'validation']:
+        for dataset in ['validation']:
             if '.pth' not in model:
                 continue
             if 'optim' in model:
