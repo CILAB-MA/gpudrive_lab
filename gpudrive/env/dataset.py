@@ -52,7 +52,7 @@ class SceneDataLoader:
             self.dataset = self.dataset[
                 self.start_idx : min(self.dataset_size, len(self.dataset))
             ]
-            print(f"dataset is started with scene number {self.start_idx} ({self.dataset[0]})")
+            print(f"dataset is started with scene number {self.start_idx} ({self.dataset[0]}) (size: {len(self.dataset)})")
         else:
             self.dataset = self.dataset[
                 : min(self.dataset_size, len(self.dataset))
