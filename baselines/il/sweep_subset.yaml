@@ -1,4 +1,4 @@
-program: baselines/il/il.py
+program: baselines/il/il_subset.py
 method: grid
 name: exp_80000_subset
 metric:
