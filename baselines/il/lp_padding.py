@@ -186,7 +186,7 @@ def train(exp_config=None):
             partner_mask = partner_mask.to("cuda")
             road_mask = road_mask.to("cuda")
             obs[..., 6: 128 * 6] = 0
-            partner_mask.fill_(1)
+            partner_mask.fill_(True)
             all_masks= [partner_mask, road_mask]
             with torch.no_grad():
                 context, *_, = backbone.get_context(obs, all_masks)

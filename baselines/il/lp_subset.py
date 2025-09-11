@@ -121,6 +121,9 @@ def register_all_layers_forward_hook(model):
 
 def train(exp_config=None):
     current_time = datetime.now().strftime("%m%d_%H%M%S")
+    no_improve = 0           
+    stop_training = False   
+    PATIENCE = 5    
     if args.use_wandb:
         wandb.init()
         # Tag Update
@@ -184,10 +187,12 @@ def train(exp_config=None):
     print(f'EXP CONFIG {exp_config}')
     subset_round = 0
     while gradient_steps < exp_config.total_gradient_steps:
+        if gradient_steps >= exp_config.total_gradient_steps or stop_training:
+            break
         pos_linear_model.train()
         subset_round += 1
         for subset_idx, subset_path in enumerate(subset_files):
-            if gradient_steps >= exp_config.total_gradient_steps:
+            if stop_training or gradient_steps >= exp_config.total_gradient_steps:
                 break
             print(f"\n[Subset {subset_round}:{subset_idx+1}/{len(subset_files)}] {os.path.basename(subset_path)}")
             expert_data_loader = get_dataloader(data_path, subset_path, exp_config, isshuffle=True)
@@ -379,7 +384,12 @@ def train(exp_config=None):
                         os.makedirs(save_dir, exist_ok=True)
                         torch.save(pos_linear_model, os.path.join(save_dir, f"pos_{exp_config.model}_{exp_config.future_step}.pth"))
                         best_loss = test_pos_losses
+                        no_improve = 0     
                         print(f'STEP {gradient_steps} gets BEST!')
+                    else:
+                        no_improve += 1
+                        if no_improve >= PATIENCE:
+                            stop_training = True            
                     pos_linear_model.train()
         if exp_config.use_wandb:
             wandb.log(
@@ -389,6 +399,7 @@ def train(exp_config=None):
                     "train/pos_f1_macro": pos_f1_macros / (i + 1 - continue_num),
                 }, step=gradient_steps
             )
+        np.random.shuffle(subset_files)
         
     
 if __name__ == "__main__":

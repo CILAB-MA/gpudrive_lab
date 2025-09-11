@@ -201,7 +201,7 @@ if __name__ == "__main__":
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
-    parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     args = parser.parse_args()
