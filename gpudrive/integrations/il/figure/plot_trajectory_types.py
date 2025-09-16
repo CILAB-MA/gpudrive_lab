@@ -14,18 +14,19 @@ import argparse
 
 parser = argparse.ArgumentParser()
 # env
-parser.add_argument('--world-idx', type=int, default=0)
+parser.add_argument('--world-idx', type=int, default=28)
 parser.add_argument('--draw-expert-trajectories', type=bool, default=True)
 parser.add_argument('--draw-only-controllable-veh', type=bool, default=True)
+parser.add_argument('--ego-agent-idx', type=int, default=0)
 
 # plot
 parser.add_argument('--render-3d', type=bool, default=False)
-parser.add_argument('--zoom-radius', type=int, default=100)
-parser.add_argument('--dpi', type=int, default=300)
+parser.add_argument('--zoom-radius', type=int, default=50)
+parser.add_argument('--dpi', type=int, default=768)
 
 # save
 parser.add_argument('--save-dir', type=str, default='/data/full_version/trajectory_types')
-parser.add_argument('--save-name', type=str, default='trajectory_types.png')
+parser.add_argument('--save-name', type=str, default='normal3.png')
 args = parser.parse_args()
 
 # Increase the resolution of the figure
@@ -58,14 +59,15 @@ env = GPUDriveTorchEnv(
     render_config=render_config,
     action_type="continuous" # "continuous" or "discrete"
 )
-
+env.cont_agent_mask[0] = False
+env.cont_agent_mask[0,args.ego_agent_idx] = True
 _ = env.reset()
 
 # Plot a bird's eye view of the environment
 sim_state_figs = env.vis.plot_simulator_state(
     env_indices=[0],
     zoom_radius=args.zoom_radius,
-    center_agent_indices=[0],
+    center_agent_indices=[args.ego_agent_idx],
     time_steps=[0],
     plot_log_replay_trajectory=args.draw_expert_trajectories
 )

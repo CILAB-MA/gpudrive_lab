@@ -245,7 +245,8 @@ class MatplotlibVisualizer:
 
         # Calculate scale factors based on figure size
         marker_scale = max(self.figsize) / 15
-        line_width_scale = max(self.figsize) / 15
+        # line_width_scale = max(self.figsize) / 15
+        line_width_scale = 3.0
 
 
         if policy_masks:
@@ -593,13 +594,15 @@ class MatplotlibVisualizer:
                     )
         else:
             # Original 2D plotting
+            alphas = np.linspace(1.0, 0.01, 91)
             ax.scatter(
                 log_trajectory.pos_xy[env_idx, control_mask, :, 0].numpy(),
                 log_trajectory.pos_xy[env_idx, control_mask, :, 1].numpy(),
-                color="lightgreen",
-                linewidth=0.35 * line_width_scale,
-                alpha=0.35,
+                color="green",
+                linewidth=1.0 * line_width_scale,
+                alpha=alphas,
                 zorder=0,
+                marker="s"
             )
 
     def _get_endpoints(self, x, y, length, yaw):
