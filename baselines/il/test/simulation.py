@@ -193,8 +193,8 @@ def run(args, env, bc_policy, dataset, scene_batch_idx, expert_dict=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     
-    parser.add_argument('--dataset-size', type=int, default=50) # total_world
-    parser.add_argument('--batch-size', type=int, default=50) # num_world
+    parser.add_argument('--dataset-size', type=int, default=10) # total_world
+    parser.add_argument('--batch-size', type=int, default=10) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/log_replay_test')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0826_035640.pth') # early_attn_s11_0808_043910
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
-    parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
+    parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 1 if args.sim_agent == 'log_replay' else 128

@@ -4,8 +4,7 @@ import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
-    parser.add_argument('--save-name', '-sn', type=str, default='scene500')
-    parser.add_argument('--linear-probing', '-lp', type=str, default="partner")   
+    parser.add_argument('--save-name', '-sn', type=str, default='lp500')
     parser.add_argument("--sweep-ids", '-s', nargs="+", type=str)
     args = parser.parse_args()
     
@@ -33,7 +32,7 @@ if __name__ == '__main__':
             history = run.history()  # 충분히 커야 함
             if '_step' not in history.keys():
                 continue
-            step20 = history[history['_step'] == 14000]
+            step20 = history[history['_step'] == 8000]
 
             if step20.empty:
                 continue  # 해당 step 없으면 스킵
@@ -50,11 +49,12 @@ if __name__ == '__main__':
             eval_summary["model"] = config.get("model")
             eval_summary["seed"] = config.get("seed")
             eval_summary["experiment"] = config.get("exp")
+            eval_summary["sweep"] = config.get("name")
             all_runs.append(eval_summary)
 
 
     df = pd.DataFrame(all_runs)
     print(df)
-    csv_filename = f"/data/full_version/linear_probingv2/{args.linear_probing}_{args.save_name}.csv"
-    os.makedirs(f"/data/full_version/linear_probingv2", exist_ok=True)
+    csv_filename = f"/data/full_version/linear_probing_final/{args.save_name}.csv"
+    os.makedirs(f"/data/full_version/linear_probing_final", exist_ok=True)
     df.to_csv(csv_filename, index=False)

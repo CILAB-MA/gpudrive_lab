@@ -1,20 +1,20 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: lp_100_s42
+name: lp_10000_v2
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/full_version/model/exp_100"
+    value: "/data/full_version/model/exp_10000_v2"
   model_name:
-    values: ["early_attn_s42_0901_145943"]
+    values: ["early_attn_s11_0802_051525"]
   # DATA
   future_step:
     values: [10, 20, 30, 40]
   num_scene:
-    values: [100]
+    values: [10000]
   exp:
     values: ['other', 'ego']
   model:

@@ -50,11 +50,11 @@ def get_sorted_files(path, num_scenes, start_idx=0, concat_other=False):
     files = os.listdir(path)
     if not concat_other:
         files.remove('global')
-        files.remove('id')
-        files = [f for f in files if int(f.split('_')[1].split('.')[0]) < num_scenes and int(f.split('_')[1].split('.')[0]) >= start_idx]
+        # files.remove('id')
+        files = [f for f in files if int(f.split('_')[1].split('.')[0]) <= num_scenes and int(f.split('_')[1].split('.')[0]) >= start_idx]
         files = sorted(files, key=lambda x: int(x.split('_')[1].split('.')[0]))
     else:
-        files = [f for f in files if int(f.split('_')[2].split('.')[0]) < num_scenes and int(f.split('_')[2].split('.')[0]) >= start_idx and concat_other in f]
+        files = [f for f in files if int(f.split('_')[2].split('.')[0]) <= num_scenes and int(f.split('_')[2].split('.')[0]) >= start_idx and concat_other in f]
         files = sorted(files, key=lambda x: int(x.split('_')[2].split('.')[0]))
     return files
 
