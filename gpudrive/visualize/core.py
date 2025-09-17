@@ -1677,7 +1677,7 @@ class MatplotlibVisualizer:
         ymin, ymax = ax_base.get_ylim()
         
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=100, transparent=True)
+        fig.savefig(buf, format="png", dpi=300, transparent=True)
         buf.seek(0)
         bg_img = mpimg.imread(buf)
         
@@ -1685,7 +1685,7 @@ class MatplotlibVisualizer:
         num_imp_heads = self.importance_weight.shape[1] # (num_world, num_head, partner_num)
         
         for head_idx in range(num_imp_heads):
-            f_h, ax_h = plt.subplots(figsize=(10, 10), dpi=100)
+            f_h, ax_h = plt.subplots(figsize=(10, 10), dpi=300)
             
             ax_h.imshow(bg_img, extent=[xmin, xmax, ymin, ymax], origin="upper")
             ax_h.set_xlim(xmin, xmax); ax_h.set_ylim(ymin, ymax)
@@ -1730,7 +1730,7 @@ class MatplotlibVisualizer:
             importance_weight = self.importance_weight[env_idx, head_idx, other_agents][valid_mask].numpy()
             padding_mask = np.isfinite(importance_weight)
             iw_filtered = importance_weight[padding_mask]
-            iw_min = iw_filtered.min() if len(iw_filtered) > 0 else importance_weight.min()
+            iw_min = iw_filtered.min() if len(iw_filtered) > 1 else 0
             iw_max = importance_weight.max()
             denom = iw_max - iw_min
             
@@ -1740,7 +1740,7 @@ class MatplotlibVisualizer:
                 )
             else:
                 importance_score = np.zeros_like(importance_weight)
-            viridis_color = cm.viridis(importance_score)[:, :3]
+            viridis_color = cm.magma(importance_score)[:, :3]
             gray3 = np.array(to_rgb('#c7c7c7'), dtype=viridis_color.dtype)  
             viridis_color[~padding_mask] = gray3
             utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
@@ -1748,7 +1748,7 @@ class MatplotlibVisualizer:
                 bboxes_s=bboxes,
                 colors=viridis_color,
                 alpha=1.0,
-                line_width_scale=(max(self.figsize) / 15) * 0.35,
+                line_width_scale=(max(self.figsize) / 15) * 1,
                 as_center_pts=False,
                 label=None,
             )
@@ -1802,9 +1802,9 @@ class MatplotlibVisualizer:
 
         # 격자 라인
         for i in range(translated_grid_x.shape[0]):
-            ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1)
+            ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1, alpha=0.5)
         for j in range(translated_grid_x.shape[1]):
-            ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1)
+            ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1, alpha=0.5)
 
         # 셀 정보
         num_rows = translated_grid_x.shape[0] - 1
@@ -1866,7 +1866,7 @@ class MatplotlibVisualizer:
         # 3-1) Prediction: 빨강 테두리(알파 고정)
         for idx_rm in pred_idx_by_step.values():
             r, c = divmod(idx_rm, num_cols)
-            draw_cell_border(ax, r, c, color="red", lw=3, z=8, alpha=0.9)
+            draw_cell_border(ax, r, c, color="red", lw=5, z=8, alpha=0.9)
 
         # # 3-2) Label: 파랑 점(중앙) + 선(뒤로 갈수록 연해짐)
         # # 유효 라벨 step 순서대로 좌표 모음
@@ -1941,9 +1941,9 @@ class MatplotlibVisualizer:
 
         # 격자 라인
         for i in range(translated_grid_x.shape[0]):
-            ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1)
+            ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1, alpha=0.5)
         for j in range(translated_grid_x.shape[1]):
-            ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1)
+            ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1, alpha=0.5)
 
         # 셀 정보/센터
         num_rows = translated_grid_x.shape[0] - 1
@@ -1986,7 +1986,7 @@ class MatplotlibVisualizer:
                     bboxes_s=bboxes,
                     colors=np.array([color]),
                     alpha=1.0,
-                    line_width_scale=(max(self.figsize) / 15) * 0.35,
+                    line_width_scale=(max(self.figsize) / 15) * 1,
                     as_center_pts=False,
                     label=None,
                 )
@@ -2029,32 +2029,32 @@ class MatplotlibVisualizer:
                 r, c = divmod(idx_rm, num_cols)
                 draw_cell_border(ax, r, c, color=color, lw=3, z=12, alpha=alpha_pred(s))
 
-        # ---- 라벨: 파랑 점(셀 중앙) + 라인(뒤로 갈수록 연하게) ----
-        label_points = []
-        for s in steps:
-            t = time_step + s
-            if t >= LOG_TRAJECTORY_LEN:
-                continue
-            pos = np.asarray(agent_states.pos_xy[env_idx, gidx, t].cpu().numpy() 
-                            if hasattr(agent_states, 'pos_xy') else
-                            self.log_trajectory.pos_xy[env_idx, gidx, t], dtype=np.float64)
-            rel = pos - np.array([float(ego_pos_x), float(ego_pos_y)], dtype=np.float64)
-            grid_pt = Rinv @ rel
-            grid_resolution = float(abs(grid_corners[1] - grid_corners[0]))
-            min_corner = float(grid_corners[0])
-            col_idx = int(np.floor((grid_pt[0] - min_corner) / grid_resolution))
-            row_idx = int(np.floor((grid_pt[1] - min_corner) / grid_resolution))
-            if 0 <= row_idx < num_rows and 0 <= col_idx < num_cols:
-                cx = cell_centers_x[row_idx, col_idx]
-                cy = cell_centers_y[row_idx, col_idx]
-                label_points.append((s, cx, cy))
+        # # ---- 라벨: 파랑 점(셀 중앙) + 라인(뒤로 갈수록 연하게) ----
+        # label_points = []
+        # for s in steps:
+        #     t = time_step + s
+        #     if t >= LOG_TRAJECTORY_LEN:
+        #         continue
+        #     pos = np.asarray(agent_states.pos_xy[env_idx, gidx, t].cpu().numpy() 
+        #                     if hasattr(agent_states, 'pos_xy') else
+        #                     self.log_trajectory.pos_xy[env_idx, gidx, t], dtype=np.float64)
+        #     rel = pos - np.array([float(ego_pos_x), float(ego_pos_y)], dtype=np.float64)
+        #     grid_pt = Rinv @ rel
+        #     grid_resolution = float(abs(grid_corners[1] - grid_corners[0]))
+        #     min_corner = float(grid_corners[0])
+        #     col_idx = int(np.floor((grid_pt[0] - min_corner) / grid_resolution))
+        #     row_idx = int(np.floor((grid_pt[1] - min_corner) / grid_resolution))
+        #     if 0 <= row_idx < num_rows and 0 <= col_idx < num_cols:
+        #         cx = cell_centers_x[row_idx, col_idx]
+        #         cy = cell_centers_y[row_idx, col_idx]
+        #         label_points.append((s, cx, cy))
 
-        if label_points:
-            xs = [p[1] for p in label_points]
-            ys = [p[2] for p in label_points]
-            ax.scatter(xs, ys, s=22, color="blue", alpha=1.0, zorder=13)
-            for (s0, x0, y0), (s1, x1, y1) in zip(label_points[:-1], label_points[1:]):
-                ax.plot([x0, x1], [y0, y1], color="blue", linewidth=3, alpha=alpha_label(s1), zorder=12)
+        # if label_points:
+        #     xs = [p[1] for p in label_points]
+        #     ys = [p[2] for p in label_points]
+        #     ax.scatter(xs, ys, s=22, color="blue", alpha=1.0, zorder=13)
+        #     for (s0, x0, y0), (s1, x1, y1) in zip(label_points[:-1], label_points[1:]):
+        #         ax.plot([x0, x1], [y0, y1], color="blue", linewidth=3, alpha=alpha_label(s1), zorder=12)
         if use_log_trajectory and (idx_tr >= 0):
             self._plot_other_log_replay_trajectory(
                 ax=ax, env_idx=env_idx,

@@ -621,13 +621,17 @@ def plot_bar_plot(
     if importance_weight.size == 0:
         return
 
-    imp_min, imp_max = float(importance_weight.min()), float(importance_weight.max())
+    padding_mask = np.isfinite(importance_weight)
+    iw_filtered = importance_weight[padding_mask]
+    imp_min = iw_filtered.min() if len(iw_filtered) > 1 else 0
+    imp_max = float(importance_weight.max())
+
     imp_mean = float(importance_weight.mean())
     if np.isclose(imp_min, imp_max):
         imp_max += 1e-6
 
     norm = colors.Normalize(vmin=imp_min, vmax=imp_max)
-    sm   = cm.ScalarMappable(cmap=cm.viridis, norm=norm)
+    sm   = cm.ScalarMappable(cmap=cm.magma, norm=norm)
 
     bar_ax = inset_axes(
         ax,

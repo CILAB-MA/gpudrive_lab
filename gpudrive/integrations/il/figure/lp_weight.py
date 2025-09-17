@@ -39,29 +39,6 @@ def save_frames_parallel(frames_list, out_dir, stem="frame"):
             futures.append(ex.submit(save_png, fpath, frame))
         for f in futures: f.result()  # join
 
-def _transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step):
-        """transform global pos to current relative pos"""
-        current_relative_pos = torch.zeros_like(ego_global_pos)
-        ego_current_pos = ego_global_pos[:, :-future_step]
-        ego_future_pos = ego_global_pos[:, future_step:]
-        
-        delta_x = ego_future_pos[..., 0] - ego_current_pos[..., 0]
-        delta_y = ego_future_pos[..., 1] - ego_current_pos[..., 1]
-        
-        ego_current_rot = ego_global_rot[:, :-future_step]
-        
-        cos_theta = torch.cos(ego_current_rot)
-        sin_theta = torch.sin(ego_current_rot)
-        
-        rel_x = delta_x * cos_theta.squeeze(-1) + delta_y * sin_theta.squeeze(-1)
-        rel_y = -delta_x * sin_theta.squeeze(-1) + delta_y * cos_theta.squeeze(-1)
-        
-        current_relative_pos_x = 2 * ((rel_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
-        current_relative_pos_y = 2 * ((rel_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
-        current_relative_pos[:, :-future_step, :] = torch.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
-        
-        return current_relative_pos
-
 def transform_relative_other_pos(partner_relative_pos, ego_global_pos, ego_global_rot, future_step):
     """transform time t relative pos to current relative pos"""
     # 1. transform t-relative pos to t-global pos
@@ -112,7 +89,7 @@ def register_all_layers_forward_hook(model):
 
     return hidden_vector_dict
 
-def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
+def run(args, env, bc_policy, lp_model, scene_batch_idx, sweep_name, exp):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -120,7 +97,7 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
     NUM_WORLD = alive_agent_mask.shape[0]
     # Extract Linear Probing
     layers = register_all_layers_forward_hook(bc_policy.fusion_attn)
-    
+    future_step = 10
     # =============== save data for linear probing ===============
     ego_global_pos = torch.zeros((args.batch_size, env.episode_len, 2)).cuda()
     ego_global_rot = torch.zeros((args.batch_size, env.episode_len)).cuda()
@@ -158,10 +135,7 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
         if (dead_agent_mask == True).all():
             break
     print('ONE LOOP FINISHED!')
-    if exp == 'other':
-        current_relative_pos = transform_relative_other_pos(other_relative_pos, ego_global_pos, ego_global_rot, future_step=future_step)
-    else:
-        current_relative_pos = _transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
+    current_relative_pos = transform_relative_other_pos(other_relative_pos, ego_global_pos, ego_global_rot, future_step=future_step)
     # Transform the other pos to label
     x = current_relative_pos[..., 0]
     y = current_relative_pos[..., 1]
@@ -178,10 +152,10 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
     partner_num = bc_policy.config.max_num_agents_in_scene
-    
+    expert_actions, _, _, _, _  = env.get_expert_actions() 
     for time_step in tqdm(range(env.episode_len)):
-        all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
-        
+        # all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
+        all_actions = expert_actions[:, :, time_step].clone()
         # MASK
         road_mask = env.get_road_mask().to("cuda")
         partner_mask = env.get_partner_mask().to("cuda")
@@ -197,77 +171,64 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
                 lp_input = layers[nth_layer][:,1:128,:] if exp == 'other' else layers[nth_layer][:,0,:] 
                 wm = world_mask
                 pred_logit_10 = lp_models[0](lp_input)
-                ego_lp_dict = defaultdict(dict)
-                for lp_model in lp_models:
-                    ego_pred = lp_model(lp_input) # todo: '0' -> lp layer
-                    ego_world = torch.zeros((NUM_WORLD, 1)).long().to("cuda")
-                    pred_cls = ego_pred.argmax(dim=-1)    
-                    ego_world[wm] = pred_cls.unsqueeze(-1)
-                    ego_lp_dict[lp_model.future_step] = ego_world
-
 
                 futm = other_relative_mask[:, time_step + future_step]     
                 labels = label_discrete_pos[wm, time_step + future_step]   
 
                 B_active = wm.sum().item()
                 num_cls = pred_logit_10.shape[-1]
-                num_obj = 1 if exp == 'ego' else 127
+                num_obj = 127
                 logits = pred_logit_10.view(B_active, num_obj, num_cls)
-                if exp == 'other':
-                    if args.weight_type == 'loss':
-                        ce = F.cross_entropy(
-                            logits.reshape(-1, num_cls), 
-                            labels.reshape(-1),              
-                            reduction='none'
-                        ).view(B_active, num_obj)
-                        scores = -ce 
-                        scores = scores.masked_fill(futm[wm], float('-inf'))
-                        weights = torch.softmax(scores, dim=-1) 
+                if args.weight_type == 'loss':
+                    ce = F.cross_entropy(
+                        logits.reshape(-1, num_cls), 
+                        labels.reshape(-1),              
+                        reduction='none'
+                    ).view(B_active, num_obj)
+                    scores = -ce 
+                    scores = scores.masked_fill(futm[wm], float('-inf'))
+                    weights = torch.softmax(scores, dim=-1) 
 
-                    elif args.weight_type == 'acc':
-                        prob = torch.softmax(logits, dim=-1)                              
-                        p_true = prob.gather(-1, labels.unsqueeze(-1)).squeeze(-1) 
-                        p_true = p_true.masked_fill(futm[wm], float('-inf'))
-                        weights = torch.softmax(p_true, dim=-1)
+                elif args.weight_type == 'acc':
+                    prob = torch.softmax(logits, dim=-1)                              
+                    p_true = prob.gather(-1, labels.unsqueeze(-1)).squeeze(-1) 
+                    p_true = p_true.masked_fill(futm[wm], float('-inf'))
+                    weights = p_true
 
-                    else:  # args.weight_type == 'acc_hard'
-                        pred_cls = logits.argmax(dim=-1)                                   
-                        correct = (pred_cls == labels).float()                            
-                        correct = correct.masked_fill(futm[wm], float('-inf'))
-                        all_masked = torch.isinf(correct).all(dim=-1)                  
-                        if all_masked.any():
-                            correct[all_masked] = 0.0
-                        weights = torch.softmax(correct, dim=-1)
+                else:  # args.weight_type == 'acc_hard'
+                    pred_cls = logits.argmax(dim=-1)                                   
+                    correct = (pred_cls == labels).float()                            
+                    correct = correct.masked_fill(futm[wm], float('-inf'))
+                    all_masked = torch.isinf(correct).all(dim=-1)                  
+                    if all_masked.any():
+                        correct[all_masked] = 0.0
+                    weights = torch.softmax(correct, dim=-1)
 
-                    softmax_loss_masked = weights.unsqueeze(1)
-                    softmax_loss_masked = softmax_loss_masked.masked_fill(futm[world_mask].unsqueeze(1), float('-inf'))
-        actions = bc_policy.get_action(context, deterministic=True)
-        actions = actions.squeeze(1)
-        all_actions[~dead_agent_mask, :] = actions
+                softmax_loss_masked = weights.unsqueeze(1)
+                softmax_loss_masked = softmax_loss_masked.masked_fill(futm[world_mask].unsqueeze(1), float('-inf'))
+        # actions = bc_policy.get_action(context, deterministic=True)
+        # actions = actions.squeeze(1)
+        # all_actions[~dead_agent_mask, :] = actions
         
-        if exp == 'other':
-            # Set importance weight to visualization
-            world_importance_weight = torch.zeros((args.batch_size, 1, partner_num)).to("cuda")
-            multi_head_mask = ~alive_agent_mask.unsqueeze(1)
-            world_mask = (~dead_agent_mask).sum(dim=-1) == 1
-            world_importance_weight[world_mask] = world_importance_weight[world_mask].masked_scatter(multi_head_mask[world_mask], softmax_loss_masked)
-            setattr(env.vis, "importance_weight", world_importance_weight.detach().cpu())
-        else:
-            setattr(env.vis, "ego_pred_pos", ego_lp_dict)
-        if time_step % 10 == 0:
+        # Set importance weight to visualization
+        world_importance_weight = torch.zeros((args.batch_size, 1, partner_num)).to("cuda")
+        multi_head_mask = ~alive_agent_mask.unsqueeze(1)
+        world_mask = (~dead_agent_mask).sum(dim=-1) == 1
+        world_importance_weight[world_mask] = world_importance_weight[world_mask].masked_scatter(multi_head_mask[world_mask], softmax_loss_masked)
+        setattr(env.vis, "importance_weight", world_importance_weight.detach().cpu())
+
+        if time_step % 20 == 0:
             sim_states = env.vis.plot_simulator_state(
                     env_indices=list(range(args.batch_size)),
                     time_steps=[time_step]*args.batch_size,
-                    plot_importance_weight=False,
-                    plot_linear_probing=True,
-                    plot_linear_probing_label=True,
+                    plot_importance_weight=True,
                     plot_log_replay_trajectory=True,
                     zoom_radius=args.zoom_radius,
                 )
     
             for i in range(args.batch_size):
                     frames[i].append(
-                        img_from_fig(sim_states[i])
+                        img_from_fig(sim_states[i][0])
                     )
 
         env.step_dynamics(all_actions)
@@ -282,6 +243,7 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
 
     # Make video
     root = os.path.join(args.image_path, args.dataset, sweep_name, args.model_name)
+    os.makedirs(root, exist_ok=True)
     for i in range(args.batch_size):
         out_dir = os.path.join(root, f"lp_{args.weight_type}_world{i}")
         save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.weight_type}")
@@ -289,16 +251,16 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
+    parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     parser.add_argument('--dataset-size', type=int, default=20) # total_world
     parser.add_argument('--batch-size', type=int, default=20) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_100')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s42_0901_145943.pth')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_10000_v2')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s11_0802_051525.pth')
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
-    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/importance_weight')
-    parser.add_argument('--linear-probing', '-lp', type=str, default='ego')
-    parser.add_argument('--zoom-radius', type=int, default=100)
+    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/importance_weight_log')
+    parser.add_argument('--linear-probing', '-lp', type=str, default='other')
+    parser.add_argument('--zoom-radius', type=int, default=70)
     parser.add_argument('--weight-type', type=str,
                     choices=['acc', 'loss', 'acc_hard'],
                     default='acc')
@@ -341,18 +303,16 @@ if __name__ == "__main__":
     # Load linear probing model
     lp_model_root = os.path.join(args.model_path, f'{args.linear_probing}_linear_prob', args.model_name.replace('.pth', ''))
     seed = int(args.model_name.split('_')[2][1:])
-    future_steps = [10, 20, 30, 40]
     lp_models = []
-    for future_step in future_steps:
-        lp_model = torch.load(os.path.join(lp_model_root, f'seed{seed}', f'{args.lp_model_name}_{future_step}.pth'), weights_only=False).to("cuda")
-        lp_model.eval()
-        lp_models.append(lp_model)
+    lp_model = torch.load(os.path.join(lp_model_root, f'seed{seed}', f'{args.lp_model_name}_10.pth'), weights_only=False).to("cuda")
+    lp_model.eval()
+    lp_models.append(lp_model)
     
     # Simulate the environment with the policy
     df = pd.read_csv(f'/data/full_version/expert_{args.dataset}_data_v2.csv')
     expert_dict = df.set_index('scene_idx').to_dict(orient='index')
     for i, batch in enumerate(scene_loader):
         env.swap_data_batch(batch)
-        run(args, env, bc_policy, lp_models, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
+        run(args, env, bc_policy, lp_model, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
     env.close()
 

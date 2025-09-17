@@ -191,13 +191,13 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
             context, *_ = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
-            if time_step < env.episode_len - future_step: 
+            if time_step < env.episode_len - 10: 
                 nth_layer = list(layers.keys())[-1]
                 lp_input = layers[nth_layer][:,1:128,:] if exp == 'other' else layers[nth_layer][:,0,:] 
                 wm = world_mask
                 lp_dict = defaultdict(dict)
-                futm = other_relative_mask[:, time_step + future_step]   
-                for lp_model in lp_models:
+                for lp_model, future_step in zip(lp_models, future_steps):
+                    futm = other_relative_mask[:, time_step + future_step]   
                     lp_pred = lp_model(lp_input) # todo: '0' -> lp layer
                     alive_world = torch.zeros((NUM_WORLD, num_obj)).long().to("cuda")
                     pred_cls = lp_pred.argmax(dim=-1) 
