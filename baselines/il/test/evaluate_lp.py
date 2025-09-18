@@ -19,11 +19,12 @@ from gpudrive.integrations.il.linear_probing.lp_model import *
 from sklearn.metrics import f1_score
 from box import Box
 import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
+
 from scipy.stats import pearsonr, linregress
 from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
-
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -452,21 +453,55 @@ def evaluate(exp_config):
         xs = np.linspace(dists_all.min(), dists_all.max(), 200)
         ys = slope * xs + intercept
 
-        plt.figure(figsize=(6,5))
-        sc = plt.scatter(dists_all, probs_all, s=8, alpha=0.35, label=f"Samples (n={len(dists_all)})")
-        ln, = plt.plot(xs, ys, linewidth=2, label=f"OLS fit: y={slope:.3f}x+{intercept:.3f}")
-        # legend에 상관계수 표기
-        extra = plt.Line2D([], [], linestyle='None', label=f"Pearson r={r:.3f}, p={p:.1e}")
-        plt.legend(handles=[sc, ln, extra], loc="best", frameon=True)
+        fig = plt.figure(figsize=(6.4, 5.2))
+        ax = plt.gca()
 
-        plt.xlabel("Future distance (norm)")
-        plt.ylabel("Prob. of Label")
-        plt.title("Distance Difference (Current - Future) vs True Label Probability")
+        # scatter
+        sc = ax.scatter(
+            dists_all, probs_all,
+            s=10, alpha=0.30, linewidths=0,
+            label=f"Samples (n={len(dists_all):,})",
+            color=COL_SCATTER
+        )
+
+        # OLS line
+        ln, = ax.plot(
+            xs, ys, linewidth=2.2, color=COL_LINE,
+            label=f"OLS fit: y = {slope:.3f}x + {intercept:.3f}"
+        )
+
+        # extra legend line (for stats)
+        extra = plt.Line2D([], [], linestyle='None', marker=None, color=COL_TEXT,
+                        label=f"Pearson r = {r:.3f},  p = {p:.1e}")
+
+        # legend
+        leg = ax.legend(handles=[sc, ln, extra], loc="best", frameon=False, handlelength=2.5)
+        # 범례에 약간의 여백
+        for txt in leg.get_texts():
+            txt.set_alpha(0.95)
+
+        # 라벨/타이틀
+        ax.set_xlabel("Distance Difference (Current - Future)")
+        ax.set_ylabel("Probability of True Label")
+        ax.set_title("Correlaton between distance difference and Prediction Probability", pad=8)
+
+        # 축/그리드/스파인
+        ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.35)
+        ax.tick_params(axis='both', which='major', length=4, width=0.8)
+        ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%.2f"))
+
+        # 상하 스파인만 남기고 정돈
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+
+        # 여백 최적화
         plt.tight_layout()
-        plt.savefig(f"{exp_config['model_path']}_prob_dist_correlation.png", dpi=300)
-        print(f"[Correlation] r={r:.6f}, p={p:.3e}, n={len(dists_all)}")
-        print("[Saved] prob_dist_correlation.png")
 
+        # --------- C. 저장 ----------
+        out_base = f"{exp_config['model_path']}_prob_dist_correlation"
+        plt.savefig(out_base + ".svg", dpi=300)  # 벡터 버전
+        print(f"[Correlation] r={r:.6f}, p={p:.3e}, n={len(dists_all)})")
+        print(f"[Saved] {out_base}.png / .svg")
 def set_seed(seed=42, deterministic=False):
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -485,6 +520,24 @@ if __name__ == "__main__":
     parser.add_argument('--seed', '-s', type=int, default=3)
     parser.add_argument('--future-step', '-f', type=int, default=10)
     args = parser.parse_args()
+    COL_SCATTER = "#0173B2"   # blue
+    COL_LINE    = "#DE8F05"   # orange
+    COL_TEXT    = "#029E73"   # green (for extra legend row)
+
+    mpl.rcParams.update({
+        "figure.dpi": 180,
+        "savefig.dpi": 300,
+        "axes.titlesize": 12,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "axes.linewidth": 0.8,
+        "axes.titlepad": 10,
+        "figure.facecolor": "white",
+        "savefig.transparent": True,   # 투명 배경
+        "svg.fonttype": "none",        # SVG 글꼴 실루엣화 방지
+    })
     base_path = '/data/full_version/model'
     exp_path = os.path.join(base_path, args.model_path)
     lp_base_path = os.path.join(exp_path,  f'{args.exp}_linear_prob')
