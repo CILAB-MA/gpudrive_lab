@@ -21,7 +21,7 @@ from box import Box
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, linregress
 from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 logger = logging.getLogger(__name__)
@@ -265,7 +265,7 @@ class FutureDataset(torch.utils.data.Dataset):
                             future_dist = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len + self.future_step][-1, 6: 128 * 6].reshape(127, -1)
                             future_dist = future_dist[:, 1:3]
                         else:
-                            future_dist = np.zeros((127, 2)).astype(self.obs)
+                            future_dist = np.zeros((127, 2)).astype(self.obs.dtype)
                         batch = batch + (future_dist, )
         else:
             for var_name in self.full_var:
@@ -348,18 +348,15 @@ def evaluate(exp_config):
     eval_expert_data_loader = get_dataloader(eval_data_path, eval_data_file, exp_config,
                                             isshuffle=False)
     print(f'EXP CONFIG {exp_config}')
-
+    per_batch = 5
+    all_dists, all_true_probs = [], []
     pos_linear_model.eval()
     test_pos_accuracys = 0
     test_pos_losses = 0
     test_pos_f1_macros = 0
     test_continue_num = 0
-    test_ood_accuracys = 0
-    test_ood_losses = 0
-    ood_classes, ood_labels = [], []
     labeled_acc = torch.zeros(5)
     labeled_sum = torch.zeros(5)
-    num_oods = 0
     for j, batch in enumerate(eval_expert_data_loader):
         obs, future_dist, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos, labels = batch
         with torch.no_grad():
@@ -367,6 +364,7 @@ def evaluate(exp_config):
             future_dist = future_dist.to("cuda")
             actions = actions.to("cuda")
             future_pos = future_pos.to("cuda")
+            current_dist = obs[:, -1, 6:128 * 6].reshape(-1, 127, 6)[..., 1:3]
             valid_mask = valid_mask.to("cuda")
             future_mask = future_mask.to("cuda")
             partner_mask = partner_mask.to("cuda")
@@ -405,7 +403,20 @@ def evaluate(exp_config):
             
             # compute loss
             pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
+            probs = torch.softmax(masked_pos, dim=-1)   
+            true_prob = probs[torch.arange(probs.size(0), device=probs.device),
+                              masked_pos_label.long()] 
+            future_dists = torch.linalg.norm(future_dist[future_mask], dim=-1)
+            curr_dists = torch.linalg.norm(current_dist[future_mask], dim=-1)
+            how_closer = curr_dists - future_dists    
+            valid_num = torch.isfinite(how_closer) & torch.isfinite(true_prob) & (future_dists <= 0.015)
+            if valid_num.any():
+                valid_idx = torch.nonzero(valid_num, as_tuple=False).squeeze(1)
+                num_pick = min(per_batch, valid_idx.numel())
+                pick = valid_idx[torch.randperm(valid_idx.numel(), device=valid_idx.device)[:num_pick]]
 
+                all_dists.append(how_closer[pick].detach().cpu())
+                all_true_probs.append(true_prob[pick].detach().cpu())
             pred_classes = masked_pos.argmax(-1) 
             error_mask = masked_label == -1
             filtered_label = masked_label[~error_mask]
@@ -429,6 +440,43 @@ def evaluate(exp_config):
         test_pos_losses += pos_loss.item()
         test_pos_f1_macros += pos_f1_macro
 
+    if len(all_dists) > 0:
+        dists_all = torch.cat(all_dists).numpy()
+        probs_all = torch.cat(all_true_probs).numpy()
+
+        # 상관 + 선형회귀
+        r, p = pearsonr(dists_all, probs_all)
+        slope, intercept, r_lin, p_lin, stderr = linregress(dists_all, probs_all)
+
+        # 회귀선용 x/y
+        xs = np.linspace(dists_all.min(), dists_all.max(), 200)
+        ys = slope * xs + intercept
+
+        plt.figure(figsize=(6,5))
+        sc = plt.scatter(dists_all, probs_all, s=8, alpha=0.35, label=f"Samples (n={len(dists_all)})")
+        ln, = plt.plot(xs, ys, linewidth=2, label=f"OLS fit: y={slope:.3f}x+{intercept:.3f}")
+        # legend에 상관계수 표기
+        extra = plt.Line2D([], [], linestyle='None', label=f"Pearson r={r:.3f}, p={p:.1e}")
+        plt.legend(handles=[sc, ln, extra], loc="best", frameon=True)
+
+        plt.xlabel("Future distance (norm)")
+        plt.ylabel("Prob. of Label")
+        plt.title("Distance Difference (Current - Future) vs True Label Probability")
+        plt.tight_layout()
+        plt.savefig(f"{exp_config['model_path']}_prob_dist_correlation.png", dpi=300)
+        print(f"[Correlation] r={r:.6f}, p={p:.3e}, n={len(dists_all)}")
+        print("[Saved] prob_dist_correlation.png")
+
+def set_seed(seed=42, deterministic=False):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--exp', type=str, default='other', choices=['other', 'ego'])
@@ -440,16 +488,18 @@ if __name__ == "__main__":
     base_path = '/data/full_version/model'
     exp_path = os.path.join(base_path, args.model_path)
     lp_base_path = os.path.join(exp_path,  f'{args.exp}_linear_prob')
-    backbone_name = os.listdir(lp_base_path)[1]
+    backbone_name = os.listdir(lp_base_path)[-1]
     lp_path = os.path.join(lp_base_path, backbone_name, f'seed{args.seed}')
-    backbone_path = f'{exp_path}/{backbone_name}.pth' 
+    backbone_path = f'{exp_path}/{backbone_name}' if 'pth' in backbone_name else f'{exp_path}/{backbone_name}.pth'
     lp_path = f'{lp_path}/pos_{args.model}_{args.future_step}.pth'
+    set_seed(0)
     exp_config = dict(
         lp_path=lp_path,
         backbone_path =backbone_path,
         model = args.model,
         exp = args.exp,
-        future_step=args.future_step
+        future_step=args.future_step,
+        model_path=args.model_path
 
     )
     evaluate(exp_config)

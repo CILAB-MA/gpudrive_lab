@@ -123,7 +123,7 @@ def train(exp_config=None):
     current_time = datetime.now().strftime("%m%d_%H%M%S")
     no_improve = 0           
     stop_training = False   
-    PATIENCE = 5    
+    PATIENCE = 100000
     if args.use_wandb:
         wandb.init()
         # Tag Update
@@ -273,12 +273,7 @@ def train(exp_config=None):
                     test_pos_losses = 0
                     test_pos_f1_macros = 0
                     test_continue_num = 0
-                    test_ood_accuracys = 0
-                    test_ood_losses = 0
-                    test_ood_f1_macros = 0
-                    action_losses = []
                     lp_losses = []
-                    ood_classes, ood_labels = [], []
                     labeled_acc = torch.zeros(5)
                     labeled_sum = torch.zeros(5)
                     num_oods = 0
@@ -320,24 +315,12 @@ def train(exp_config=None):
                             # get future expert actionpartner_mask
                             future_pos = future_pos.clone()
                             masked_pos_label = future_pos[future_mask]
-                            ood_mask = (masked_pos_label[..., None] == ood_label_tensor).any(dim=-1)
-                            ood_pos_label = masked_pos_label[ood_mask]
-                            ood_pos_pred = masked_pos[ood_mask]
                             if future_mask.sum() == 0:
                                 test_continue_num += 1
                                 continue
                             
                             # compute loss
                             pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
-                            if len(ood_pos_pred) > 0:
-                                ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label)
-                                ood_pos_label = ood_pos_label.detach().cpu().numpy()
-                                ood_class = ood_class.detach().cpu().numpy()
-                                test_ood_accuracys += ood_acc
-                                test_ood_losses += ood_loss.sum()
-                                num_oods += num_ood
-                                ood_classes.append(ood_class)
-                                ood_labels.append(ood_pos_label)
                             pred_classes = masked_pos.argmax(-1) 
                             error_mask = masked_label == -1
                             filtered_label = masked_label[~error_mask]
@@ -363,16 +346,11 @@ def train(exp_config=None):
 
                     if exp_config.use_wandb:
                         labeled_numpy = labeled_acc.numpy() / labeled_sum.numpy()
-                        if len(ood_class) > 0:
-                            ood_classes = np.concatenate(ood_classes,axis=0)
-                            ood_labels = np.concatenate(ood_labels, axis=0)
                         wandb.log(
                             {
                                 "eval/pos_accuracy": test_pos_accuracys / (j + 1 - test_continue_num),
                                 "eval/pos_loss": test_pos_losses / (j + 1 - test_continue_num),
                                 "eval/pos_f1_macro": test_pos_f1_macros / (j + 1 - test_continue_num),
-                                "eval/ood_accuracy": test_ood_accuracys / num_oods,
-                                "eval/ood_loss": test_ood_losses / num_oods,
                                 "eval/retreat_acc": labeled_numpy[1],
                                 "eval/turn_acc": labeled_numpy[2],
                                 "eval/straight_acc": labeled_numpy[3],
