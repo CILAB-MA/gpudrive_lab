@@ -158,22 +158,6 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
         if (dead_agent_mask == True).all():
             break
     print('ONE LOOP FINISHED!')
-    if exp == 'other':
-        current_relative_pos = transform_relative_other_pos(other_relative_pos, ego_global_pos, ego_global_rot, future_step=future_step)
-    else:
-        current_relative_pos = _transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
-    # Transform the other pos to label
-    x = current_relative_pos[..., 0]
-    y = current_relative_pos[..., 1]
-    xbins = torch.linspace(-0.05, 0.05, steps=9).cuda()
-    ybins = torch.linspace(-0.05, 0.05, steps=9).cuda()
-    x_bins = digitize(x, xbins) - 1
-    y_bins = digitize(y, ybins) - 1
-    x_bins = torch.clamp(x_bins, 0, 7)
-    y_bins = torch.clamp(y_bins, 0, 7)
-    label_discrete_pos = x_bins * 8 + y_bins
-    label_discrete_pos = label_discrete_pos.cuda()
-    
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -197,6 +181,8 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
                 wm = world_mask
                 lp_dict = defaultdict(dict)
                 for lp_model, future_step in zip(lp_models, future_steps):
+                    if time_step + future_step >= env.episode_len:
+                        continue
                     futm = other_relative_mask[:, time_step + future_step]   
                     lp_pred = lp_model(lp_input) # todo: '0' -> lp layer
                     alive_world = torch.zeros((NUM_WORLD, num_obj)).long().to("cuda")
@@ -227,6 +213,7 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
                     plot_other_linear_probing=plot_other,
                     plot_linear_probing_label=True,
                     plot_log_replay_trajectory=plot_ego_traj,
+                    center_agent_indices=[0],
                     zoom_radius=args.zoom_radius,
                 )
     
@@ -256,15 +243,15 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=20) # total_world
-    parser.add_argument('--batch-size', type=int, default=20) # num_world
+    parser.add_argument('--dataset-size', type=int, default=8) # total_world
+    parser.add_argument('--batch-size', type=int, default=1) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_100')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s42_0901_145943.pth')
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
-    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/linear_probing')
+    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/linear_probing_v2')
     parser.add_argument('--linear-probing', '-lp', type=str, default='ego')
-    parser.add_argument('--zoom-radius', type=int, default=70)
+    parser.add_argument('--zoom-radius', type=int, default=50)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     args = parser.parse_args()
 
@@ -275,6 +262,7 @@ if __name__ == "__main__":
         dataset_size=args.dataset_size,
         sample_with_replacement=False,
         shuffle=False,
+        start_idx=7
     )
     dataset_size = args.dataset_size
     print(f'{args.dataset} len scene loader {len(scene_loader)}')
@@ -318,8 +306,8 @@ if __name__ == "__main__":
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
     for i, batch in enumerate(scene_loader):
         run(args, env, bc_policy, lp_models, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
-        if i != num_iter - 1:
-            env.swap_data_batch()
-            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
+        # if i != num_iter - 1:
+        #     env.swap_data_batch()
+        #     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
     env.close()
 
