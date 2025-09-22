@@ -1,6 +1,6 @@
 program: baselines/il/lp_subset.py
 method: grid
-name: lp_40000_subset_big_ego
+name: lp_20000_subset_final
 metric:
   goal: minimize
   name: eval/loss
@@ -9,23 +9,23 @@ parameters:
   data_path:
     values: ['processed/2000_subset']
   model_path:
-    value: "/data/full_version/model/exp_40000"
+    value: "/data/full_version/model/exp_20000"
   model_name:
-    values: ["early_attn_s42_0828_170643"]
+    values: ["early_attn_s3_0825_044522"]
   # DATA
   future_step:
     values: [10, 20, 30, 40]
   num_scene:
-    values: [40000]
+    values: [20000]
   exp:
-    values: ['ego']
+    values: ['ego', 'other']
   model:
     values: ['early_lp', 'final_lp', 'baseline']
   # EXPERIMENT
   batch_size:
     values: [256]
   total_gradient_steps:
-    values: [200_000]
+    values: [100_000]
   lr:
     values: [0.0015]
   seed:
