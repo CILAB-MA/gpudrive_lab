@@ -17,16 +17,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--world-idx', type=int, default=28)
 parser.add_argument('--draw-expert-trajectories', type=bool, default=True)
 parser.add_argument('--draw-only-controllable-veh', type=bool, default=True)
-parser.add_argument('--ego-agent-idx', type=int, default=0)
+parser.add_argument('--ego-agent-idx', type=int, default=1)
 
 # plot
 parser.add_argument('--render-3d', type=bool, default=False)
-parser.add_argument('--zoom-radius', type=int, default=50)
+parser.add_argument('--zoom-radius', type=int, default=35)
 parser.add_argument('--dpi', type=int, default=768)
 
 # save
 parser.add_argument('--save-dir', type=str, default='/data/full_version/trajectory_types')
-parser.add_argument('--save-name', type=str, default='normal3.png')
+parser.add_argument('--save-name', type=str, default='straight4')
 args = parser.parse_args()
 
 # Increase the resolution of the figure
@@ -73,7 +73,9 @@ sim_state_figs = env.vis.plot_simulator_state(
 )
 
 os.makedirs(args.save_dir, exist_ok=True)
-Image.fromarray(img_from_fig(sim_state_figs[0])).save(
-                            f"{args.save_dir}/{args.save_name}",
-                            dpi=(args.dpi, args.dpi)
-                        )
+# Image.fromarray(img_from_fig(sim_state_figs[0])).save(
+#                             f"{args.save_dir}/{args.save_name}",
+#                             dpi=(args.dpi, args.dpi)
+#                         )
+
+sim_state_figs[0].savefig(f"{args.save_dir}/{args.save_name}.svg", format="svg")

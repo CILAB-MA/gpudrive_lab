@@ -27,16 +27,16 @@ logger.setLevel(logging.INFO)
 def digitize(t, bins):
     return torch.bucketize(t, bins, right=False)
 
-def save_png(path, arr):
-    Image.fromarray(np.asarray(arr)).save(path, format="PNG", optimize=False, compress_level=0)
+def save_svg(path, fig):
+    fig.savefig(path, format="svg")
 
 def save_frames_parallel(frames_list, out_dir, stem="frame"):
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 8) as ex:
         futures = []
-        for t, frame in enumerate(frames_list):
-            fpath = out_dir / f"{stem}_{t:06d}.png"
-            futures.append(ex.submit(save_png, fpath, frame))
+        for t, fig in enumerate(frames_list):     # fig: matplotlib Figure
+            fpath = out_dir / f"{stem}_{t:06d}.svg"
+            futures.append(ex.submit(save_svg, fpath, fig))
         for f in futures: f.result()  # join
 
 def _transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step):
@@ -219,7 +219,7 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
     
             for i in range(args.batch_size):
                     frames[i].append(
-                        img_from_fig(sim_states[i])
+                        sim_states[i]
                     )
 
         env.step_dynamics(all_actions)
@@ -243,8 +243,8 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=8) # total_world
-    parser.add_argument('--batch-size', type=int, default=1) # num_world
+    parser.add_argument('--dataset-size', type=int, default=8) # want to plot world idx
+    parser.add_argument('--batch-size', type=int, default=1) # 1
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_100')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s42_0901_145943.pth')
@@ -252,7 +252,7 @@ if __name__ == "__main__":
     parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/linear_probing_v2')
     parser.add_argument('--linear-probing', '-lp', type=str, default='ego')
     parser.add_argument('--zoom-radius', type=int, default=50)
-    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
 
     # Make scene loader
@@ -262,7 +262,7 @@ if __name__ == "__main__":
         dataset_size=args.dataset_size,
         sample_with_replacement=False,
         shuffle=False,
-        start_idx=7
+        start_idx=args.dataset_size - 1
     )
     dataset_size = args.dataset_size
     print(f'{args.dataset} len scene loader {len(scene_loader)}')
@@ -306,8 +306,5 @@ if __name__ == "__main__":
     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
     for i, batch in enumerate(scene_loader):
         run(args, env, bc_policy, lp_models, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
-        # if i != num_iter - 1:
-        #     env.swap_data_batch()
-        #     env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=False)
     env.close()
 
