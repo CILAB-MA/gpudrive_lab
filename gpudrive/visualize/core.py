@@ -1217,18 +1217,19 @@ class MatplotlibVisualizer:
                     ax.scatter(
                         goal_x,
                         goal_y,
-                        s=5 * marker_size_scale,
+                        s=20 * marker_size_scale,
                         linewidth=1.5 * line_width_scale,
-                        c=color,
+                        c="green",
                         marker="o",
                     )
                     for x, y in zip(goal_x, goal_y):
                         circle = Circle(
                             (x, y),
                             radius=self.goal_radius,
-                            color=color,
+                            color="green",
                             fill=False,
-                            linestyle="--",
+                            linewidth=6.0,
+                            linestyle="-",
                         )
                         ax.add_patch(circle)
 

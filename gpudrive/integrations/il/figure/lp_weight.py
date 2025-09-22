@@ -27,16 +27,16 @@ logger.setLevel(logging.INFO)
 def digitize(t, bins):
     return torch.bucketize(t, bins, right=False)
 
-def save_png(path, arr):
-    Image.fromarray(np.asarray(arr)).save(path, format="PNG", optimize=False, compress_level=0)
+def save_svg(path, fig):
+    fig.savefig(path, format="svg")
 
 def save_frames_parallel(frames_list, out_dir, stem="frame"):
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 8) as ex:
         futures = []
-        for t, frame in enumerate(frames_list):
-            fpath = out_dir / f"{stem}_{t:06d}.png"
-            futures.append(ex.submit(save_png, fpath, frame))
+        for t, fig in enumerate(frames_list):     # fig: matplotlib Figure
+            fpath = out_dir / f"{stem}_{t:06d}.svg"
+            futures.append(ex.submit(save_svg, fpath, fig))
         for f in futures: f.result()  # join
 
 def transform_relative_other_pos(partner_relative_pos, ego_global_pos, ego_global_rot, future_step):
@@ -228,7 +228,7 @@ def run(args, env, bc_policy, lp_model, scene_batch_idx, sweep_name, exp):
     
             for i in range(args.batch_size):
                     frames[i].append(
-                        img_from_fig(sim_states[i][0])
+                        sim_states[i][0]
                     )
 
         env.step_dynamics(all_actions)
