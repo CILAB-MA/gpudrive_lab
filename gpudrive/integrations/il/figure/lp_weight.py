@@ -91,10 +91,16 @@ def register_all_layers_forward_hook(model):
 
 def run(args, env, bc_policy, lp_model, scene_batch_idx, sweep_name, exp):
     obs = env.reset()
+    ego_idx = torch.tensor([0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0])
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(args.batch_size)]
     NUM_WORLD = alive_agent_mask.shape[0]
+    alive_ego_idx = ego_idx[:NUM_WORLD].to('cuda')
     # Extract Linear Probing
     layers = register_all_layers_forward_hook(bc_policy.fusion_attn)
     future_step = 10
@@ -216,12 +222,12 @@ def run(args, env, bc_policy, lp_model, scene_batch_idx, sweep_name, exp):
         world_mask = (~dead_agent_mask).sum(dim=-1) == 1
         world_importance_weight[world_mask] = world_importance_weight[world_mask].masked_scatter(multi_head_mask[world_mask], softmax_loss_masked)
         setattr(env.vis, "importance_weight", world_importance_weight.detach().cpu())
-
-        if time_step % 20 == 0:
+        if time_step % 5 == 0:
             sim_states = env.vis.plot_simulator_state(
                     env_indices=list(range(args.batch_size)),
                     time_steps=[time_step]*args.batch_size,
                     plot_importance_weight=True,
+                    center_agent_indices=alive_ego_idx,
                     plot_log_replay_trajectory=True,
                     zoom_radius=args.zoom_radius,
                 )
@@ -252,8 +258,8 @@ def run(args, env, bc_policy, lp_model, scene_batch_idx, sweep_name, exp):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=20) # total_world
-    parser.add_argument('--batch-size', type=int, default=20) # num_world
+    parser.add_argument('--dataset-size', type=int, default=90) # total_world
+    parser.add_argument('--batch-size', type=int, default=90) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_10000_v2')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s11_0802_051525.pth')

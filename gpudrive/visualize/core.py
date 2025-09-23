@@ -1741,7 +1741,7 @@ class MatplotlibVisualizer:
                 )
             else:
                 importance_score = np.zeros_like(importance_weight)
-            viridis_color = cm.magma(importance_score)[:, :3]
+            viridis_color = cm.inferno(np.clip(importance_weight / 0.5, 0.0, 1.0))[:, :3]
             gray3 = np.array(to_rgb('#c7c7c7'), dtype=viridis_color.dtype)  
             viridis_color[~padding_mask] = gray3
             utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
@@ -1753,11 +1753,11 @@ class MatplotlibVisualizer:
                 as_center_pts=False,
                 label=None,
             )
-            utils.plot_bar_plot(
-                ax=ax_h,
-                importance_weight=importance_weight,
-                label=None,
-            )
+            # utils.plot_bar_plot(
+            #     ax=ax_h,
+            #     importance_weight=importance_weight,
+            #     label=None,
+            # )
             
             # f_h.tight_layout(pad=2, rect=[0.00, 0.00, 0.9, 1])
             figs.append(f_h)

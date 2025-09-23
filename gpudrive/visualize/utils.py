@@ -626,18 +626,21 @@ def plot_bar_plot(
     imp_min = iw_filtered.min() if len(iw_filtered) > 1 else 0
     imp_max = float(importance_weight.max())
 
-    imp_mean = float(importance_weight.mean())
     if np.isclose(imp_min, imp_max):
         imp_max += 1e-6
 
-    norm = colors.Normalize(vmin=imp_min, vmax=imp_max)
-    sm   = cm.ScalarMappable(cmap=cm.magma, norm=norm)
-
+    norm = colors.Normalize(vmin=0, vmax=1)
+    sm   = cm.ScalarMappable(cmap=cm.autumn, norm=norm)
+    CB_WIDTH   = "40%"   # 기존 30% → 45%
+    CB_HEIGHT  = "4%"    # 기존 2%  → 6%
+    CB_BBOX    = (-0.06, 0.02, 1, 1)  # 살짝 더 오른쪽/위로
+    TICK_SIZE  = 10
+    LABEL_SIZE = 10
     bar_ax = inset_axes(
         ax,
-        width="30%", height="2%",
+        width=CB_WIDTH, height=CB_HEIGHT,
         loc="lower right",
-        bbox_to_anchor=(-0.05, 0.02, 1, 1),
+        bbox_to_anchor=CB_BBOX,
         bbox_transform=ax.transAxes,
         borderpad=0,
     )
@@ -649,10 +652,18 @@ def plot_bar_plot(
         orientation="horizontal",
         ticks=[imp_min, imp_max],
     )
-    cbar.ax.set_xticklabels([f"{imp_min:.2f}", f"{imp_max:.2f}"])
+    # ✔ ticks는 0~1 스케일로 직접 지정
+    cbar = plt.colorbar(sm, cax=bar_ax, orientation="horizontal")
+    cbar.set_ticks([0.0, 0.5, 1.0])          # 위치
+    # 필요하면 포맷 지정(라벨 수동지정 대신 포매터 권장)
+    cbar.ax.tick_params(axis="x", labelsize=10, pad=1)
     cbar.outline.set_visible(False)
 
-    bar_ax.axvline(imp_mean, color="red", linewidth=1.8, zorder=6)
+    # 끝단(0,1)만 굵게
+    for tick, val in zip(cbar.ax.get_xticklabels(), [0.0, 0.5, 1.0]):
+        if val in (0.0, 1.0):
+            tick.set_fontweight("bold"); tick.set_fontsize(11)
 
     bar_ax.tick_params(axis="both", length=0)
-    bar_ax.set_xlabel(label or "", fontsize=7, labelpad=2)
+    if label:
+        bar_ax.set_xlabel(label, fontsize=10, labelpad=3)
