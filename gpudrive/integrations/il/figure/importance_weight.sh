@@ -9,7 +9,7 @@ MODEL_NAME=("early_attn_s42_0901_145943.pth" "early_attn_s11_0802_051525.pth" "e
 for i in "${!MODEL_PATH[@]}"; do
   MP="${MODEL_PATH[$i]}"
   MN="${MODEL_NAME[$i]}"
-  CUDA_VISIBLE_DEVICES=1 python gpudrive/integrations/il/figure/lp_weight.py \
+  CUDA_VISIBLE_DEVICES=0 python gpudrive/integrations/il/figure/lp_weight.py \
     --model-path "/data/full_version/model/$MP" \
     --model-name "$MN"
 done

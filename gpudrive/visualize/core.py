@@ -474,18 +474,6 @@ class MatplotlibVisualizer:
 
             ax.set_axis_off()
 
-        
-        if plot_intervention:
-            figs = [
-                self._plot_intervention(
-                    fig=fig,
-                    env_idx=env_idx,
-                    time_step=time_steps[env_idx],
-                    response_type=self.response_type,
-                    agent_states=global_agent_states,
-                    use_log_trajectory=plot_linear_probing_label,
-                ) for env_idx, fig in enumerate(figs)
-            ]
         if plot_ego_linear_probing:
             figs = [
                 self._plot_ego_linear_probing(
@@ -518,7 +506,30 @@ class MatplotlibVisualizer:
                     agent_states=global_agent_states,
                 ) for env_idx, fig in enumerate(figs)
             ]
-
+        if plot_intervention:
+            figs = [
+                self._plot_ego_linear_probing(
+                    fig=fig,
+                    env_idx=env_idx,
+                    control_mask=controlled_live,
+                    time_step=time_steps[env_idx],
+                    response_type=self.response_type,
+                    agent_states=global_agent_states,
+                    use_log_trajectory=plot_linear_probing_label,
+                    intervention=True
+                ) for env_idx, fig in enumerate(figs)
+            ]
+            figs = [
+                self._plot_other_linear_probing(
+                    fig=fig,
+                    env_idx=env_idx,
+                    time_step=time_steps[env_idx],
+                    response_type=self.response_type,
+                    agent_states=global_agent_states,
+                    use_log_trajectory=plot_linear_probing_label,
+                    intervention=True
+                ) for env_idx, fig in enumerate(figs)
+            ]
         return figs
 
     def _plot_log_replay_trajectory(
@@ -1749,7 +1760,7 @@ class MatplotlibVisualizer:
                 bboxes_s=bboxes,
                 colors=viridis_color,
                 alpha=1.0,
-                line_width_scale=(max(self.figsize) / 15) * 1,
+                line_width_scale=3.0,
                 as_center_pts=False,
                 label=None,
             )
@@ -1763,6 +1774,24 @@ class MatplotlibVisualizer:
             figs.append(f_h)
         
         return figs
+    
+    def _draw_cell_border(ax, translated_grid_x, translated_grid_y, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85):
+        tl = np.array([translated_grid_x[r,   c  ], translated_grid_y[r,   c  ]], dtype=float)
+        tr = np.array([translated_grid_x[r,   c+1], translated_grid_y[r,   c+1]], dtype=float)
+        br = np.array([translated_grid_x[r+1, c+1], translated_grid_y[r+1, c+1]], dtype=float)
+        bl = np.array([translated_grid_x[r+1, c  ], translated_grid_y[r+1, c  ]], dtype=float)
+
+        center = (tl + tr + br + bl) / 4.0
+
+        tl_i = center + inset_k * (tl - center)
+        tr_i = center + inset_k * (tr - center)
+        br_i = center + inset_k * (br - center)
+        bl_i = center + inset_k * (bl - center)
+
+        xs = [tl_i[0], tr_i[0], br_i[0], bl_i[0], tl_i[0]]
+        ys = [tl_i[1], tr_i[1], br_i[1], bl_i[1], tl_i[1]]
+
+        ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha)
 
     def _plot_ego_linear_probing(
         self,
@@ -1773,6 +1802,7 @@ class MatplotlibVisualizer:
         response_type: Any,
         agent_states: GlobalEgoState,
         use_log_trajectory: bool,
+        intervention: bool = False
     ):
         if self.render_3d:
             raise NotImplementedError("3D rendering not supported for importance weight plotting.")
@@ -1802,24 +1832,37 @@ class MatplotlibVisualizer:
         translated_grid_y = (rotated_grid[1, :] + ego_pos_y).reshape(grid_y.shape)
 
         # 격자 라인
-        for i in range(translated_grid_x.shape[0]):
-            ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1, alpha=0.5)
-        for j in range(translated_grid_x.shape[1]):
-            ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1, alpha=0.5)
+        if not intervention:
+            for i in range(translated_grid_x.shape[0]):
+                ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1, alpha=0.5)
+            for j in range(translated_grid_x.shape[1]):
+                ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1, alpha=0.5)
 
         # 셀 정보
         num_rows = translated_grid_x.shape[0] - 1
         num_cols = translated_grid_x.shape[1] - 1
         CELLS = num_cols  # (=8 가정)
+        rect_prop = 0.7 if intervention else 1.0
+        color_ = '#648EF6'
+        line_style_ = '--' if intervention else '-'
+        def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
+            tl = np.array([translated_grid_x[r,   c  ], translated_grid_y[r,   c  ]], dtype=float)
+            tr = np.array([translated_grid_x[r,   c+1], translated_grid_y[r,   c+1]], dtype=float)
+            br = np.array([translated_grid_x[r+1, c+1], translated_grid_y[r+1, c+1]], dtype=float)
+            bl = np.array([translated_grid_x[r+1, c  ], translated_grid_y[r+1, c  ]], dtype=float)
 
-        def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0):
-            xs = [translated_grid_x[r, c], translated_grid_x[r+1, c],
-                translated_grid_x[r+1, c+1], translated_grid_x[r, c+1],
-                translated_grid_x[r, c]]
-            ys = [translated_grid_y[r, c], translated_grid_y[r+1, c],
-                translated_grid_y[r+1, c+1], translated_grid_y[r, c+1],
-                translated_grid_y[r, c]]
-            ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha)
+            center = (tl + tr + br + bl) / 4.0
+
+            tl_i = center + inset_k * (tl - center)
+            tr_i = center + inset_k * (tr - center)
+            br_i = center + inset_k * (br - center)
+            bl_i = center + inset_k * (bl - center)
+
+            xs = [tl_i[0], tr_i[0], br_i[0], bl_i[0], tl_i[0]]
+            ys = [tl_i[1], tr_i[1], br_i[1], bl_i[1], tl_i[1]]
+
+            ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha,
+                    linestyle=line_style)
 
         # 셀 중심(라벨 점/선용)
         cell_centers_x = (translated_grid_x[:-1, :-1] + translated_grid_x[1:, 1:] +
@@ -1828,12 +1871,13 @@ class MatplotlibVisualizer:
                         translated_grid_y[1:, :-1] + translated_grid_y[:-1, 1:]) / 4.0
 
         # 2) 예측/라벨 인덱스 수집
-        steps = sorted(self.ego_pred_pos.keys())
+        pred_idx = self.intervention_ego if intervention else self.ego_pred_pos
+        steps = sorted(pred_idx.keys())
 
         # 예측: 학습 x*CELLS+y → 그리기용 row-major(y*CELLS+x)
         pred_idx_by_step = {}
         for s in steps:
-            idx_tr = int(self.ego_pred_pos[s][env_idx])
+            idx_tr = int(pred_idx[s][env_idx])
             x_bin  = idx_tr // CELLS
             y_bin  = idx_tr %  CELLS
             idx_rm = y_bin * CELLS + x_bin
@@ -1863,42 +1907,9 @@ class MatplotlibVisualizer:
             if 0 <= row_idx < num_rows and 0 <= col_idx < num_cols:
                 label_idx_by_step[fs] = row_idx * num_cols + col_idx
 
-        # 3) 그리기
-        # 3-1) Prediction: 빨강 테두리(알파 고정)
         for idx_rm in pred_idx_by_step.values():
             r, c = divmod(idx_rm, num_cols)
-            draw_cell_border(ax, r, c, color="red", lw=5, z=8, alpha=0.9)
-
-        # # 3-2) Label: 파랑 점(중앙) + 선(뒤로 갈수록 연해짐)
-        # # 유효 라벨 step 순서대로 좌표 모음
-        # label_steps = [fs for fs in steps if fs in label_idx_by_step]
-        # label_points = []
-        # for fs in label_steps:
-        #     idx = label_idx_by_step[fs]
-        #     r, c = divmod(idx, num_cols)
-        #     cx = cell_centers_x[r, c]
-        #     cy = cell_centers_y[r, c]
-        #     label_points.append((fs, cx, cy))
-
-        # if label_points:
-        #     # 점: 파랑, 알파 고정
-        #     xs = [p[1] for p in label_points]
-        #     ys = [p[2] for p in label_points]
-        #     ax.scatter(xs, ys, s=22, color="blue", alpha=1.0, zorder=9)
-
-        #     # 선: 구간별로 그리며 α를 step이 커질수록 낮게(연하게)
-        #     alpha_min, alpha_max = 0.30, 1.00
-        #     s_min, s_max = label_steps[0], label_steps[-1]
-        #     def alpha_of_step(fs):
-        #         if s_max == s_min:
-        #             return alpha_max
-        #         t = (fs - s_min) / (s_max - s_min)  # 앞:0, 뒤:1
-        #         return alpha_max - (alpha_max - alpha_min) * t  # 뒤로 갈수록 연해짐
-
-        #     # 구간별 선
-        #     for (fs0, x0, y0), (fs1, x1, y1) in zip(label_points[:-1], label_points[1:]):
-        #         a = alpha_of_step(fs1)  # 다음 스텝 기준으로 투명도
-        #         ax.plot([x0, x1], [y0, y1], color="blue", linewidth=3, alpha=a, zorder=8)
+            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop,line_style=line_style_)
 
         return fig
 
@@ -1910,7 +1921,7 @@ class MatplotlibVisualizer:
         response_type: Any,
         agent_states: GlobalEgoState,
         use_log_trajectory: bool,
-        target_non_ego_rank: int = 0,
+        intervention: bool = False
     ):
         if self.render_3d:
             raise NotImplementedError("3D rendering not supported for importance weight plotting.")
@@ -1919,11 +1930,12 @@ class MatplotlibVisualizer:
         
         ax = fig.axes[0]
 
-        # 1) ego 중심 그리드
-        controlled_agents = (response_type.moving[env_idx, :] & self.controlled_agent_mask[env_idx, :])
-        if not controlled_agents.any():
+        moving_agents = response_type.moving[env_idx, :]
+        alive_ego = self.controlled_agent_mask[env_idx, :]
+        controlled_agents = (moving_agents & alive_ego)
+        if alive_ego.sum().item() == 0:
             return fig
-        
+        target_non_ego_rank =  self.target_non_ego_rank[env_idx]
         ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
         ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
         ego_rot   = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
@@ -1937,33 +1949,6 @@ class MatplotlibVisualizer:
         Rinv = R.T
 
         rotated_grid = R @ grid_points
-        translated_grid_x = (rotated_grid[0, :] + ego_pos_x).reshape(grid_x.shape)
-        translated_grid_y = (rotated_grid[1, :] + ego_pos_y).reshape(grid_y.shape)
-
-        # 격자 라인
-        for i in range(translated_grid_x.shape[0]):
-            ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1, alpha=0.5)
-        for j in range(translated_grid_x.shape[1]):
-            ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1, alpha=0.5)
-
-        # 셀 정보/센터
-        num_rows = translated_grid_x.shape[0] - 1
-        num_cols = translated_grid_x.shape[1] - 1
-        CELLS = num_cols
-
-        cell_centers_x = (translated_grid_x[:-1, :-1] + translated_grid_x[1:, 1:] +
-                        translated_grid_x[1:, :-1] + translated_grid_x[:-1, 1:]) / 4.0
-        cell_centers_y = (translated_grid_y[:-1, :-1] + translated_grid_y[1:, 1:] +
-                        translated_grid_y[1:, :-1] + translated_grid_y[:-1, 1:]) / 4.0
-
-        def draw_cell_border(ax, r, c, color, lw=3, z=10, alpha=1.0):
-            xs = [translated_grid_x[r, c], translated_grid_x[r+1, c],
-                translated_grid_x[r+1, c+1], translated_grid_x[r, c+1],
-                translated_grid_x[r, c]]
-            ys = [translated_grid_y[r, c], translated_grid_y[r+1, c],
-                translated_grid_y[r+1, c+1], translated_grid_y[r, c+1],
-                translated_grid_y[r, c]]
-            ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha)
 
         # 2) 대상 agent 선택 (ego 제외 127 중 rank)
         non_ego_global = np.where(~self.controlled_agent_mask[env_idx].cpu().numpy().astype(bool))[0]
@@ -1981,89 +1966,89 @@ class MatplotlibVisualizer:
             if (abs(pos_x) < OUT_OF_BOUNDS and abs(pos_y) < OUT_OF_BOUNDS and
                 0.5 < veh_l < 15 and 0.5 < veh_w < 15):
                 bboxes = np.array([[pos_x, pos_y, veh_l, veh_w, rot_a]], dtype=float)
-                color = cm.get_cmap('tab20')(int(agent_states.id[env_idx, gidx].item()) % 20)[:3]
-                utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
-                    ax=ax,
-                    bboxes_s=bboxes,
-                    colors=np.array([color]),
-                    alpha=1.0,
-                    line_width_scale=(max(self.figsize) / 15) * 1,
-                    as_center_pts=False,
-                    label=None,
-                )
+                color = to_rgb('#D1AD55')
+                if not intervention:
+                    utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
+                        ax=ax,
+                        bboxes_s=bboxes,
+                        colors=np.array([color]),
+                        alpha=1.0,
+                        line_width_scale=3,
+                        as_center_pts=False,
+                        label=None,
+                    )
+                ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
+                ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
+                ego_rot   = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
 
-        # 3) step별 예측(빨강 테두리) & 라벨(파랑 점+선)
-        steps = sorted(self.other_pred_pos.keys())
-        if len(steps) == 0:
-            return fig
+                grid_corners = np.linspace(0.05*MIN_REL_AGENT_POS, 0.05*MAX_REL_AGENT_POS, GRID_CELL_COUNT)
+                grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
+                grid_points = np.stack([grid_x.flatten(), grid_y.flatten()], axis=0)  # (2,N)
 
-        # 예측 알파: step↑ → 진하게
-        alpha_min_p, alpha_max_p = 0.35, 1.00
-        s_min, s_max = steps[0], steps[-1]
-        def alpha_pred(s):
-            if s_max == s_min: return alpha_max_p
-            t = (s - s_min) / (s_max - s_min)
-            return alpha_min_p + (alpha_max_p - alpha_min_p) * t
+                cos_theta = np.cos(ego_rot); sin_theta = np.sin(ego_rot)
+                rotation_matrix = np.array([[cos_theta, -sin_theta],[sin_theta, cos_theta]]).squeeze(-1)  # (2,2)
 
-        # 라벨 알파: step↑ → 연하게
-        alpha_min_l, alpha_max_l = 0.30, 1.00
-        def alpha_label(s):
-            if s_max == s_min: return alpha_max_l
-            t = (s - s_min) / (s_max - s_min)
-            return alpha_max_l - (alpha_max_l - alpha_min_l) * t
+                rotated_grid = rotation_matrix @ grid_points  # (2,N)
+                translated_grid_x = (rotated_grid[0, :] + ego_pos_x).reshape(grid_x.shape)
+                translated_grid_y = (rotated_grid[1, :] + ego_pos_y).reshape(grid_y.shape)
+                num_rows = translated_grid_x.shape[0] - 1
+                num_cols = translated_grid_x.shape[1] - 1
+                CELLS = num_cols  # (=8 가정)
+                def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
+                    tl = np.array([translated_grid_x[r,   c  ], translated_grid_y[r,   c  ]], dtype=float)
+                    tr = np.array([translated_grid_x[r,   c+1], translated_grid_y[r,   c+1]], dtype=float)
+                    br = np.array([translated_grid_x[r+1, c+1], translated_grid_y[r+1, c+1]], dtype=float)
+                    bl = np.array([translated_grid_x[r+1, c  ], translated_grid_y[r+1, c  ]], dtype=float)
 
-        # ---- 예측: 대상 agent 1명만 ----
-        local_rank = target_non_ego_rank  # other_pred_pos는 [127] 순서와 1:1
-        for s in steps:
-            idx_tr_all = self.other_pred_pos[s][env_idx]
-            if isinstance(idx_tr_all, torch.Tensor):
-                idx_tr_all = idx_tr_all.detach().cpu().numpy()
-            if local_rank >= idx_tr_all.shape[0]:
-                continue
-            idx_tr = int(idx_tr_all[local_rank])
-            if idx_tr < 0:
-                continue
-            x_bin = idx_tr // CELLS
-            y_bin = idx_tr %  CELLS
-            idx_rm = y_bin * CELLS + x_bin
-            if 0 <= idx_rm < (num_rows * num_cols):
-                r, c = divmod(idx_rm, num_cols)
-                draw_cell_border(ax, r, c, color=color, lw=3, z=12, alpha=alpha_pred(s))
+                    center = (tl + tr + br + bl) / 4.0
 
-        # # ---- 라벨: 파랑 점(셀 중앙) + 라인(뒤로 갈수록 연하게) ----
-        # label_points = []
-        # for s in steps:
-        #     t = time_step + s
-        #     if t >= LOG_TRAJECTORY_LEN:
-        #         continue
-        #     pos = np.asarray(agent_states.pos_xy[env_idx, gidx, t].cpu().numpy() 
-        #                     if hasattr(agent_states, 'pos_xy') else
-        #                     self.log_trajectory.pos_xy[env_idx, gidx, t], dtype=np.float64)
-        #     rel = pos - np.array([float(ego_pos_x), float(ego_pos_y)], dtype=np.float64)
-        #     grid_pt = Rinv @ rel
-        #     grid_resolution = float(abs(grid_corners[1] - grid_corners[0]))
-        #     min_corner = float(grid_corners[0])
-        #     col_idx = int(np.floor((grid_pt[0] - min_corner) / grid_resolution))
-        #     row_idx = int(np.floor((grid_pt[1] - min_corner) / grid_resolution))
-        #     if 0 <= row_idx < num_rows and 0 <= col_idx < num_cols:
-        #         cx = cell_centers_x[row_idx, col_idx]
-        #         cy = cell_centers_y[row_idx, col_idx]
-        #         label_points.append((s, cx, cy))
+                    tl_i = center + inset_k * (tl - center)
+                    tr_i = center + inset_k * (tr - center)
+                    br_i = center + inset_k * (br - center)
+                    bl_i = center + inset_k * (bl - center)
 
-        # if label_points:
-        #     xs = [p[1] for p in label_points]
-        #     ys = [p[2] for p in label_points]
-        #     ax.scatter(xs, ys, s=22, color="blue", alpha=1.0, zorder=13)
-        #     for (s0, x0, y0), (s1, x1, y1) in zip(label_points[:-1], label_points[1:]):
-        #         ax.plot([x0, x1], [y0, y1], color="blue", linewidth=3, alpha=alpha_label(s1), zorder=12)
-        if use_log_trajectory and (idx_tr >= 0):
-            self._plot_other_log_replay_trajectory(
-                ax=ax, env_idx=env_idx,
-                target_non_ego_rank=0,  # 보고 싶은 other vehicle 순번
-                log_trajectory=self.log_trajectory,
-                line_width_scale=1.0,
-                color=color
-            )
+                    xs = [tl_i[0], tr_i[0], br_i[0], bl_i[0], tl_i[0]]
+                    ys = [tl_i[1], tr_i[1], br_i[1], bl_i[1], tl_i[1]]
+
+                    ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha,
+                            linestyle=line_style)
+                pred_idx = self.intervention_other if intervention else self.other_pred_pos
+                steps = sorted(pred_idx.keys())
+                if len(steps) == 0:
+                    return fig
+
+                # 예측 알파: step↑ → 진하게
+                alpha_min_p, alpha_max_p = 0.35, 1.00
+                s_min, s_max = steps[0], steps[-1]
+                def alpha_pred(s):
+                    if s_max == s_min: return alpha_max_p
+                    t = (s - s_min) / (s_max - s_min)
+                    return alpha_min_p + (alpha_max_p - alpha_min_p) * t
+
+                # 라벨 알파: step↑ → 연하게
+                alpha_min_l, alpha_max_l = 0.30, 1.00
+                # ---- 예측: 대상 agent 1명만 ----
+                local_rank = target_non_ego_rank
+                rect_prop = 0.55 if intervention else 0.85
+                color_ = "#F6CC64"
+                line_style_ = "--" if intervention else "-"
+                for s in steps:
+                    idx_tr_all = pred_idx[s][env_idx]
+                    if isinstance(idx_tr_all, torch.Tensor):
+                        idx_tr_all = idx_tr_all.detach().cpu().numpy()
+                    if local_rank >= idx_tr_all.shape[0]:
+                        continue
+                    idx_tr = int(idx_tr_all[local_rank])
+                    if idx_tr < 0:
+                        continue
+                    x_bin = idx_tr // CELLS
+                    y_bin = idx_tr %  CELLS
+                    idx_rm = y_bin * CELLS + x_bin
+                    if 0 <= idx_rm < (num_rows * num_cols):
+                        r, c = divmod(idx_rm, num_cols)
+                        draw_cell_border(ax, r, c, color=color_, lw=3, z=12, alpha=alpha_pred(s), inset_k=rect_prop,
+                                         line_style=line_style_)
+
         return fig
     
     def _plot_other_log_replay_trajectory(

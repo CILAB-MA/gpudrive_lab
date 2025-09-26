@@ -596,7 +596,7 @@ def plot_numpy_bounding_boxes_multiple_policy_different_color(
                 [cl[0], cr[0], cf[0], cl[0]],
                 [cl[1], cr[1], cf[1], cl[1]],
                 color=color,
-                zorder=4,
+                zorder=7,
                 alpha=alpha,
                 linewidth=1.5 * line_width_scale,
                 label=label,
