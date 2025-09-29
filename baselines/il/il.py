@@ -68,18 +68,16 @@ def get_grad_norm(params, step=None):
     return max_grad_norm, grad_name
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
-    with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
-        expert_obs = npz['obs']
-        expert_actions = npz['actions']
-        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
-        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
-        road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
-    ego_global_pos = None
-    ego_global_rot = None
+    expert_obs = np.load(os.path.join(data_path, "obs", data_file), mmap_mode='r')
+    expert_actions = np.load(os.path.join(data_path, "actions", data_file), mmap_mode='r')
+    expert_masks = np.load(os.path.join(data_path, "valid_mask", data_file), mmap_mode='r')
+    partner_mask = np.load(os.path.join(data_path, "partner_mask", data_file), mmap_mode='r')
+    road_mask = np.load(os.path.join(data_path, "road_mask", data_file), mmap_mode='r')
+    
     dataset = ExpertDataset(
         expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step,
-        ego_global_pos=ego_global_pos, ego_global_rot=ego_global_rot
+        ego_global_pos=None, ego_global_rot=None
     )
     dataloader = DataLoader(
         dataset,
@@ -230,9 +228,9 @@ def train(exp_config=None):
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
+    train_data_file = f"training_trajectory_{exp_config.num_scene}.npy"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_2500.npz"
+    eval_data_file =  f"validation_trajectory_2500.npy"
     expert_data_loader = get_dataloader(train_data_path, train_data_file, exp_config)
     eval_expert_data_loader = get_dataloader(eval_data_path, eval_data_file, exp_config,
                                             isshuffle=False)
