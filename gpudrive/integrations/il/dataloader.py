@@ -186,12 +186,14 @@ class ExpertDataset(torch.utils.data.Dataset):
                     data = self.__dict__[var_name][idx1, idx2]
                 else:
                     raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
+                if isinstance(data, np.ndarray):
+                    data = torch.tensor(data)
+                
                 batch = batch + (data, )
                 if var_name == 'valid_masks':
                     ego_mask_data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len]
                     if ego_mask_data != True:
                         print('Not valid data!!!')
-        batch = batch + (torch.tensor([idx1, idx2]),)
 
         return batch
     

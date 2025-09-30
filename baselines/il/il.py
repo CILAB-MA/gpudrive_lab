@@ -110,11 +110,11 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     for i, batch in enumerate(eval_expert_data_loader):
         batch_size = batch[0].size(0)
         total_samples += batch_size
-        if len(batch) == 7:
-            obs, expert_action, partner_masks, road_masks, other_pos, aux_mask, data_idx = batch
+        if len(batch) == 6:
+            obs, expert_action, partner_masks, road_masks, other_pos, aux_mask = batch
             other_pos = other_pos.to(exp_config.device)
-        elif len(batch) == 5:
-            obs, expert_action, partner_masks, road_masks, data_idx = batch 
+        elif len(batch) == 4:
+            obs, expert_action, partner_masks, road_masks = batch
 
         obs, expert_action = obs.to(config.device), expert_action.to(config.device)
         partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
@@ -253,11 +253,11 @@ def train(exp_config=None):
         for n, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
-            if len(batch) == 7:
-                obs, expert_action, partner_masks, road_masks, other_pos, aux_mask, data_idx = batch
+            if len(batch) == 6:
+                obs, expert_action, partner_masks, road_masks, other_pos, aux_mask = batch
                 other_pos = other_pos.to(exp_config.device)
-            elif len(batch) == 5:
-                obs, expert_action, partner_masks, road_masks, data_idx = batch 
+            elif len(batch) == 4:
+                obs, expert_action, partner_masks, road_masks = batch 
             other_pos = other_pos.to(exp_config.device) if len(batch) > 5 else None
             obs, expert_action = obs.to(exp_config.device), expert_action.to(exp_config.device)
             partner_masks = partner_masks.to(exp_config.device) if len(batch) > 3 else None
