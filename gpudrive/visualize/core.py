@@ -615,6 +615,22 @@ class MatplotlibVisualizer:
                 zorder=0,
                 marker="s"
             )
+            if self.target_non_ego_rank != None:
+                non_ego_global = np.where(~self.controlled_agent_mask[env_idx].cpu().numpy().astype(bool))[0]
+                target_non_ego_rank =  self.target_non_ego_rank[env_idx]
+                if not (0 <= target_non_ego_rank < len(non_ego_global)):
+                    pass
+                else:
+                    gidx = int(non_ego_global[target_non_ego_rank])
+                    ax.scatter(
+                        log_trajectory.pos_xy[env_idx, gidx, :, 0].unsqueeze(0).numpy(),
+                        log_trajectory.pos_xy[env_idx, gidx, :, 1].unsqueeze(0).numpy(),
+                        color="orange",
+                        linewidth=1.0 * line_width_scale,
+                        alpha=alphas,
+                        zorder=0,
+                        marker="s"
+                    )
 
     def _get_endpoints(self, x, y, length, yaw):
         """Compute the start and end points of a road segment."""
@@ -1832,17 +1848,16 @@ class MatplotlibVisualizer:
         translated_grid_y = (rotated_grid[1, :] + ego_pos_y).reshape(grid_y.shape)
 
         # 격자 라인
-        if not intervention:
-            for i in range(translated_grid_x.shape[0]):
-                ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1, alpha=0.5)
-            for j in range(translated_grid_x.shape[1]):
-                ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1, alpha=0.5)
+        for i in range(translated_grid_x.shape[0]):
+            ax.plot(translated_grid_x[i, :], translated_grid_y[i, :], color="black", linestyle="--", linewidth=1, alpha=0.5)
+        for j in range(translated_grid_x.shape[1]):
+            ax.plot(translated_grid_x[:, j], translated_grid_y[:, j], color="black", linestyle="--", linewidth=1, alpha=0.5)
 
         # 셀 정보
         num_rows = translated_grid_x.shape[0] - 1
         num_cols = translated_grid_x.shape[1] - 1
         CELLS = num_cols  # (=8 가정)
-        rect_prop = 0.7 if intervention else 1.0
+        rect_prop = 1.0
         color_ = '#648EF6'
         line_style_ = '--' if intervention else '-'
         def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
@@ -1967,16 +1982,15 @@ class MatplotlibVisualizer:
                 0.5 < veh_l < 15 and 0.5 < veh_w < 15):
                 bboxes = np.array([[pos_x, pos_y, veh_l, veh_w, rot_a]], dtype=float)
                 color = to_rgb('#D1AD55')
-                if not intervention:
-                    utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
-                        ax=ax,
-                        bboxes_s=bboxes,
-                        colors=np.array([color]),
-                        alpha=1.0,
-                        line_width_scale=3,
-                        as_center_pts=False,
-                        label=None,
-                    )
+                utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
+                    ax=ax,
+                    bboxes_s=bboxes,
+                    colors=np.array([color]),
+                    alpha=1.0,
+                    line_width_scale=3,
+                    as_center_pts=False,
+                    label=None,
+                )
                 ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
                 ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
                 ego_rot   = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
@@ -2018,7 +2032,7 @@ class MatplotlibVisualizer:
                     return fig
 
                 # 예측 알파: step↑ → 진하게
-                alpha_min_p, alpha_max_p = 0.35, 1.00
+                alpha_min_p, alpha_max_p = 1.00, 1.00
                 s_min, s_max = steps[0], steps[-1]
                 def alpha_pred(s):
                     if s_max == s_min: return alpha_max_p
@@ -2026,10 +2040,10 @@ class MatplotlibVisualizer:
                     return alpha_min_p + (alpha_max_p - alpha_min_p) * t
 
                 # 라벨 알파: step↑ → 연하게
-                alpha_min_l, alpha_max_l = 0.30, 1.00
+                alpha_min_l, alpha_max_l = 1.00, 1.00
                 # ---- 예측: 대상 agent 1명만 ----
                 local_rank = target_non_ego_rank
-                rect_prop = 0.55 if intervention else 0.85
+                rect_prop = 0.85
                 color_ = "#F6CC64"
                 line_style_ = "--" if intervention else "-"
                 for s in steps:
@@ -2046,7 +2060,7 @@ class MatplotlibVisualizer:
                     idx_rm = y_bin * CELLS + x_bin
                     if 0 <= idx_rm < (num_rows * num_cols):
                         r, c = divmod(idx_rm, num_cols)
-                        draw_cell_border(ax, r, c, color=color_, lw=3, z=12, alpha=alpha_pred(s), inset_k=rect_prop,
+                        draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop,
                                          line_style=line_style_)
 
         return fig
