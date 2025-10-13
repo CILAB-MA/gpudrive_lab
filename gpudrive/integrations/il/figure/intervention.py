@@ -85,7 +85,12 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     other_relative_pos = torch.zeros((args.batch_size, env.episode_len, 127, 2)).cuda()
     other_relative_mask = torch.zeros((args.batch_size, env.episode_len, 127)).bool().cuda()
     # ============================================================
-    
+    ego_idx = torch.tensor([0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0])
+    alive_ego_idx = ego_idx[:NUM_WORLD].to('cuda')
     for time_step in tqdm(range(env.episode_len)):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
         # MASK
@@ -191,6 +196,7 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
                     plot_importance_weight=False,
                     plot_ego_linear_probing=plot_ego_lp,
                     plot_other_linear_probing=plot_other_lp,
+                    center_agent_indices=alive_ego_idx,
                     plot_linear_probing_label=False,
                     plot_log_replay_trajectory=True,
                     plot_intervention=plot_intervention,
@@ -229,15 +235,21 @@ if __name__ == "__main__":
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth')
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
     parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention')
-    parser.add_argument('--linear-probing', '-lp', type=str, default='intervention', choices=['original', 
+    parser.add_argument('--linear-probing', '-lp', type=str, default='original', choices=['original', 
     'intervention'])
     parser.add_argument('--zoom-radius', type=int, default=70)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
 
     args = parser.parse_args()
     dump = [0]*4
-    intervention_idx = [0, 2, 1, 1, 0, 1, 0, 3, 0, 1] + [0] * (args.dataset_size - 10)
-    intervention_label = [[44, 36, 35, 35], dump, dump , [36, 36, 44, 52], [44, 44, 44, 52], dump ,dump, [45, 38, 31, 31], dump, dump, dump, [44] * 4, [37, 37, 38, 39], [59, 59, 59, 59]]  + [[0,0,0,0] for _ in range(args.dataset_size - 14)]
+    dump_idx = -1
+    cols = [f"step{i}" for i in (10, 20, 30, 40)]
+    df = pd.read_csv("/data/full_version/intervention.csv")
+    intervention_idx = df['intervention_idx'].tolist() 
+    pad_len = args.dataset_size - len(intervention_idx)
+    intervention_idx += [0] * pad_len
+    intervention_label = np.stack([df[c].to_numpy() for c in cols], axis=1)
+    intervention_label = np.pad(intervention_label, ((0, pad_len), (0, 0)), mode="constant", constant_values=0)
     # Make scene loader
     scene_loader = SceneDataLoader(
         root=f"/data/full_version/data/{args.dataset}/",

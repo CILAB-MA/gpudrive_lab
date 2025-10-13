@@ -1981,7 +1981,7 @@ class MatplotlibVisualizer:
             if (abs(pos_x) < OUT_OF_BOUNDS and abs(pos_y) < OUT_OF_BOUNDS and
                 0.5 < veh_l < 15 and 0.5 < veh_w < 15):
                 bboxes = np.array([[pos_x, pos_y, veh_l, veh_w, rot_a]], dtype=float)
-                color = to_rgb('#D1AD55')
+                color = to_rgb('#B88733')
                 utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
                     ax=ax,
                     bboxes_s=bboxes,
