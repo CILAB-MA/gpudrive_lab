@@ -150,13 +150,29 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
                 prime_dict = defaultdict(dict)
                 other_dict = defaultdict(dict)
                 intervention_dict = defaultdict(dict)
+                full_weights = torch.zeros((NUM_WORLD, 128, 4)).to('cuda')[wm]
+                batch = torch.arange(NUM_WORLD, device='cuda')
+                for i, other_lp in enumerate(other_lp_models):
+                    w = other_lp.head.weight
+                    weight_label = w.index_select(0, intervention_label[i])[wm]
+                    full_weights[..., i] = weight_label
+                if args.intervention == 'mean':
+                    full_weights = full_weights.mean(-1)
+                elif args.intervention == 'sum':
+                    full_weights = full_weights.sum(-1)
                 for i, (other_lp, ego_lp, future_step) in enumerate(zip(other_lp_models, ego_lp_models, future_steps)):
                     futm = other_relative_mask[:, time_step + future_step]   
                     other_pred = other_lp(other_lp_input)
                     w = other_lp.head.weight 
-                    weight_label = w.index_select(0, intervention_label[i])[wm]
+                    # weight_label = w.index_select(0, intervention_label[i])[wm]
+                    g_prime = other_lp_input.clone()
+                    g_prime[batch[wm], intervention_idx[wm], :] += full_weights
+                    g_prime = torch.cat([g_prime, other_layers[other_nth_layer][:, 0, :].unsqueeze(1)], dim=1)
+                    h_prime = bc_policy.ro_attn(g_prime)
+                    print(wm.sum())
+                    ego_input_prime = h_prime['last_hidden_state'][:, 0, :]
                     ego_orig_pred = ego_lp(ego_lp_input)
-                    ego_prime_pred = ego_lp(ego_lp_input + weight_label) # todo: intervention idx applying
+                    ego_prime_pred = ego_lp(ego_input_prime) # todo: intervention idx applying
 
                     orig_alive_world = torch.zeros((NUM_WORLD, 1)).long().to("cuda")
                     other_alive_world = torch.zeros((NUM_WORLD, 127)).long().to("cuda")
@@ -222,24 +238,27 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     os.makedirs(root, exist_ok=True)
     for i in range(args.batch_size):
         out_dir = os.path.join(root, f"lp_world{i + world_mask.shape[0] * scene_batch_idx}")
+        if args.linear_probing == 'intervention':
+            out_dir = os.path.join(out_dir, f"{args.intervention}")
         save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.linear_probing}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=80) # total_world
-    parser.add_argument('--batch-size', type=int, default=80) # num_world
+    parser.add_argument('--dataset-size', type=int, default=50) # total_world
+    parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # early_attn_s42_0901_145943.pth
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
     parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention')
-    parser.add_argument('--linear-probing', '-lp', type=str, default='original', choices=['original', 
+    parser.add_argument('--linear-probing', '-lp', type=str, default='intervention', choices=['original', 
     'intervention'])
+    parser.add_argument('--intervention', '-i', type=str, default='mean', choices=['mean', 
+    'sum'])
     parser.add_argument('--zoom-radius', type=int, default=70)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
-
     args = parser.parse_args()
     dump = [0]*4
     dump_idx = -1
