@@ -20,6 +20,8 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 from collections import OrderedDict, defaultdict
 # linear_probing
 from PIL import Image
+import os
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,16 +29,25 @@ logger.setLevel(logging.INFO)
 def digitize(t, bins):
     return torch.bucketize(t, bins, right=False)
 
-def save_png(path, arr):
-    Image.fromarray(np.asarray(arr)).save(path, format="PNG", optimize=False, compress_level=0)
+def save_svg(path, arr):
+    import io, base64
+    from PIL import Image
+    im = Image.fromarray(np.asarray(arr))
+    w,h = im.size
+    buf = io.BytesIO(); im.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    open(path, "w", encoding="utf-8").write(
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}">'
+        f'<image href="data:image/png;base64,{b64}" x="0" y="0" width="{w}" height="{h}"/></svg>'
+    )
 
 def save_frames_parallel(frames_list, out_dir, stem="frame"):
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 8) as ex:
         futures = []
-        for t, frame in enumerate(frames_list):
-            fpath = out_dir / f"{stem}_{t:06d}.png"
-            futures.append(ex.submit(save_png, fpath, frame))
+        for t, fig in enumerate(frames_list):     # fig: matplotlib Figure
+            fpath = out_dir / f"{stem}_{t:06d}.svg"
+            futures.append(ex.submit(save_svg, fpath, fig))
         for f in futures: f.result()  # join
 
 def register_all_layers_forward_hook(model):
@@ -59,22 +70,27 @@ def register_all_layers_forward_hook(model):
 
     return hidden_vector_dict
 
-def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, sweep_name, exp):
+def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, sweep_name, intervention_idx,  intervention_label):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(args.batch_size)]
     NUM_WORLD = alive_agent_mask.shape[0]
     # Extract Linear Probing
-    layers = register_all_layers_forward_hook(bc_policy.fusion_attn)
-    
+    other_layers = register_all_layers_forward_hook(bc_policy.fusion_attn)
+    ego_layers = register_all_layers_forward_hook(bc_policy.ro_attn)
     # =============== save data for linear probing ===============
     ego_global_pos = torch.zeros((args.batch_size, env.episode_len, 2)).cuda()
     ego_global_rot = torch.zeros((args.batch_size, env.episode_len)).cuda()
     other_relative_pos = torch.zeros((args.batch_size, env.episode_len, 127, 2)).cuda()
     other_relative_mask = torch.zeros((args.batch_size, env.episode_len, 127)).bool().cuda()
     # ============================================================
-    
+    ego_idx = torch.tensor([0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0])
+    alive_ego_idx = ego_idx[:NUM_WORLD].to('cuda')
     for time_step in tqdm(range(env.episode_len)):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
         # MASK
@@ -109,6 +125,8 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
     expert_actions, _, _, _, _  = env.get_expert_actions()
+    intervention_label = torch.as_tensor(intervention_label, dtype=torch.long).to('cuda').transpose(0, 1)
+    intervention_idx = torch.as_tensor(intervention_idx, device='cuda', dtype=torch.long)
     for time_step in tqdm(range(env.episode_len)):
         # all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
         all_actions = expert_actions[:, :, time_step].clone()
@@ -123,16 +141,15 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
             alive_obs = obs[~dead_agent_mask]
             context, *_ = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             if time_step < env.episode_len - 40: 
-                nth_layer = list(layers.keys())[-1]
-                other_lp_input = layers[nth_layer][:,1:128,:] 
-                ego_lp_input = layers[nth_layer][:,0,:] 
+                other_nth_layer = list(other_layers.keys())[-1]
+                ego_nth_layer = list(ego_layers.keys())[-1]
+                other_lp_input = other_layers[other_nth_layer][:,1:128,:] 
+                ego_lp_input = ego_layers[ego_nth_layer][:,0,:] 
                 wm = world_mask
                 orig_dict = defaultdict(dict)
                 prime_dict = defaultdict(dict)
                 other_dict = defaultdict(dict)
                 intervention_dict = defaultdict(dict)
-                intervention_label = torch.as_tensor(args.intervention_label, dtype=torch.long).to('cuda').transpose(0, 1)
-                intervention_idx = torch.as_tensor(args.intervention_idx, device='cuda', dtype=torch.long)
                 for i, (other_lp, ego_lp, future_step) in enumerate(zip(other_lp_models, ego_lp_models, future_steps)):
                     futm = other_relative_mask[:, time_step + future_step]   
                     other_pred = other_lp(other_lp_input)
@@ -163,17 +180,26 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
         setattr(env.vis, f"other_pred_pos", other_dict)
         setattr(env.vis, f"intervention_ego", prime_dict)
         setattr(env.vis, f"intervention_other", intervention_dict)
-        setattr(env.vis, f"target_non_ego_rank", args.intervention_idx)
-        if time_step % 15 == 0:
+        setattr(env.vis, f"target_non_ego_rank", intervention_idx)
+        if args.linear_probing == 'original':
+            plot_intervention = False
+            plot_ego_lp = True
+            plot_other_lp = True
+        else:
+            plot_intervention = True
+            plot_ego_lp = False
+            plot_other_lp = False
+        if time_step % 3 == 0:
             sim_states = env.vis.plot_simulator_state(
                     env_indices=list(range(args.batch_size)),
                     time_steps=[time_step]*args.batch_size,
                     plot_importance_weight=False,
-                    plot_ego_linear_probing=True,
-                    plot_other_linear_probing=True,
+                    plot_ego_linear_probing=plot_ego_lp,
+                    plot_other_linear_probing=plot_other_lp,
+                    center_agent_indices=alive_ego_idx,
                     plot_linear_probing_label=False,
                     plot_log_replay_trajectory=True,
-                    plot_intervention=True,
+                    plot_intervention=plot_intervention,
                     zoom_radius=args.zoom_radius,
                 )
     
@@ -195,28 +221,35 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     root = os.path.join(args.image_path, args.dataset, sweep_name, args.model_name, str(args.partner_portion_test))
     os.makedirs(root, exist_ok=True)
     for i in range(args.batch_size):
-        out_dir = os.path.join(root, f"lp_{args.linear_probing}_world{i + world_mask.shape[0] * scene_batch_idx}")
+        out_dir = os.path.join(root, f"lp_world{i + world_mask.shape[0] * scene_batch_idx}")
         save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.linear_probing}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=200) # total_world
-    parser.add_argument('--batch-size', type=int, default=20) # num_world
+    parser.add_argument('--dataset-size', type=int, default=80) # total_world
+    parser.add_argument('--batch-size', type=int, default=80) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth')
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
     parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention')
-    parser.add_argument('--linear-probing', '-lp', type=str, default='ego')
+    parser.add_argument('--linear-probing', '-lp', type=str, default='original', choices=['original', 
+    'intervention'])
     parser.add_argument('--zoom-radius', type=int, default=70)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
 
-    parser.add_argument('--intervention-idx', '-i', type=list, default=[0, 2, 1, 1, 0, 1] + [0] * 14) # intervention partner idx
-    parser.add_argument('--intervention-label', '-l', type=list, default=[[i for i in range(5)]] * 20) # change position label
     args = parser.parse_args()
-
+    dump = [0]*4
+    dump_idx = -1
+    cols = [f"step{i}" for i in (10, 20, 30, 40)]
+    df = pd.read_csv("/data/full_version/intervention.csv")
+    intervention_idx = df['intervention_idx'].tolist() 
+    pad_len = args.dataset_size - len(intervention_idx)
+    intervention_idx += [0] * pad_len
+    intervention_label = np.stack([df[c].to_numpy() for c in cols], axis=1)
+    intervention_label = np.pad(intervention_label, ((0, pad_len), (0, 0)), mode="constant", constant_values=0)
     # Make scene loader
     scene_loader = SceneDataLoader(
         root=f"/data/full_version/data/{args.dataset}/",
@@ -258,9 +291,9 @@ if __name__ == "__main__":
     future_steps = [10, 20, 30, 40]
     other_lp_models, ego_lp_models = [], []
     for future_step in future_steps:
-        ego_model = torch.load(os.path.join(lp_ego_root, f'seed{seed}', f'{args.lp_model_name}_{future_step}.pth'), weights_only=False).to("cuda")
+        ego_model = torch.load(os.path.join(lp_ego_root, f'seed{seed}', f'pos_final_lp_{future_step}.pth'), weights_only=False).to("cuda")
         ego_model.eval()
-        other_model = torch.load(os.path.join(lp_other_root, f'seed{seed}', f'{args.lp_model_name}_{future_step}.pth'), weights_only=False).to("cuda")
+        other_model = torch.load(os.path.join(lp_other_root, f'seed{seed}', f'pos_early_lp_{future_step}.pth'), weights_only=False).to("cuda")
         other_model.eval()
         other_lp_models.append(other_model)
         ego_lp_models.append(ego_model)
@@ -270,7 +303,8 @@ if __name__ == "__main__":
     expert_dict = df.set_index('scene_idx').to_dict(orient='index')
     total_iter = int(args.dataset_size // args.batch_size)
     for i in range(total_iter):
-        run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
+        run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx=i, sweep_name=sweep_name,
+            intervention_idx=intervention_idx, intervention_label=intervention_label)
         if i != num_iter - 1:
             env.swap_data_batch()
     env.close()
