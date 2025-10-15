@@ -166,9 +166,9 @@ if __name__ == "__main__":
         
         # save
         os.makedirs(SAVE_DIR + "/ego_label", exist_ok=True)
-        os.makedirs(SAVE_DIR + "/partner_label", exist_ok=True)
+        os.makedirs(SAVE_DIR + "/other_label", exist_ok=True)
         np.save(f"{SAVE_DIR}/ego_label/trajectory_{args.scene_batch_size * idx}.npy", scene_labels)
-        np.save(f"{SAVE_DIR}/partner_label/trajectory_{args.scene_batch_size * idx}.npy", partner_labels)
+        np.save(f"{SAVE_DIR}/other_label/trajectory_{args.scene_batch_size * idx}.npy", partner_labels)
         print(f'alive agent: {len(done_step)}')
             
         if idx != num_iter - 1:
