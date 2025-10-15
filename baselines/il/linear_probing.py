@@ -19,10 +19,6 @@ from gpudrive.integrations.il.linear_probing.dataloader import FutureDataset
 from gpudrive.integrations.il.linear_probing.lp_model import *
 from sklearn.metrics import f1_score
 from box import Box
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-from scipy.stats import pearsonr
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -47,29 +43,17 @@ def set_seed(seed=42, deterministic=False):
         torch.backends.cudnn.benchmark = False 
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
-    with np.load(os.path.join(data_path, data_file)) as npz:
-        ego_labels = None
-        partner_labels = None
-        expert_obs = npz['obs']
-        expert_actions = npz['actions']
-        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
-        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
-        road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
-        if config.exp == 'ego':
-            ego_labels = npz['ego_labels'].astype('int') if 'ego_labels' in npz.keys() else None
-        if config.exp == 'other':
-            partner_labels = npz['partner_labels'].astype('int') if 'partner_labels' in npz.keys() else None
-    ego_global_pos = None
-    ego_global_rot = None
-    if 'validation' in data_file:
-        data_file = data_file[6:]
-    with np.load(os.path.join(data_path, "global_" + data_file)) as global_npz:
-        ego_global_pos = global_npz['ego_global_pos']
-        ego_global_rot = global_npz['ego_global_rot']
+    expert_obs = np.load(os.path.join(data_path, "obs", data_file), mmap_mode='r')
+    expert_masks = np.load(os.path.join(data_path, "valid_mask", data_file), mmap_mode='r')
+    partner_mask = np.load(os.path.join(data_path, "partner_mask", data_file), mmap_mode='r')
+    road_mask = np.load(os.path.join(data_path, "road_mask", data_file), mmap_mode='r')
+    future_pos = np.load(os.path.join(data_path, "linear_probing", f"{config.exp}_future_pos", f"step{config.future_step}", data_file), mmap_mode='r')
+    future_valid_mask = np.load(os.path.join(data_path, "linear_probing", f"{config.exp}_future_valid_mask", f"step{config.future_step}", data_file), mmap_mode='r')
+    trajectory_type = np.load(os.path.join(data_path, "trajectory_type", f"{config.exp}_label", data_file), mmap_mode='r')
+
     dataset = FutureDataset(
-        expert_obs, expert_actions, ego_global_pos, ego_global_rot, expert_masks, partner_mask, road_mask,
-        rollout_len=config.rollout_len, pred_len=config.pred_len, future_step=config.future_step,
-        exp=config.exp, partner_labels=partner_labels, ego_labels=ego_labels
+        expert_obs, expert_masks, partner_mask, road_mask, future_pos, future_valid_mask, trajectory_type,
+        rollout_len=config.rollout_len, pred_len=config.pred_len
     )
     dataloader = DataLoader(
         dataset,
@@ -148,9 +132,9 @@ def train(exp_config=None):
     ood_label_tensor = torch.tensor(ood_labels, device='cuda')
     pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=exp_config.future_step).to("cuda")
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
+    train_data_file = f"training_trajectory_{exp_config.num_scene}.npy"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"label/validation_trajectory_2500.npz"
+    eval_data_file =  f"validation_trajectory_2500.npy"
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=exp_config.lr, eps=0.0001)
 
@@ -176,8 +160,8 @@ def train(exp_config=None):
         for i, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
-            batch_size = batch[0].size(0)
-            obs, _, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
+
+            obs, valid_mask, partner_mask, road_mask, future_mask, future_pos, _ = batch
             
             obs = obs.to("cuda")
             future_pos = future_pos.to("cuda")
@@ -254,7 +238,7 @@ def train(exp_config=None):
                 labeled_sum = torch.zeros(5)
                 num_oods = 0
                 for j, batch in enumerate(eval_expert_data_loader):
-                    obs, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos, labels = batch
+                    obs, valid_mask, partner_mask, road_mask, future_mask, future_pos, labels = batch
                     with torch.no_grad():
                         obs = obs.to("cuda")
                         actions = actions.to("cuda")
