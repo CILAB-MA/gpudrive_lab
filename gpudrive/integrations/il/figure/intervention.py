@@ -41,12 +41,12 @@ def save_svg(path, arr):
         f'<image href="data:image/png;base64,{b64}" x="0" y="0" width="{w}" height="{h}"/></svg>'
     )
 
-def save_frames_parallel(frames_list, out_dir, stem="frame"):
+def save_frames_parallel(frames_list, out_dir, stem="frame", diff_cls_total=None):
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 8) as ex:
         futures = []
         for t, fig in enumerate(frames_list):     # fig: matplotlib Figure
-            fpath = out_dir / f"{stem}_{t:06d}.svg"
+            fpath = out_dir / f"{stem}_{t:06d}_{diff_cls_total[t]}.svg"
             futures.append(ex.submit(save_svg, fpath, fig))
         for f in futures: f.result()  # join
 
@@ -76,6 +76,7 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(args.batch_size)]
     NUM_WORLD = alive_agent_mask.shape[0]
+    diff_cls_total = np.zeros((30, NUM_WORLD)).astype('bool')
     # Extract Linear Probing
     other_layers = register_all_layers_forward_hook(bc_policy.fusion_attn)
     ego_layers = register_all_layers_forward_hook(bc_policy.ro_attn)
@@ -127,6 +128,7 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     expert_actions, _, _, _, _  = env.get_expert_actions()
     intervention_label = torch.as_tensor(intervention_label, dtype=torch.long).to('cuda').transpose(0, 1)
     intervention_idx = torch.as_tensor(intervention_idx, device='cuda', dtype=torch.long)
+    
     for time_step in tqdm(range(env.episode_len)):
         # all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
         all_actions = expert_actions[:, :, time_step].clone()
@@ -151,25 +153,24 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
                 other_dict = defaultdict(dict)
                 intervention_dict = defaultdict(dict)
                 full_weights = torch.zeros((NUM_WORLD, 128, 4)).to('cuda')[wm]
-                batch = torch.arange(NUM_WORLD, device='cuda')
+                batch = torch.arange(len(full_weights), device='cuda')
                 for i, other_lp in enumerate(other_lp_models):
                     w = other_lp.head.weight
                     weight_label = w.index_select(0, intervention_label[i])[wm]
                     full_weights[..., i] = weight_label
                 if args.intervention == 'mean':
-                    full_weights = full_weights.mean(-1)
+                    full_weights_combined = full_weights.mean(-1)
                 elif args.intervention == 'sum':
-                    full_weights = full_weights.sum(-1)
+                    full_weights_combined = full_weights.sum(-1)
                 for i, (other_lp, ego_lp, future_step) in enumerate(zip(other_lp_models, ego_lp_models, future_steps)):
                     futm = other_relative_mask[:, time_step + future_step]   
                     other_pred = other_lp(other_lp_input)
                     w = other_lp.head.weight 
                     # weight_label = w.index_select(0, intervention_label[i])[wm]
                     g_prime = other_lp_input.clone()
-                    g_prime[batch[wm], intervention_idx[wm], :] += full_weights
-                    g_prime = torch.cat([g_prime, other_layers[other_nth_layer][:, 0, :].unsqueeze(1)], dim=1)
+                    g_prime[batch, intervention_idx[wm], :] += full_weights_combined
+                    g_prime = torch.cat([other_layers[other_nth_layer][:, 0, :].unsqueeze(1), g_prime], dim=1)
                     h_prime = bc_policy.ro_attn(g_prime)
-                    print(wm.sum())
                     ego_input_prime = h_prime['last_hidden_state'][:, 0, :]
                     ego_orig_pred = ego_lp(ego_lp_input)
                     ego_prime_pred = ego_lp(ego_input_prime) # todo: intervention idx applying
@@ -206,6 +207,8 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
             plot_ego_lp = False
             plot_other_lp = False
         if time_step % 3 == 0:
+            diff_cls = (orig_alive_world - prime_alive_world) != 0
+            diff_cls_total[int(time_step // 3)] = diff_cls.cpu().numpy().reshape(-1)
             sim_states = env.vis.plot_simulator_state(
                     env_indices=list(range(args.batch_size)),
                     time_steps=[time_step]*args.batch_size,
@@ -240,17 +243,17 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
         out_dir = os.path.join(root, f"lp_world{i + world_mask.shape[0] * scene_batch_idx}")
         if args.linear_probing == 'intervention':
             out_dir = os.path.join(out_dir, f"{args.intervention}")
-        save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.linear_probing}")
+        save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.linear_probing}", diff_cls_total=diff_cls_total[:, i])
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=50) # total_world
-    parser.add_argument('--batch-size', type=int, default=50) # num_world
+    parser.add_argument('--dataset-size', type=int, default=80) # total_world
+    parser.add_argument('--batch-size', type=int, default=80) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # early_attn_s42_0901_145943.pth
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix') #80000_subset_aix
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # \early_attn_s3_0908_113203.pth.pth
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
     parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention')
     parser.add_argument('--linear-probing', '-lp', type=str, default='intervention', choices=['original', 

@@ -1857,7 +1857,7 @@ class MatplotlibVisualizer:
         num_rows = translated_grid_x.shape[0] - 1
         num_cols = translated_grid_x.shape[1] - 1
         CELLS = num_cols  # (=8 가정)
-        rect_prop = 1.0
+        rect_prop = 1.15
         color_ = '#648EF6'
         line_style_ = '--' if intervention else '-'
         def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
@@ -1922,9 +1922,9 @@ class MatplotlibVisualizer:
             if 0 <= row_idx < num_rows and 0 <= col_idx < num_cols:
                 label_idx_by_step[fs] = row_idx * num_cols + col_idx
 
-        for idx_rm in pred_idx_by_step.values():
+        for s, idx_rm in pred_idx_by_step.items():
             r, c = divmod(idx_rm, num_cols)
-            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop,line_style=line_style_)
+            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.015 * s,line_style=line_style_)
 
         return fig
 
@@ -1981,7 +1981,7 @@ class MatplotlibVisualizer:
             if (abs(pos_x) < OUT_OF_BOUNDS and abs(pos_y) < OUT_OF_BOUNDS and
                 0.5 < veh_l < 15 and 0.5 < veh_w < 15):
                 bboxes = np.array([[pos_x, pos_y, veh_l, veh_w, rot_a]], dtype=float)
-                color = to_rgb('#B88733')
+                color = to_rgb('#A6792D')
                 utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
                     ax=ax,
                     bboxes_s=bboxes,
@@ -2027,6 +2027,7 @@ class MatplotlibVisualizer:
                     ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha,
                             linestyle=line_style)
                 pred_idx = self.intervention_other if intervention else self.other_pred_pos
+                # ego_pred_idx = self.intervention_ego if intervention else self.ego_pred_pos
                 steps = sorted(pred_idx.keys())
                 if len(steps) == 0:
                     return fig
@@ -2034,33 +2035,39 @@ class MatplotlibVisualizer:
                 # 예측 알파: step↑ → 진하게
                 alpha_min_p, alpha_max_p = 1.00, 1.00
                 s_min, s_max = steps[0], steps[-1]
-                def alpha_pred(s):
-                    if s_max == s_min: return alpha_max_p
-                    t = (s - s_min) / (s_max - s_min)
-                    return alpha_min_p + (alpha_max_p - alpha_min_p) * t
 
                 # 라벨 알파: step↑ → 연하게
                 alpha_min_l, alpha_max_l = 1.00, 1.00
                 # ---- 예측: 대상 agent 1명만 ----
                 local_rank = target_non_ego_rank
-                rect_prop = 0.85
+                rect_prop = 1.1
                 color_ = "#F6CC64"
                 line_style_ = "--" if intervention else "-"
                 for s in steps:
                     idx_tr_all = pred_idx[s][env_idx]
+                    # idx_tr_ego = ego_pred_idx[s][env_idx]
                     if isinstance(idx_tr_all, torch.Tensor):
                         idx_tr_all = idx_tr_all.detach().cpu().numpy()
                     if local_rank >= idx_tr_all.shape[0]:
                         continue
                     idx_tr = int(idx_tr_all[local_rank])
+                    # idx_tr_e = int(idx_tr_ego[local_rank])
                     if idx_tr < 0:
                         continue
+                    # if idx_tr_e < 0:
+                    #     continue
                     x_bin = idx_tr // CELLS
                     y_bin = idx_tr %  CELLS
                     idx_rm = y_bin * CELLS + x_bin
+
+                    # x_bin2 = idx_tr_e // CELLS
+                    # y_bin2 = idx_tr_e %  CELLS
+                    # idx_rm2 = y_bin2 * CELLS + x_bin2
+                    # if idx_rm == idx_rm2:
+                    #     color_ = "#DC5856"
                     if 0 <= idx_rm < (num_rows * num_cols):
                         r, c = divmod(idx_rm, num_cols)
-                        draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop,
+                        draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.015 * s,
                                          line_style=line_style_)
 
         return fig
