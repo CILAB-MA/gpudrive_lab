@@ -63,14 +63,14 @@ def get_label(log_actions, st, en, done_step, index_array,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
-    parser.add_argument("--data_dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
+    parser.add_argument("--data-dir", "-dd", type=str, default="validation", help="training (80000) / testing (10000)")
     parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=100)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=128)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
 
-    SAVE_DIR = f"/data/full_version/processed/{args.data_dir}_only_goal/label"
+    SAVE_DIR = f"/data/full_version/processed/{args.data_dir}_subset_v6/trajectory_type"
     os.makedirs(SAVE_DIR, exist_ok=True)
     DATA_DIR = os.path.join("/data/full_version/data", args.data_dir)
     TOTAL_NUM_WORLDS = args.total_scene_size
@@ -163,9 +163,12 @@ if __name__ == "__main__":
         partner_labels = labels_flat.reshape(N, T, M)[goal_mask.cpu()]
         done_step = done_step[goal_mask.cpu()]
         scene_labels = scene_labels[goal_mask.cpu()]
-        np.savez_compressed(f'{SAVE_DIR}/label_trajectory_{args.scene_batch_size * idx}.npz',
-                            partner_label=partner_labels,
-                            ego_label=scene_labels)
+        
+        # save
+        os.makedirs(SAVE_DIR + "/ego_label", exist_ok=True)
+        os.makedirs(SAVE_DIR + "/other_label", exist_ok=True)
+        np.save(f"{SAVE_DIR}/ego_label/trajectory_{args.scene_batch_size * idx}.npy", scene_labels)
+        np.save(f"{SAVE_DIR}/other_label/trajectory_{args.scene_batch_size * idx}.npy", partner_labels)
         print(f'alive agent: {len(done_step)}')
             
         if idx != num_iter - 1:

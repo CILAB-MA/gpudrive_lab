@@ -3,7 +3,7 @@ rollout_len: 5
 pred_len: 1
 base_path: '/data/full_version/'
 model_name: 'early_attn_s42_0828_170643'
-data_path: 'processed/final'
+data_path: 'processed/final2'
 seed: 3
 exp: 'ego'
 model: 'early_lp'
