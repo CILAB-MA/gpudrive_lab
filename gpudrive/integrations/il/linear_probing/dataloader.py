@@ -26,7 +26,7 @@ class FutureDataset(torch.utils.data.Dataset):
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
-        self.full_var = ['obs', 'valid_masks', 'partner_mask', 'road_mask', 'future_pos', 'future_valid_mask', 'trajectory_type']
+        self.full_var = ['obs', 'partner_mask', 'road_mask', 'future_pos', 'future_valid_mask', 'trajectory_type']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -52,16 +52,18 @@ class FutureDataset(torch.utils.data.Dataset):
                     elif var_name in ['future_pos', 'future_valid_mask']:
                         data = self.__dict__[var_name][idx1, idx2]
                     elif var_name in ['trajectory_type']:
-                        if self.__dict__[var_name].ndim == 1:
+                        if self.__dict__[var_name].ndim == 2:
                             # ego trajectory type
                             data = self.__dict__[var_name][idx1]
-                        elif self.__dict__[var_name].ndim == 2:
+                        elif self.__dict__[var_name].ndim == 3:
                             # other trajectory type
                             data = self.__dict__[var_name][idx1, idx2]
                         else:
                             raise ValueError(f"Not in data {self.__dict__[var_name].ndim}. Your input is {var_name}")
                     else:
                         raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
+                    if isinstance(data, np.ndarray):
+                        data = torch.tensor(data)
                     batch = batch + (data, )
         else:
             for var_name in self.full_var:
