@@ -76,7 +76,7 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     dead_agent_mask = ~env.cont_agent_mask.clone()
     frames = [[] for _ in range(args.batch_size)]
     NUM_WORLD = alive_agent_mask.shape[0]
-    diff_cls_total = np.zeros((30, NUM_WORLD)).astype('bool')
+    diff_cls_total = np.zeros((31, NUM_WORLD)).astype('bool')
     # Extract Linear Probing
     other_layers = register_all_layers_forward_hook(bc_policy.fusion_attn)
     ego_layers = register_all_layers_forward_hook(bc_policy.ro_attn)
@@ -126,6 +126,10 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
     expert_actions, _, _, _, _  = env.get_expert_actions()
+    # intervention_label2 = np.random.randint(
+    #     low=0, high=64, size=intervention_label.shape, dtype=intervention_label.dtype
+    #     )
+    # intervention_label2 = torch.as_tensor(intervention_label2, dtype=torch.long).to('cuda').transpose(0, 1)
     intervention_label = torch.as_tensor(intervention_label, dtype=torch.long).to('cuda').transpose(0, 1)
     intervention_idx = torch.as_tensor(intervention_idx, device='cuda', dtype=torch.long)
     
@@ -142,7 +146,7 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
             context, *_ = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
-            if time_step < env.episode_len - 40: 
+            if time_step < env.episode_len - 40 and time_step % 3 == 0: 
                 other_nth_layer = list(other_layers.keys())[-1]
                 ego_nth_layer = list(ego_layers.keys())[-1]
                 other_lp_input = other_layers[other_nth_layer][:,1:128,:] 
@@ -153,28 +157,44 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
                 other_dict = defaultdict(dict)
                 intervention_dict = defaultdict(dict)
                 full_weights = torch.zeros((NUM_WORLD, 128, 4)).to('cuda')[wm]
+                # full_weights2 = torch.zeros((NUM_WORLD, 128, 4)).to('cuda')[wm]
                 batch = torch.arange(len(full_weights), device='cuda')
                 for i, other_lp in enumerate(other_lp_models):
                     w = other_lp.head.weight
                     weight_label = w.index_select(0, intervention_label[i])[wm]
-                    full_weights[..., i] = weight_label
+                    # weight_label2 = w.index_select(0, intervention_label2[i])[wm]
+                    full_weights[..., i] = weight_label * 5
+                    # full_weights2[..., i] = weight_label2 * 5
                 if args.intervention == 'mean':
                     full_weights_combined = full_weights.mean(-1)
+                    # full_weights_combined2 = full_weights2.mean(-1)
                 elif args.intervention == 'sum':
                     full_weights_combined = full_weights.sum(-1)
+                else:
+                    full_weights_combined = full_weights
+                
                 for i, (other_lp, ego_lp, future_step) in enumerate(zip(other_lp_models, ego_lp_models, future_steps)):
                     futm = other_relative_mask[:, time_step + future_step]   
                     other_pred = other_lp(other_lp_input)
                     w = other_lp.head.weight 
                     # weight_label = w.index_select(0, intervention_label[i])[wm]
                     g_prime = other_lp_input.clone()
-                    g_prime[batch, intervention_idx[wm], :] += full_weights_combined
+                    # g_prime2 = other_lp_input.clone()
+                    if args.intervention == 'one':
+                        g_prime[batch, intervention_idx[wm], :] += full_weights_combined[..., i]
+                    else:
+                        g_prime[batch, intervention_idx[wm], :] += full_weights_combined
+                        # g_prime2[batch, intervention_idx[wm], :] += full_weights_combined2
                     g_prime = torch.cat([other_layers[other_nth_layer][:, 0, :].unsqueeze(1), g_prime], dim=1)
+                    # g_prime2 = torch.cat([other_layers[other_nth_layer][:, 0, :].unsqueeze(1), g_prime2], dim=1)
                     h_prime = bc_policy.ro_attn(g_prime)
+                    # h_prime2 = bc_policy.ro_attn(g_prime2)
                     ego_input_prime = h_prime['last_hidden_state'][:, 0, :]
+                    # ego_input_prime2 = h_prime2['last_hidden_state'][:, 0, :]
+                    # print(f'Diff FUSION ATTN {(other_lp_input - g_prime[:, 1:, :]).mean()}')
                     ego_orig_pred = ego_lp(ego_lp_input)
                     ego_prime_pred = ego_lp(ego_input_prime) # todo: intervention idx applying
-
+                    # ego_prime_pred2 = ego_lp(ego_input_prime2) # todo: intervention idx applying
                     orig_alive_world = torch.zeros((NUM_WORLD, 1)).long().to("cuda")
                     other_alive_world = torch.zeros((NUM_WORLD, 127)).long().to("cuda")
                     intevention_alive_world = torch.zeros((NUM_WORLD, 127)).long().to("cuda")
@@ -185,14 +205,14 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
                     other_cls = other_cls.masked_fill(futm[wm], -1)
                     intevention_alive_world[torch.arange(NUM_WORLD), intervention_idx] = intervention_label[i]
                     other_alive_world[wm] = other_cls 
-
                     orig_alive_world[wm] = ego_orig_cls.unsqueeze(-1)
                     prime_alive_world[wm] = ego_prime_cls.unsqueeze(-1)
                     orig_dict[ego_lp.future_step] = orig_alive_world
                     intervention_dict[ego_lp.future_step] = intevention_alive_world
                     prime_dict[ego_lp.future_step] = prime_alive_world
                     other_dict[ego_lp.future_step] = other_alive_world
-
+                    del g_prime
+                # print(f'Diff LP {(ego_prime_pred2 - ego_prime_pred).abs().mean()} {(ego_prime_pred2 - ego_prime_pred).abs().std()}')
         setattr(env.vis, f"ego_pred_pos", orig_dict)
         setattr(env.vis, f"other_pred_pos", other_dict)
         setattr(env.vis, f"intervention_ego", prime_dict)
@@ -241,26 +261,31 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     os.makedirs(root, exist_ok=True)
     for i in range(args.batch_size):
         out_dir = os.path.join(root, f"lp_world{i + world_mask.shape[0] * scene_batch_idx}")
+        if args.random:
+            random = '_random2'
+        else:
+            random = ''
         if args.linear_probing == 'intervention':
-            out_dir = os.path.join(out_dir, f"{args.intervention}")
+            out_dir = os.path.join(out_dir, f"{args.intervention}{random}")
         save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.linear_probing}", diff_cls_total=diff_cls_total[:, i])
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=80) # total_world
-    parser.add_argument('--batch-size', type=int, default=80) # num_world
+    parser.add_argument('--dataset-size', type=int, default=100) # total_world
+    parser.add_argument('--batch-size', type=int, default=100) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix') #80000_subset_aix
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # \early_attn_s3_0908_113203.pth.pth
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
-    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention')
+    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention_final')
     parser.add_argument('--linear-probing', '-lp', type=str, default='intervention', choices=['original', 
     'intervention'])
     parser.add_argument('--intervention', '-i', type=str, default='mean', choices=['mean', 
-    'sum'])
-    parser.add_argument('--zoom-radius', type=int, default=70)
+    'sum', 'one'])
+    parser.add_argument('--random', '-r', action='store_true')
+    parser.add_argument('--zoom-radius', type=int, default=50)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
     dump = [0]*4
@@ -268,10 +293,15 @@ if __name__ == "__main__":
     cols = [f"step{i}" for i in (10, 20, 30, 40)]
     df = pd.read_csv("/data/full_version/intervention.csv")
     intervention_idx = df['intervention_idx'].tolist() 
-    pad_len = args.dataset_size - len(intervention_idx)
-    intervention_idx += [0] * pad_len
+    pad_len = args.dataset_size - len(intervention_idx) 
     intervention_label = np.stack([df[c].to_numpy() for c in cols], axis=1)
-    intervention_label = np.pad(intervention_label, ((0, pad_len), (0, 0)), mode="constant", constant_values=0)
+    if args.random:
+        intervention_label = np.random.randint(
+        low=0, high=64, size=intervention_label.shape, dtype=intervention_label.dtype
+        )
+    if pad_len > 0:
+        intervention_idx += [0] * pad_len
+        intervention_label = np.pad(intervention_label, ((0, pad_len), (0, 0)), mode="constant", constant_values=0)
     # Make scene loader
     scene_loader = SceneDataLoader(
         root=f"/data/full_version/data/{args.dataset}/",
@@ -325,8 +355,10 @@ if __name__ == "__main__":
     expert_dict = df.set_index('scene_idx').to_dict(orient='index')
     total_iter = int(args.dataset_size // args.batch_size)
     for i in range(total_iter):
+        intervention_idx_batch = intervention_idx[i * args.batch_size: (i + 1) * args.batch_size]
+        intervention_label_batch = intervention_label[i * args.batch_size: (i + 1) * args.batch_size]
         run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx=i, sweep_name=sweep_name,
-            intervention_idx=intervention_idx, intervention_label=intervention_label)
+            intervention_idx=intervention_idx_batch, intervention_label=intervention_label_batch)
         if i != num_iter - 1:
             env.swap_data_batch()
     env.close()
