@@ -287,9 +287,9 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
     for i in range(args.batch_size):
         out_dir = os.path.join(root, f"lp_world{i + world_mask.shape[0] * scene_batch_idx}")
         if args.random:
-            random = '_random2'
+            random = '_random'
         else:
-            random = ''
+            random = '3'
         if args.linear_probing == 'intervention':
             out_dir = os.path.join(out_dir, f"{args.intervention}{random}")
         save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.linear_probing}", diff_cls_total=diff_cls_total[:, i])
@@ -304,8 +304,8 @@ if __name__ == "__main__":
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix') #80000_subset_aix
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # \early_attn_s3_0908_113203.pth.pth
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
-    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention_test')
-    parser.add_argument('--linear-probing', '-lp', type=str, default='intervention', choices=['original', 
+    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention_real_final_original')
+    parser.add_argument('--linear-probing', '-lp', type=str, default='original', choices=['original', 
     'intervention'])
     parser.add_argument('--intervention', '-i', type=str, default='mean', choices=['mean', 
     'sum', 'one'])
@@ -336,6 +336,7 @@ if __name__ == "__main__":
     # intervention_label4 = np.stack([df_more[c].to_numpy() for c in cols4], axis=1)
     intervention_other_labels = np.concatenate([intervention_label1,intervention_label2,intervention_label3], axis=1)
     if args.random:
+        np.random.seed(42)
         intervention_label = np.random.randint(
         low=0, high=64, size=intervention_label.shape, dtype=intervention_label.dtype
         )

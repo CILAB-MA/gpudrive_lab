@@ -1377,36 +1377,36 @@ class MatplotlibVisualizer:
                 bboxes_static, AGENT_COLOR_BY_STATE["log_replay"]
             )
             
-        # Annotate agent IDs at their positions
-        id_tensor = agent_states.id[env_idx]
-        x_tensor = agent_states.pos_x[env_idx]
-        y_tensor = agent_states.pos_y[env_idx]
-        for agent_idx, (agent_id, x, y) in enumerate(zip(id_tensor, x_tensor, y_tensor)):
-            if agent_id < 0:
-                continue
-            if self.render_3d:
-                ax.text(
-                    x.item(),
-                    y.item(),
-                    self.vehicle_height,
-                    str(agent_idx),
-                    ha="center",
-                    va="center",
-                    fontsize=20 * marker_size_scale,
-                    color="black",
-                    zorder=10,
-                )
-            else:
-                ax.text(
-                    x.item(),
-                    y.item(),
-                    str(agent_idx),
-                    ha="center",
-                    va="center",
-                    fontsize=20 * marker_size_scale,
-                    color="black",
-                    zorder=10,
-                )
+        # # Annotate agent IDs at their positions
+        # id_tensor = agent_states.id[env_idx]
+        # x_tensor = agent_states.pos_x[env_idx]
+        # y_tensor = agent_states.pos_y[env_idx]
+        # for agent_idx, (agent_id, x, y) in enumerate(zip(id_tensor, x_tensor, y_tensor)):
+        #     if agent_id < 0:
+        #         continue
+        #     if self.render_3d:
+        #         ax.text(
+        #             x.item(),
+        #             y.item(),
+        #             self.vehicle_height,
+        #             str(agent_idx),
+        #             ha="center",
+        #             va="center",
+        #             fontsize=20 * marker_size_scale,
+        #             color="black",
+        #             zorder=10,
+        #         )
+        #     else:
+        #         ax.text(
+        #             x.item(),
+        #             y.item(),
+        #             str(agent_idx),
+        #             ha="center",
+        #             va="center",
+        #             fontsize=20 * marker_size_scale,
+        #             color="black",
+        #             zorder=10,
+        #         )
 
     def _plot_expert_trajectories(
         self,
@@ -1858,7 +1858,7 @@ class MatplotlibVisualizer:
         num_rows = translated_grid_x.shape[0] - 1
         num_cols = translated_grid_x.shape[1] - 1
         CELLS = num_cols  # (=8 가정)
-        rect_prop = 1.15
+        rect_prop = 1.2
         color_ = '#648EF6'
         line_style_ = '--' if intervention else '-'
         def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
@@ -1925,7 +1925,7 @@ class MatplotlibVisualizer:
 
         for s, idx_rm in pred_idx_by_step.items():
             r, c = divmod(idx_rm, num_cols)
-            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.015 * s,line_style=line_style_)
+            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.02 * s,line_style=line_style_)
 
         return fig
 
@@ -2046,7 +2046,7 @@ class MatplotlibVisualizer:
                     alpha_min_l, alpha_max_l = 1.00, 1.00
                     # ---- 예측: 대상 agent 1명만 ----
                     local_rank = target_non_ego_rank
-                    rect_prop = 1.1
+                    rect_prop = 1.15 - c * 0.05
                     line_style_ = "--" if intervention else "-"
                     for s in steps:
                         idx_tr_all = pred_idx[s][env_idx]
@@ -2072,7 +2072,7 @@ class MatplotlibVisualizer:
                         #     color_ = "#DC5856"
                         if 0 <= idx_rm < (num_rows * num_cols):
                             r, c = divmod(idx_rm, num_cols)
-                            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.015 * s,
+                            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.02 * s,
                                             line_style=line_style_)
 
         return fig
