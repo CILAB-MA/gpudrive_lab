@@ -617,7 +617,8 @@ class MatplotlibVisualizer:
             )
             if self.target_non_ego_rank != None:
                 non_ego_global = np.where(~self.controlled_agent_mask[env_idx].cpu().numpy().astype(bool))[0]
-                target_non_ego_rank =  self.target_non_ego_rank[env_idx]
+                for target_non_ego_rank_all in self.target_non_ego_rank:
+                    target_non_ego_rank =  target_non_ego_rank_all[env_idx]
                 if not (0 <= target_non_ego_rank < len(non_ego_global)):
                     pass
                 else:
@@ -1376,11 +1377,11 @@ class MatplotlibVisualizer:
                 bboxes_static, AGENT_COLOR_BY_STATE["log_replay"]
             )
             
-        # Annotate agent IDs at their positions
-        id_tensor = agent_states.id[env_idx]
-        x_tensor = agent_states.pos_x[env_idx]
-        y_tensor = agent_states.pos_y[env_idx]
-        # for agent_id, x, y in zip(id_tensor, x_tensor, y_tensor):
+        # # Annotate agent IDs at their positions
+        # id_tensor = agent_states.id[env_idx]
+        # x_tensor = agent_states.pos_x[env_idx]
+        # y_tensor = agent_states.pos_y[env_idx]
+        # for agent_idx, (agent_id, x, y) in enumerate(zip(id_tensor, x_tensor, y_tensor)):
         #     if agent_id < 0:
         #         continue
         #     if self.render_3d:
@@ -1388,10 +1389,10 @@ class MatplotlibVisualizer:
         #             x.item(),
         #             y.item(),
         #             self.vehicle_height,
-        #             str(int(agent_id.item())),
+        #             str(agent_idx),
         #             ha="center",
         #             va="center",
-        #             fontsize=6 * marker_size_scale,
+        #             fontsize=20 * marker_size_scale,
         #             color="black",
         #             zorder=10,
         #         )
@@ -1399,10 +1400,10 @@ class MatplotlibVisualizer:
         #         ax.text(
         #             x.item(),
         #             y.item(),
-        #             str(int(agent_id.item())),
+        #             str(agent_idx),
         #             ha="center",
         #             va="center",
-        #             fontsize=6 * marker_size_scale,
+        #             fontsize=20 * marker_size_scale,
         #             color="black",
         #             zorder=10,
         #         )
@@ -1823,7 +1824,7 @@ class MatplotlibVisualizer:
         if self.render_3d:
             raise NotImplementedError("3D rendering not supported for importance weight plotting.")
         if self.controlled_agent_mask[env_idx, :].sum() != 1:
-            raise NotImplementedError("Only one controlled agent is supported for plot linear probing.")
+            return fig
         
         ax = fig.axes[0]
 
@@ -1857,7 +1858,7 @@ class MatplotlibVisualizer:
         num_rows = translated_grid_x.shape[0] - 1
         num_cols = translated_grid_x.shape[1] - 1
         CELLS = num_cols  # (=8 가정)
-        rect_prop = 1.15
+        rect_prop = 1.2
         color_ = '#648EF6'
         line_style_ = '--' if intervention else '-'
         def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
@@ -1924,7 +1925,7 @@ class MatplotlibVisualizer:
 
         for s, idx_rm in pred_idx_by_step.items():
             r, c = divmod(idx_rm, num_cols)
-            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.015 * s,line_style=line_style_)
+            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.02 * s,line_style=line_style_)
 
         return fig
 
@@ -1941,7 +1942,7 @@ class MatplotlibVisualizer:
         if self.render_3d:
             raise NotImplementedError("3D rendering not supported for importance weight plotting.")
         if self.controlled_agent_mask[env_idx, :].sum() != 1:
-            raise NotImplementedError("Only one controlled agent is supported for plot linear probing.")
+            return fig
         
         ax = fig.axes[0]
 
@@ -1950,7 +1951,7 @@ class MatplotlibVisualizer:
         controlled_agents = (moving_agents & alive_ego)
         if alive_ego.sum().item() == 0:
             return fig
-        target_non_ego_rank =  self.target_non_ego_rank[env_idx]
+        target_non_ego_ranks =  self.target_non_ego_rank[:, env_idx] # (100, N)
         ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
         ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
         ego_rot   = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
@@ -1962,113 +1963,117 @@ class MatplotlibVisualizer:
         cos_theta = np.cos(ego_rot); sin_theta = np.sin(ego_rot)
         R = np.array([[cos_theta, -sin_theta],[sin_theta, cos_theta]]).squeeze(-1)
         Rinv = R.T
-
+        palette = [('#A6792D', "#F6CC64"),
+                    ("#D93025", "#F8B2B2"),
+                    ("#5C8018", "#C1F8B0"), 
+                    ("#8E24AA", "#F3E5F5")] 
         rotated_grid = R @ grid_points
 
         # 2) 대상 agent 선택 (ego 제외 127 중 rank)
         non_ego_global = np.where(~self.controlled_agent_mask[env_idx].cpu().numpy().astype(bool))[0]
-        if not (0 <= target_non_ego_rank < len(non_ego_global)):
-            return fig
-        gidx = int(non_ego_global[target_non_ego_rank])
+        for c, target_non_ego_rank in enumerate(target_non_ego_ranks):
+            color = to_rgb(palette[c][0])
+            color_ = palette[c][1]
+            if not (0 <= target_non_ego_rank < len(non_ego_global)):
+                continue
+            gidx = int(non_ego_global[target_non_ego_rank])
 
-        # 움직이는 차량이면 도형 색칠(선택사항)
-        if bool(response_type.moving[env_idx, gidx]):
-            pos_x = float(agent_states.pos_x[env_idx, gidx].item())
-            pos_y = float(agent_states.pos_y[env_idx, gidx].item())
-            rot_a = float(agent_states.rotation_angle[env_idx, gidx].item())
-            veh_l = float(agent_states.vehicle_length[env_idx, gidx].item())
-            veh_w = float(agent_states.vehicle_width[env_idx, gidx].item())
-            if (abs(pos_x) < OUT_OF_BOUNDS and abs(pos_y) < OUT_OF_BOUNDS and
-                0.5 < veh_l < 15 and 0.5 < veh_w < 15):
-                bboxes = np.array([[pos_x, pos_y, veh_l, veh_w, rot_a]], dtype=float)
-                color = to_rgb('#A6792D')
-                utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
-                    ax=ax,
-                    bboxes_s=bboxes,
-                    colors=np.array([color]),
-                    alpha=1.0,
-                    line_width_scale=3,
-                    as_center_pts=False,
-                    label=None,
-                )
-                ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
-                ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
-                ego_rot   = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
+            # 움직이는 차량이면 도형 색칠(선택사항)
+            if bool(response_type.moving[env_idx, gidx]):
+                pos_x = float(agent_states.pos_x[env_idx, gidx].item())
+                pos_y = float(agent_states.pos_y[env_idx, gidx].item())
+                rot_a = float(agent_states.rotation_angle[env_idx, gidx].item())
+                veh_l = float(agent_states.vehicle_length[env_idx, gidx].item())
+                veh_w = float(agent_states.vehicle_width[env_idx, gidx].item())
+                if (abs(pos_x) < OUT_OF_BOUNDS and abs(pos_y) < OUT_OF_BOUNDS and
+                    0.5 < veh_l < 15 and 0.5 < veh_w < 15):
+                    bboxes = np.array([[pos_x, pos_y, veh_l, veh_w, rot_a]], dtype=float)
+                    utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
+                        ax=ax,
+                        bboxes_s=bboxes,
+                        colors=np.array([color]),
+                        alpha=1.0,
+                        line_width_scale=3,
+                        as_center_pts=False,
+                        label=None,
+                    )
+                    ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
+                    ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
+                    ego_rot   = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
 
-                grid_corners = np.linspace(0.05*MIN_REL_AGENT_POS, 0.05*MAX_REL_AGENT_POS, GRID_CELL_COUNT)
-                grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
-                grid_points = np.stack([grid_x.flatten(), grid_y.flatten()], axis=0)  # (2,N)
+                    grid_corners = np.linspace(0.05*MIN_REL_AGENT_POS, 0.05*MAX_REL_AGENT_POS, GRID_CELL_COUNT)
+                    grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
+                    grid_points = np.stack([grid_x.flatten(), grid_y.flatten()], axis=0)  # (2,N)
 
-                cos_theta = np.cos(ego_rot); sin_theta = np.sin(ego_rot)
-                rotation_matrix = np.array([[cos_theta, -sin_theta],[sin_theta, cos_theta]]).squeeze(-1)  # (2,2)
+                    cos_theta = np.cos(ego_rot); sin_theta = np.sin(ego_rot)
+                    rotation_matrix = np.array([[cos_theta, -sin_theta],[sin_theta, cos_theta]]).squeeze(-1)  # (2,2)
 
-                rotated_grid = rotation_matrix @ grid_points  # (2,N)
-                translated_grid_x = (rotated_grid[0, :] + ego_pos_x).reshape(grid_x.shape)
-                translated_grid_y = (rotated_grid[1, :] + ego_pos_y).reshape(grid_y.shape)
-                num_rows = translated_grid_x.shape[0] - 1
-                num_cols = translated_grid_x.shape[1] - 1
-                CELLS = num_cols  # (=8 가정)
-                def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
-                    tl = np.array([translated_grid_x[r,   c  ], translated_grid_y[r,   c  ]], dtype=float)
-                    tr = np.array([translated_grid_x[r,   c+1], translated_grid_y[r,   c+1]], dtype=float)
-                    br = np.array([translated_grid_x[r+1, c+1], translated_grid_y[r+1, c+1]], dtype=float)
-                    bl = np.array([translated_grid_x[r+1, c  ], translated_grid_y[r+1, c  ]], dtype=float)
+                    rotated_grid = rotation_matrix @ grid_points  # (2,N)
+                    translated_grid_x = (rotated_grid[0, :] + ego_pos_x).reshape(grid_x.shape)
+                    translated_grid_y = (rotated_grid[1, :] + ego_pos_y).reshape(grid_y.shape)
+                    num_rows = translated_grid_x.shape[0] - 1
+                    num_cols = translated_grid_x.shape[1] - 1
+                    CELLS = num_cols  # (=8 가정)
+                    def draw_cell_border(ax, r, c, color, lw=3, z=7, alpha=1.0, inset_k=0.85, line_style='-'):
+                        tl = np.array([translated_grid_x[r,   c  ], translated_grid_y[r,   c  ]], dtype=float)
+                        tr = np.array([translated_grid_x[r,   c+1], translated_grid_y[r,   c+1]], dtype=float)
+                        br = np.array([translated_grid_x[r+1, c+1], translated_grid_y[r+1, c+1]], dtype=float)
+                        bl = np.array([translated_grid_x[r+1, c  ], translated_grid_y[r+1, c  ]], dtype=float)
 
-                    center = (tl + tr + br + bl) / 4.0
+                        center = (tl + tr + br + bl) / 4.0
 
-                    tl_i = center + inset_k * (tl - center)
-                    tr_i = center + inset_k * (tr - center)
-                    br_i = center + inset_k * (br - center)
-                    bl_i = center + inset_k * (bl - center)
+                        tl_i = center + inset_k * (tl - center)
+                        tr_i = center + inset_k * (tr - center)
+                        br_i = center + inset_k * (br - center)
+                        bl_i = center + inset_k * (bl - center)
 
-                    xs = [tl_i[0], tr_i[0], br_i[0], bl_i[0], tl_i[0]]
-                    ys = [tl_i[1], tr_i[1], br_i[1], bl_i[1], tl_i[1]]
+                        xs = [tl_i[0], tr_i[0], br_i[0], bl_i[0], tl_i[0]]
+                        ys = [tl_i[1], tr_i[1], br_i[1], bl_i[1], tl_i[1]]
 
-                    ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha,
-                            linestyle=line_style)
-                pred_idx = self.intervention_other if intervention else self.other_pred_pos
-                # ego_pred_idx = self.intervention_ego if intervention else self.ego_pred_pos
-                steps = sorted(pred_idx.keys())
-                if len(steps) == 0:
-                    return fig
+                        ax.plot(xs, ys, color=color, linewidth=lw, solid_joinstyle='round', zorder=z, alpha=alpha,
+                                linestyle=line_style)
+                    pred_idx = self.intervention_other if intervention else self.other_pred_pos
+                    # ego_pred_idx = self.intervention_ego if intervention else self.ego_pred_pos
+                    steps = sorted(pred_idx.keys())
+                    if len(steps) == 0:
+                        return fig
 
-                # 예측 알파: step↑ → 진하게
-                alpha_min_p, alpha_max_p = 1.00, 1.00
-                s_min, s_max = steps[0], steps[-1]
+                    # 예측 알파: step↑ → 진하게
+                    alpha_min_p, alpha_max_p = 1.00, 1.00
+                    s_min, s_max = steps[0], steps[-1]
 
-                # 라벨 알파: step↑ → 연하게
-                alpha_min_l, alpha_max_l = 1.00, 1.00
-                # ---- 예측: 대상 agent 1명만 ----
-                local_rank = target_non_ego_rank
-                rect_prop = 1.1
-                color_ = "#F6CC64"
-                line_style_ = "--" if intervention else "-"
-                for s in steps:
-                    idx_tr_all = pred_idx[s][env_idx]
-                    # idx_tr_ego = ego_pred_idx[s][env_idx]
-                    if isinstance(idx_tr_all, torch.Tensor):
-                        idx_tr_all = idx_tr_all.detach().cpu().numpy()
-                    if local_rank >= idx_tr_all.shape[0]:
-                        continue
-                    idx_tr = int(idx_tr_all[local_rank])
-                    # idx_tr_e = int(idx_tr_ego[local_rank])
-                    if idx_tr < 0:
-                        continue
-                    # if idx_tr_e < 0:
-                    #     continue
-                    x_bin = idx_tr // CELLS
-                    y_bin = idx_tr %  CELLS
-                    idx_rm = y_bin * CELLS + x_bin
+                    # 라벨 알파: step↑ → 연하게
+                    alpha_min_l, alpha_max_l = 1.00, 1.00
+                    # ---- 예측: 대상 agent 1명만 ----
+                    local_rank = target_non_ego_rank
+                    rect_prop = 1.15 - c * 0.05
+                    line_style_ = "--" if intervention else "-"
+                    for s in steps:
+                        idx_tr_all = pred_idx[s][env_idx]
+                        # idx_tr_ego = ego_pred_idx[s][env_idx]
+                        if isinstance(idx_tr_all, torch.Tensor):
+                            idx_tr_all = idx_tr_all.detach().cpu().numpy()
+                        if local_rank >= idx_tr_all.shape[0]:
+                            continue
+                        idx_tr = int(idx_tr_all[local_rank])
+                        # idx_tr_e = int(idx_tr_ego[local_rank])
+                        if idx_tr < 0:
+                            continue
+                        # if idx_tr_e < 0:
+                        #     continue
+                        x_bin = idx_tr // CELLS
+                        y_bin = idx_tr %  CELLS
+                        idx_rm = y_bin * CELLS + x_bin
 
-                    # x_bin2 = idx_tr_e // CELLS
-                    # y_bin2 = idx_tr_e %  CELLS
-                    # idx_rm2 = y_bin2 * CELLS + x_bin2
-                    # if idx_rm == idx_rm2:
-                    #     color_ = "#DC5856"
-                    if 0 <= idx_rm < (num_rows * num_cols):
-                        r, c = divmod(idx_rm, num_cols)
-                        draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.015 * s,
-                                         line_style=line_style_)
+                        # x_bin2 = idx_tr_e // CELLS
+                        # y_bin2 = idx_tr_e %  CELLS
+                        # idx_rm2 = y_bin2 * CELLS + x_bin2
+                        # if idx_rm == idx_rm2:
+                        #     color_ = "#DC5856"
+                        if 0 <= idx_rm < (num_rows * num_cols):
+                            r, c = divmod(idx_rm, num_cols)
+                            draw_cell_border(ax, r, c, color=color_, lw=5, z=8, alpha=0.9, inset_k=rect_prop - 0.02 * s,
+                                            line_style=line_style_)
 
         return fig
     
