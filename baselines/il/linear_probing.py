@@ -235,7 +235,6 @@ def train(exp_config=None):
                     obs, partner_mask, road_mask, future_pos, future_valid_mask, labels = batch
                     with torch.no_grad():
                         obs = obs.to("cuda")
-                        actions = actions.to("cuda")
                         partner_mask = partner_mask.to("cuda")
                         road_mask = road_mask.to("cuda")
                         all_masks= [partner_mask, road_mask]
@@ -277,7 +276,7 @@ def train(exp_config=None):
                         # compute loss
                         pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label.long())
                         if len(ood_pos_pred) > 0:
-                            ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label)
+                            ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label.long())
                             ood_pos_label = ood_pos_label.detach().cpu().numpy()
                             ood_class = ood_class.detach().cpu().numpy()
                             test_ood_accuracys += ood_acc
