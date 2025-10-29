@@ -28,9 +28,11 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, index_array,
     alive_world = torch.isin(full_indices, unique_world).long()
     colors = plt.get_cmap('gist_ncar')(torch.linspace(0, 1, len(index_array)).numpy())
     scene_labels = []
+    v = -1
     for n in range(N):
         if alive_world[n] != 1:
             continue
+        v += 1
         world_mask = index_array == n
         end = done_step[world_mask].cpu().numpy().astype('int')
         dx_list, dy_list, dyaw_list = [], [], []
@@ -49,7 +51,7 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, index_array,
         dx_exceed_count = np.array([b.mean() for b in dx_binary_list])
         dyaw_exceed_count = np.array([b.mean() for b in dyaw_binary_list])
         max_ratio =np.maximum(dy_exceed_count, dyaw_exceed_count)
-        label = np.full(dy_peak.shape, 'NORMAL', dtype=object)
+        label = np.full(dy_peak.shape, 'UNCATEGORIZED', dtype=object)
         abnormal_mask = (dy_peak > 0.5) | (dyaw_peak > 0.2)
         retreat_mask = dx_exceed_count > 0.5
         turn_mask = (dy_peak > 0.035) & (dyaw_peak > 0.025) & (max_ratio > 0.15)
@@ -61,23 +63,26 @@ def plot_action(log_actions, action_image_dir, st, en, done_step, index_array,
         scene_labels.append(label)
         for a, l in enumerate(label):
             total_label = (
-                f'World {st + n} Agent {a} {l}'
+                f'Scene {st + n} Type {l}'
             )
-
-            axs[0].plot(range(end[a]), dx_list[a], color=colors[a], label=total_label)
-            axs[1].plot(range(end[a]), dy_list[a], color=colors[a])
-            axs[2].plot(range(end[a]), dyaw_list[a], color=colors[a])
+            if len(label) == 1:
+                c = v
+            else:
+                c = a
+            axs[0].plot(range(end[a]), dx_list[a], color=colors[c], label=total_label)
+            axs[1].plot(range(end[a]), dy_list[a], color=colors[c])
+            axs[2].plot(range(end[a]), dyaw_list[a], color=colors[c])
 
     for i in range(3):
         axs[i].set_ylabel(labels[i])
         axs[i].grid(True)
     axs[-1].set_xlabel('Time step')
-
+    ncol = 2 if alive_world.sum() <= 50 else 10
     fig.legend(
         loc='center left',
         bbox_to_anchor=(0.87, 0.5),
-        ncol=10,
-        title=f"Agents over dy {dy_thresh} and dyaw {dyaw_thresh}"
+        ncol=ncol,
+        title=f"Agent Label"
     )
 
     fig.subplots_adjust(right=0.86)
@@ -97,7 +102,7 @@ if __name__ == "__main__":
     parser.add_argument('--make-image', '-mi', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument("--video-dir", "-vd", type=str, default="/data/full_version/expert_video/training_log")
-    parser.add_argument("--action-image-dir", "-aid", type=str, default="/data/full_version/expert_actions_full_veh/validation_label")
+    parser.add_argument("--action-image-dir", "-aid", type=str, default="/data/full_version/expert_actions_veh_test/validation_label")
     parser.add_argument("--total-scene-size", "-tss", type=int, default=10000)
     parser.add_argument("--scene-batch-size", "-sbs", type=int, default=50)
     parser.add_argument("--max-cont-agents", "-m", type=int, default=1)
