@@ -214,7 +214,7 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         rollout_len=5, pred_len=1, future_step=config['future_step'],
         exp=config['exp'], partner_labels=partner_labels, ego_labels=ego_labels
     )
-    return DataLoader(dataset, batch_size=512, shuffle=isshuffle, num_workers=8, prefetch_factor=4, pin_memory=True)
+    return DataLoader(dataset, batch_size=1024, shuffle=isshuffle, num_workers=8, prefetch_factor=4, pin_memory=True)
 
 def register_all_layers_forward_hook(model):
     hidden_vector_dict = OrderedDict()
@@ -363,10 +363,9 @@ def evaluate(exp_config):
 
         ax.text(0.98, 0.98, stats_txt, transform=ax.transAxes,
                 ha="right", va="top",
-                bbox=dict(boxstyle="round", facecolor="white", edgecolor="#888", alpha=0.95, pad=0.35),
-                fontsize=11, linespacing=1.15)
+                bbox=dict(boxstyle="round", facecolor="white", edgecolor="#888", alpha=0.95, pad=0.35), linespacing=1.15)
 
-        ax.set_title(f"{title} (n={len(x):,})", pad=6, fontsize=13)
+        ax.set_title(f"{title} (n={len(x):,})", pad=6)
         ax.set_ylabel("Prediction Probability of Label")
         ax.set_ylim(*Y_LIM)
         ax.grid(True, linestyle="--", linewidth=0.6)
@@ -374,10 +373,6 @@ def evaluate(exp_config):
             ax.spines[spine].set_visible(False)
 
     ax_bot.set_xlabel("Future Distance")
-
-    # ---- 컬러바: 오른쪽으로 더 띄우기 ----
-    fig.suptitle(f"Correlation between Prediction Prob. and Future Distance (Num Scene: {exp_config['num_scene']})",
-                y=0.985, fontsize=14)
 
     # 본 그림 오른쪽 여백 확보
     fig.subplots_adjust(right=0.8, hspace=0.28)
@@ -388,7 +383,7 @@ def evaluate(exp_config):
     sm.set_array([])
     cbar = fig.colorbar(sm, cax=cax)
     cbar.ax.set_ylabel("Relative distance change ((current - future)/current)", rotation=90, labelpad=16)
-    out_base = f"{exp_config['model_path']}_prob_2x1"
+    out_base = f"{exp_config['model_path']}_prob"
     plt.savefig(out_base + ".svg", dpi=300, bbox_inches="tight", pad_inches=0.1)
     print(f"[Saved] {out_base}.svg")
 
@@ -404,27 +399,28 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--exp', type=str, default='other', choices=['other', 'ego'])
     parser.add_argument('--model', type=str, default='early_lp', choices=['early_lp', 'final_lp', 'baseline'])
-    parser.add_argument('--model-path', '-mp', type=str, default='exp_100')
+    parser.add_argument('--model-path', '-mp', type=str, default='exp_80000_subset_aix')
     parser.add_argument('--seed', '-s', type=int, default=3)
     parser.add_argument('--num-scene', '-n', type=int, default=100)
     parser.add_argument('--future-step', '-f', type=int, default=10)
     args = parser.parse_args()
 
     mpl.rcParams.update({
-        "figure.dpi": 180,
+        'font.family': 'Times New Roman',
+        "figure.dpi": 300,
         "savefig.dpi": 300,
-        "axes.titlesize": 12,
-        "axes.labelsize": 11,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
+        "axes.titlesize": 19,
+        "axes.labelsize": 17,
+        "xtick.labelsize": 15,
+        "ytick.labelsize": 15,
+        "legend.fontsize": 15,
+        "font.size": 15,
         "axes.linewidth": 0.8,
         "axes.titlepad": 10,
         "figure.facecolor": "white",
         "savefig.transparent": False,
         "svg.fonttype": "none",
     })
-
     base_path = '/data/full_version/model'
     exp_path = os.path.join(base_path, args.model_path)
     lp_base_path = os.path.join(exp_path,  f'{args.exp}_linear_prob')
