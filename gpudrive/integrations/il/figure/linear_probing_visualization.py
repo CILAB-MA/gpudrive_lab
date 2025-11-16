@@ -256,15 +256,15 @@ def run(args, env, bc_policy, lp_models, scene_batch_idx, sweep_name, exp):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=20) # total_world
-    parser.add_argument('--batch-size', type=int, default=20) # num_world
+    parser.add_argument('--dataset-size', type=int, default=100) # total_world
+    parser.add_argument('--batch-size', type=int, default=100) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_100')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s42_0901_145943.pth')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth')
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
     parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/linear_probing')
-    parser.add_argument('--linear-probing', '-lp', type=str, default='ego')
-    parser.add_argument('--zoom-radius', type=int, default=70)
+    parser.add_argument('--linear-probing', '-lp', type=str, default='other')
+    parser.add_argument('--zoom-radius', type=int, default=45)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     args = parser.parse_args()
 

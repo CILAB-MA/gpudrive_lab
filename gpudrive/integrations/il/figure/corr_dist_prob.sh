@@ -5,7 +5,6 @@
 
 MODEL_PATH=("exp_100" "exp_80000_subset_aix")
 NUM_SCENE=(100 80000)
-# 반복문 실행
 for i in "${!MODEL_PATH[@]}"; do
   MP="${MODEL_PATH[$i]}"
   NS="${NUM_SCENE[$i]}"

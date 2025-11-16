@@ -202,7 +202,7 @@ if __name__ == "__main__":
     import os
     from torch.utils.data import DataLoader
     data_name = [100, 500, 1000, 5000]
-    data = np.load(f"/data/full_version/processed/final/training_trajectory_1000.npz")
+    data = np.load(f"/data/full_version/processed/final/validation_trajectory_2500.npz")
     actions =data['actions'].reshape(-1, 3)
     valid_masks = data['dead_mask'].reshape(-1)
     valid_masks = 1 - valid_masks
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     print(f'dx mean {dx.mean():.3f} std {dx.std():.3f} dy mean {dy.mean():.3f} std {dy.std():.3f} dyaw max {dyaw.mean():.3f} std {dyaw.std():.3f} ')
     
     
-    with np.load(os.path.join("/data/full_version/processed/final", "training_trajectory_1000.npz"), mmap_mode='r') as npz:
+    with np.load(os.path.join("/data/full_version/processed/final", "validation_trajectory_2500.npz"), mmap_mode='r') as npz:
         expert_obs = npz['obs']
         expert_actions = npz['actions']
         expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
@@ -229,9 +229,5 @@ if __name__ == "__main__":
         rollout_len=5, pred_len=1, aux_future_step=None,
         ego_global_pos=None, ego_global_rot=None
     )
-    dataloader = DataLoader(
-        dataset,
-        batch_size=512,
-        shuffle=True,
-    )
+    print(len(dataset))
     
