@@ -1,22 +1,22 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: lp_20000_cvpr
+name: test
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/full_version/model/exp_20000"
+    value: "/data/full_version/model/cov1792_clip10"
   model_name:
-    values: ["early_attn_s3_0825_044522"]
+    values: ["early_attn_s3_0630_072820_60000"]
   # DATA
   future_step:
     values: [10, 20, 30, 40]
   num_scene:
-    values: [20000]
+    values: [1000]
   exp:
-    values: ['other', 'ego']
+    values: ['ego']
   model:
     values: ['early_lp', 'final_lp', 'baseline']
   # EXPERIMENT

@@ -13,7 +13,7 @@ seed: 3
 early_stop_num: 100000
 base_path: '/data/full_version'
 model_path: 'model'
-data_path: 'processed/final2/'
+data_path: 'processed/final/'
 num_scene: 1000
 grad_norm: 10
 
