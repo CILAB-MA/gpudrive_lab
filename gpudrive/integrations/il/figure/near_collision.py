@@ -113,7 +113,7 @@ def update_accumulators_for_step(future_step,
             & (off_road_ep != 1) 
             & (veh_coll_step >= 0)
             & (veh_coll_step - WINDOW - future_step < time_step)
-            & (veh_coll_step - future_step >= time_step) # e.g. 30 - 10 - 5 <= time_step < 30 - 10 -> 15 <= time_step < 20 -> 15 + 10 ~ 20 + 10 prediction
+            & (veh_coll_step - future_step >= time_step)
         )
     out_window = (
         (veh_collision_ep == 1)   
@@ -637,7 +637,7 @@ if __name__ == "__main__":
     #     CELLS=CELLS,
     #     outdir=f"./heatmaps_lp_exclusive_full_{WINDOW}_gap",
     #     collision_group="veh_collision",
-    #     non_collision_group="not_collision",  # 너가 실제로 쓰는 key (예: "out_window"면 그걸로)
+    #     non_collision_group="not_collision", 
     #     transpose=True,
     #     origin="lower",
     #     min_count=10,

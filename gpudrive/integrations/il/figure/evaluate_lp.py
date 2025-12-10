@@ -304,8 +304,6 @@ def evaluate(exp_config):
                 all_true_probs.append(true_prob[pick].detach().cpu())
                 all_cdists.append(curr_dists[pick].detach().cpu())
                 total_pick += len(pick)
-            # if total_pick > 2500:
-            #     break
 
     # Gather arrays
     probs_all  = torch.cat(all_true_probs).numpy()
