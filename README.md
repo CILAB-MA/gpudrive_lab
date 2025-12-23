@@ -18,7 +18,7 @@ To make the `(state, action)` pairs, run `storage.py`.
 # make batch npz file
 python gpudrive/integrations/il/storage.py --dataset-size <NUM_SCENE> --dataset <TRAINING/VALIDATION>
 # concat files
-python gpudrive/integrations/il/data_concat.py
+python gpudrive/integrations/il/data_concat.py --num-scene <NUM_SCENE> --dataset <TRAINING/VALIDATION>
 ```
 Note that set `num_stack=1` stacking will be processed in dataloader.
 
@@ -54,7 +54,7 @@ bash baselines/il/test/partner_ratio.sh <BATCH_SIZE> <DATASET_SIZE> <EXPERIMENT_
 After run the code, you can check the total simulation result in `<base_path>/<model_path>/<sweep_name>/log_replay/result_<ratio>_total.csv`.
 
 ### Intervetion Experiment
-Befire run the intervention test, make sure to have a file `intervention.csv` and `intervention_other.csv`.
+Before run the intervention test, make sure to have a file `intervention.csv` and `intervention_other.csv`.
 | Column name         | Type    | Description                                     | Range              |
 |--------------------|---------|-------------------------------------------------|---------------------|
 | intervention_idx     | int   | ego index      | [0~128]                  
@@ -70,3 +70,8 @@ run `python gpudrive/integration/il/figure/intervention.py`
 
 ### Other Analysis
 For near-collision test, run `python gpudrive/integration/il/figure/near_collision.py`
+
+For correlation between linear probing prediction and future distance, run 
+`python gpudrive/integration/il/figure/evaluate_lp.py`
+
+To compare with multiple model, check `gpudrive/integration/il/figure/corr_dist_prob.sh`

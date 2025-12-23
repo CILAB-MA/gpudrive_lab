@@ -24,6 +24,8 @@ import os, torch, numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib import cm
+from matplotlib import cm
+from matplotlib.colors import TwoSlopeNorm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -340,104 +342,6 @@ def compute_overall_acc(bucket, acc_or_prob='prob') -> float:
     return (num / den).item()
 
 @torch.no_grad()
-def save_heatmaps(
-    acc, future_steps, CELLS, outdir="./heatmaps_lp",
-    groups=("all","goal","off_road","veh_collision"),
-    transpose=True,
-    origin="lower", 
-    min_count=10,
-    acc_or_prob="prob",
-    share_scale_across_all=True 
-):
-    os.makedirs(outdir, exist_ok=True)
-    group_text = dict(all="All", goal="Goal",off_road="Off-Road", veh_collision="Veh-Coll",
-                      not_collision="Not Veh-Coll", not_offraod="Not Off-Road")
-    def finite_max(t: torch.Tensor, default=1.0):
-        m = torch.isfinite(t)
-        return (t[m].max() if m.any() else torch.tensor(default, device=t.device))
-
-    if share_scale_across_all:
-        vals = []
-        for fs in future_steps:
-            for g in groups:
-                h, cnt = to_heat(acc[fs][g], CELLS, acc_or_prob)
-                h = h.masked_fill(cnt < min_count, torch.nan)
-                vals.append(h)
-        if vals:
-            stacked = torch.stack(vals) 
-            vmax = finite_max(stacked).item()
-        else:
-            vmax = 1.0
-        vmin = 0.0
-    else:
-        vmin, vmax = 0.0, 1.0
-
-    cmap = cm.get_cmap('viridis').copy()
-    cmap.set_bad(color='#9e9e9e')
-    norm = Normalize(vmin=vmin, vmax=vmax)
-
-    for fs in future_steps:
-        fig, axes = plt.subplots(
-            1, 4, figsize=(18, 4.6), dpi=300,
-            gridspec_kw={'wspace': 0.08}, constrained_layout=False
-        )
-        axes = axes.ravel().tolist()
-        last_im = None
-
-        for i, g in enumerate(groups):
-            h, cnt = to_heat(acc[fs][g], CELLS, acc_or_prob)
-            h = h.masked_fill(cnt < min_count, torch.nan)
-            if transpose:
-                h = h.T
-
-            im = axes[i].imshow(
-                h.cpu().numpy(), origin=origin, cmap=cmap, norm=norm, aspect='equal'
-            )
-            avg = compute_overall_acc(acc[fs][g], acc_or_prob)
-            avg_all = compute_overall_acc(acc[fs]['all'], acc_or_prob)
-            avg_norm = avg / avg_all
-            ticks = np.arange(CELLS)
-            axes[i].set_xticks(ticks)
-            axes[i].set_xticklabels([str(t) for t in ticks])
-            axes[i].set_yticks(ticks)
-            axes[i].set_yticklabels([str(t) for t in ticks])
-            axes[i].set_title(f"{group_text[g]} Step Before (Avg Prob.={avg_norm:.3f})")
-            axes[i].set_xlabel(""); axes[i].set_ylabel("")
-            last_im = im
-
-            if not share_scale_across_all:
-                vmax_local = finite_max(torch.from_numpy(h.cpu().numpy()))
-                im.set_clim(0.0, float(vmax_local))
-
-        cbar_ax = fig.add_axes([0.92, 0.20, 0.012, 0.60])  # [left,bottom,width,height]
-        cbar = fig.colorbar(last_im, cax=cbar_ax)
-        cbar.set_label("Accuracy")
-        # fig.text(0.02, 0.5, "Y", va="center", ha="left", rotation="vertical",)
-        # fig.text(0.5, 0.04, "X", va="center", ha="center",)
-        fig.subplots_adjust(left=0.05, right=0.90, top=0.90, bottom=0.12)
-
-        fig.savefig(os.path.join(outdir, f"heat_summary_fs{fs}_{acc_or_prob}.svg"))
-        plt.close(fig)
-        for g in groups:
-            h, cnt = to_heat(acc[fs][g], CELLS, acc_or_prob)
-            h = h.masked_fill(cnt < min_count, torch.nan)
-            if transpose:
-                h = h.T
-            fig, ax = plt.subplots(figsize=(5, 4), dpi=300, constrained_layout=True)
-            im = ax.imshow(h.cpu().numpy(), origin=origin, cmap=cmap, norm=norm, aspect='equal')
-            avg = compute_overall_acc(acc[fs][g], acc_or_prob)
-            avg_all = compute_overall_acc(acc[fs]['all'], acc_or_prob)
-            avg_norm = avg / avg_all
-            ax.set_title(f"{group_text[g]} Step Before")
-            # ax.set_xlabel("X"); ax.set_ylabel("Y")
-            cbar = fig.colorbar(im, ax=ax)
-            cbar.set_label("Accuracy")
-            fig.savefig(os.path.join(outdir, f"heat_{g}_fs{fs}_{acc_or_prob}.svg"))
-            plt.close(fig)
-from matplotlib import cm
-from matplotlib.colors import TwoSlopeNorm
-
-@torch.no_grad()
 def save_diff_heatmaps(
     acc,
     future_steps,
@@ -629,16 +533,14 @@ if __name__ == "__main__":
     env.close()
     save_acc_torch(f"lp_grid_prob_raw_il_{WINDOW}.pt", acc, future_steps, CELLS)
 
-    # save_heatmaps(acc, future_steps=[10,20,30,40], CELLS=CELLS, outdir=f"./heatmaps_lp_exclusive_full_{WINDOW}_gap")
-
-    # save_diff_heatmaps(
-    #     acc,
-    #     future_steps=[10, 20, 30, 40],
-    #     CELLS=CELLS,
-    #     outdir=f"./heatmaps_lp_exclusive_full_{WINDOW}_gap",
-    #     collision_group="veh_collision",
-    #     non_collision_group="not_collision", 
-    #     transpose=True,
-    #     origin="lower",
-    #     min_count=10,
-    # )
+    save_diff_heatmaps(
+        acc,
+        future_steps=[10, 20, 30, 40],
+        CELLS=CELLS,
+        outdir=f"./heatmaps_lp_exclusive_full_{WINDOW}_gap",
+        collision_group="veh_collision",
+        non_collision_group="all", 
+        transpose=True,
+        origin="lower",
+        min_count=10,
+    )
