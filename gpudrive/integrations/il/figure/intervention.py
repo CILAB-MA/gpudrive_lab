@@ -212,7 +212,6 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
                     # h_prime2 = bc_policy.ro_attn(g_prime2)
                     ego_input_prime = h_prime['last_hidden_state'][:, 0, :]
                     # ego_input_prime2 = h_prime2['last_hidden_state'][:, 0, :]
-                    # print(f'Diff FUSION ATTN {(other_lp_input - g_prime[:, 1:, :]).mean()}')
                     ego_orig_pred = ego_lp(ego_lp_input)
                     ego_prime_pred = ego_lp(ego_input_prime) # todo: intervention idx applying
                     # ego_prime_pred2 = ego_lp(ego_input_prime2) # todo: intervention idx applying

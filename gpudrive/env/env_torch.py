@@ -1238,6 +1238,28 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.stacked_obs = torch.cat([stacked_obs, obs], dim=-1)
         return self.stacked_obs.clone()
 
+    def get_probing_obs(self):
+        global_agent_obs = GlobalEgoState.from_tensor(
+            abs_self_obs_tensor=self.sim.absolute_self_observation_tensor(),
+            backend=self.backend,
+            device=self.device,
+        )
+        N = global_agent_obs.pos_x.shape[0]
+        global_pos_x = global_agent_obs.pos_x
+        ego_x = global_pos_x[self.cont_agent_mask]
+        global_pos_y = global_agent_obs.pos_y
+        ego_y = global_pos_y[self.cont_agent_mask]
+        global_theta = global_agent_obs.rotation_angle[self.cont_agent_mask]
+        ego_idx = self.cont_agent_mask.clone().int().argmax(dim=1)
+        cols = torch.arange(128, device=self.device).unsqueeze(0).expand(N, -1)
+        keep = (cols != ego_idx.unsqueeze(1))                                         # (W,128)
+
+        other_x = global_pos_x[keep].view(N, -1)   # (W,127)
+        other_y = global_pos_y[keep].view(N, -1)   # (W,127)
+        global_other = torch.stack([other_x, other_y], dim=-1)
+        global_ego = torch.stack([ego_x, ego_y, global_theta], dim=-1)
+        return global_ego, global_other,
+        
     def get_controlled_agents_mask(self):
         """Get the control mask. Shape: [num_worlds, max_agent_count]"""
         return (

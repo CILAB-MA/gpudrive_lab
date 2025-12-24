@@ -43,17 +43,29 @@ def set_seed(seed=42, deterministic=False):
         torch.backends.cudnn.benchmark = False 
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
-    expert_obs = np.load(os.path.join(data_path, "obs", data_file), mmap_mode='r')
-    expert_masks = np.load(os.path.join(data_path, "valid_mask", data_file), mmap_mode='r')
-    partner_mask = np.load(os.path.join(data_path, "partner_mask", data_file), mmap_mode='r')
-    road_mask = np.load(os.path.join(data_path, "road_mask", data_file), mmap_mode='r')
-    future_pos = np.load(os.path.join(data_path, "linear_probing", f"{config.exp}_future_pos", f"step{config.future_step}", data_file), mmap_mode='r')
-    future_valid_mask = np.load(os.path.join(data_path, "linear_probing", f"{config.exp}_future_valid_mask", f"step{config.future_step}", data_file), mmap_mode='r')
-    trajectory_type = np.load(os.path.join(data_path, "trajectory_type", f"{config.exp}_label", data_file), mmap_mode='r')
-
+    with np.load(os.path.join(data_path, data_file)) as npz:
+        ego_labels = None
+        partner_labels = None
+        expert_obs = npz['obs']
+        expert_actions = npz['actions']
+        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
+        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
+        road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
+        if config.exp == 'ego':
+            ego_labels = npz['ego_labels'].astype('int') if 'ego_labels' in npz.keys() else None
+        if config.exp == 'other':
+            partner_labels = npz['partner_labels'].astype('int') if 'partner_labels' in npz.keys() else None
+    ego_global_pos = None
+    ego_global_rot = None
+    if 'validation' in data_file:
+        data_file = data_file[6:]
+    with np.load(os.path.join(data_path, "global_" + data_file)) as global_npz:
+        ego_global_pos = global_npz['ego_global_pos']
+        ego_global_rot = global_npz['ego_global_rot']
     dataset = FutureDataset(
-        expert_obs, expert_masks, partner_mask, road_mask, future_pos, future_valid_mask, trajectory_type,
-        rollout_len=config.rollout_len, pred_len=config.pred_len
+        expert_obs, expert_actions, ego_global_pos, ego_global_rot, expert_masks, partner_mask, road_mask,
+        rollout_len=config.rollout_len, pred_len=config.pred_len, future_step=config.future_step,
+        exp=config.exp, partner_labels=partner_labels, ego_labels=ego_labels
     )
     dataloader = DataLoader(
         dataset,
@@ -132,9 +144,9 @@ def train(exp_config=None):
     ood_label_tensor = torch.tensor(ood_labels, device='cuda')
     pos_linear_model = LinearProbPosition(hidden_dim, 64, future_step=exp_config.future_step).to("cuda")
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    train_data_file = f"training_trajectory_{exp_config.num_scene}.npy"
+    train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_2500.npy"
+    eval_data_file =  f"label/validation_trajectory_2500.npz"
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=exp_config.lr, eps=0.0001)
 
@@ -145,7 +157,7 @@ def train(exp_config=None):
     pbar = tqdm(total=exp_config.total_gradient_steps, desc="Gradient Steps", ncols=100)
     gradient_steps = 0
     best_loss = 9999999
-
+    print(f'EXP CONFIG {exp_config}')
     while gradient_steps < exp_config.total_gradient_steps:
         pos_linear_model.train()
 
@@ -160,15 +172,16 @@ def train(exp_config=None):
         for i, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
-
-            obs, partner_mask, road_mask, future_pos, future_valid_mask, _ = batch
+            batch_size = batch[0].size(0)
+            obs, _, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos = batch
             
             obs = obs.to("cuda")
+            future_pos = future_pos.to("cuda")
+            valid_mask = valid_mask.to("cuda")
+            future_mask = future_mask.to("cuda")
             partner_mask = partner_mask.to("cuda")
             road_mask = road_mask.to("cuda")
             all_masks= [partner_mask, road_mask]
-            future_pos = future_pos.to("cuda")
-            future_valid_mask = future_valid_mask.to("cuda")
 
             if exp_config.model == 'baseline':
                 baseline_obs = obs[..., :6].reshape(-1, 30)
@@ -188,19 +201,24 @@ def train(exp_config=None):
                 else:
                     lp_input = layers[nth_layer][:,1:128,:]
 
-            # get future pred pos
+            # get future pred pos and action
+            # if exp_config.exp == 'ego':
+            #     future_mask = future_mask.squeeze(1)
             pred_pos = pos_linear_model(lp_input)
-            masked_pos = pred_pos[future_valid_mask]
-
-            # get future expert pos
+            future_mask = ~future_mask if exp_config.exp == 'other' else future_mask.squeeze(1)
+            masked_pos = pred_pos[future_mask]
+            
+            # get future expert pos and action
             future_pos = future_pos.clone()
-            masked_pos_label = future_pos[future_valid_mask]
-            if future_valid_mask.sum() == 0:
+            # if exp_config.exp == 'ego':
+            #     future_pos = future_pos.squeeze(1)
+            masked_pos_label = future_pos[future_mask]
+            if future_mask.sum() == 0:
                 continue_num += 1
                 continue
             
             # compute loss
-            pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label.long())
+            pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
             pos_optimizer.zero_grad()
             pos_loss.backward()
             gradient_steps += 1
@@ -232,15 +250,17 @@ def train(exp_config=None):
                 labeled_sum = torch.zeros(5)
                 num_oods = 0
                 for j, batch in enumerate(eval_expert_data_loader):
-                    obs, partner_mask, road_mask, future_pos, future_valid_mask, labels = batch
+                    obs, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos, labels = batch
                     with torch.no_grad():
                         obs = obs.to("cuda")
+                        actions = actions.to("cuda")
+                        future_pos = future_pos.to("cuda")
+                        valid_mask = valid_mask.to("cuda")
+                        future_mask = future_mask.to("cuda")
                         partner_mask = partner_mask.to("cuda")
                         road_mask = road_mask.to("cuda")
-                        all_masks= [partner_mask, road_mask]
-                        future_pos = future_pos.to("cuda")
-                        future_valid_mask = future_valid_mask.to("cuda")
                         labels = labels.to("cuda")
+                        all_masks= [partner_mask, road_mask]
                     if exp_config.model == 'baseline':
                         baseline_obs = obs[..., :6].reshape(-1, 30)
                         if exp_config.exp == 'other':
@@ -259,24 +279,25 @@ def train(exp_config=None):
                         else:
                             lp_input = layers[nth_layer][:,1:128,:]
                     with torch.no_grad():
-                        # get future pred pos
+                        # get future pred pos and action
                         pred_pos = pos_linear_model(lp_input)
-                        masked_pos = pred_pos[future_valid_mask]
-                        masked_label = labels[future_valid_mask]
-                        # get future expert pos
+                        future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
+                        masked_pos = pred_pos[future_mask]
+                        masked_label = labels[future_mask]
+                        # get future expert actionpartner_mask
                         future_pos = future_pos.clone()
-                        masked_pos_label = future_pos[future_valid_mask]
+                        masked_pos_label = future_pos[future_mask]
                         ood_mask = (masked_pos_label[..., None] == ood_label_tensor).any(dim=-1)
                         ood_pos_label = masked_pos_label[ood_mask]
                         ood_pos_pred = masked_pos[ood_mask]
-                        if future_valid_mask.sum() == 0:
+                        if future_mask.sum() == 0:
                             test_continue_num += 1
                             continue
                         
                         # compute loss
-                        pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label.long())
+                        pos_loss, pos_acc, pos_class = pos_linear_model.loss(masked_pos, masked_pos_label)
                         if len(ood_pos_pred) > 0:
-                            ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label.long())
+                            ood_loss, ood_acc, ood_class, num_ood = pos_linear_model.loss_no_reduction(ood_pos_pred, ood_pos_label)
                             ood_pos_label = ood_pos_label.detach().cpu().numpy()
                             ood_class = ood_class.detach().cpu().numpy()
                             test_ood_accuracys += ood_acc

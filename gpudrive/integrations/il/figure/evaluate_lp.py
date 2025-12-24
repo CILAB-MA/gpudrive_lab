@@ -241,17 +241,18 @@ def evaluate(exp_config):
             backbone.fusion_attn if exp_config['model'] == 'early_lp' else backbone.ro_attn
         )
     pos_linear_model = torch.load(exp_config['lp_path'], weights_only=False)
-
+    raw_linear_model = torch.load(exp_config['raw_path'], weights_only=False)
     # Data
     eval_data_path = '/data/full_version/processed/final/'
     eval_data_file =  "label/validation_trajectory_2500.npz"
-    loader = get_dataloader(eval_data_path, eval_data_file, exp_config, isshuffle=False)
+    loader = get_dataloader(eval_data_path, eval_data_file, exp_config, isshuffle=True)
     print(f'EXP CONFIG {exp_config}')
 
     per_batch = 100  # sampling while collecting
     all_true_probs, all_fdists, all_cdists = [], [], []
     total_pick = 0
     pos_linear_model.eval()
+    raw_linear_model.eval()
     for batch in loader:
         obs, future_dist, actions, mask, valid_mask, partner_mask, road_mask, future_mask, future_pos, labels = batch
         with torch.no_grad():
@@ -262,30 +263,33 @@ def evaluate(exp_config):
             partner_mask = partner_mask.to("cuda"); road_mask = road_mask.to("cuda")
             labels = labels.to("cuda")
 
-            if exp_config['model'] == 'baseline':
-                baseline_obs = obs[..., :6].reshape(-1, 30)
-                if exp_config['exp'] == 'other':
-                    B, T, _ = obs.shape
-                    ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
-                    partner_obs = obs[..., 6:6 * 128].reshape(B, T, 127, 6)
-                    lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
-                else:
-                    lp_input = baseline_obs
+            baseline_obs = obs[..., :6].reshape(-1, 30)
+            if exp_config['exp'] == 'other':
+                B, T, _ = obs.shape
+                ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
+                partner_obs = obs[..., 6:6 * 128].reshape(B, T, 127, 6)
+                raw_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
             else:
-                _ = backbone.get_context(obs, [partner_mask, road_mask])
-                nth = list(layers.keys())[-1]
-                lp_input = layers[nth][:,1:128,:] if exp_config['exp'] != 'ego' else layers[nth][:,0,:]
+                lp_input = baseline_obs
+
+            _ = backbone.get_context(obs, [partner_mask, road_mask])
+            nth = list(layers.keys())[-1]
+            lp_input = layers[nth][:,1:128,:] if exp_config['exp'] != 'ego' else layers[nth][:,0,:]
 
             pred_pos = pos_linear_model(lp_input)
+            raw_pos = raw_linear_model(raw_input)
             future_mask = ~future_mask if exp_config['exp'] == 'other' else future_mask
             masked_pos = pred_pos[future_mask]
+            masked_raw = raw_pos[future_mask]
             masked_label = labels[future_mask]
             future_pos = future_pos.clone()
             masked_pos_label = future_pos[future_mask]
             if future_mask.sum() == 0: 
                 continue
 
-            probs = torch.softmax(masked_pos, dim=-1)
+            pred_probs = torch.softmax(masked_pos, dim=-1)
+            raw_probs = torch.softmax(masked_raw, dim=-1)
+            probs = pred_probs - raw_probs
             true_prob = probs[torch.arange(probs.size(0), device=probs.device), masked_pos_label.long()]
             future_dists = torch.linalg.norm(future_dist[future_mask], dim=-1)
             curr_dists   = torch.linalg.norm(current_dist[future_mask], dim=-1)
@@ -300,37 +304,30 @@ def evaluate(exp_config):
                 all_true_probs.append(true_prob[pick].detach().cpu())
                 all_cdists.append(curr_dists[pick].detach().cpu())
                 total_pick += len(pick)
-            # if total_pick > 2500:
-            #     break
 
     # Gather arrays
     probs_all  = torch.cat(all_true_probs).numpy()
     fdists_all = torch.cat(all_fdists).numpy()
     cdists_all = torch.cat(all_cdists).numpy()
 
-    # Relative change & masks (50%)
-    # --- 비율 계산 ---
+    # Relative change & masks (40%)
     eps = 1e-12
     rel_change_raw = (cdists_all - fdists_all) / (cdists_all + eps)  # 1 - future/current
 
-    # closer/farther 마스크는 '원본' 값으로 판단 (±50%)
     closer_mask  = (rel_change_raw >= +0.4)
     farther_mask = (rel_change_raw <= -0.4)
 
-    # 색상/컬러바는 -1~1로 '클리핑'한 값을 사용
     rel_change_clr = np.clip(rel_change_raw, -1.0, 1.0)
 
-    # ---- 플롯(2 rows × 1 col) ----
-    Y_LIM = (0.0, 0.6)
+    Y_LIM = (-0.2, 0.5)
     MAX_SAMPLES = 2000
     fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(7.2, 9.0), sharex=False)
 
     panels = [
-        (ax_top,  closer_mask,  "Distance Difference: Closer (≥40%)"),
-        (ax_bot,  farther_mask, "Distance Difference: Farther (≥40%)"),
+        (ax_top,  closer_mask,  f"Closer (Scene {exp_config['num_scene']})"),
+        (ax_bot,  farther_mask, f"Farther (Scene {exp_config['num_scene']})"),
     ]
 
-    # 공통 norm/cmap: -1(파랑) ↔ 0 ↔ +1(빨강)
     norm = mpl.colors.TwoSlopeNorm(vmin=-1.0, vcenter=0.0, vmax=1.0)
     cmap = mpl.cm.get_cmap("coolwarm")
 
@@ -346,7 +343,7 @@ def evaluate(exp_config):
     for ax, msk, title in panels:
         x = fdists_all[msk]
         y = probs_all[msk]
-        c = rel_change_clr[msk]   # 색은 클리핑된 값
+        c = rel_change_clr[msk] 
 
         n = len(x)
         if n > 0:
@@ -357,7 +354,7 @@ def evaluate(exp_config):
             ax.scatter(x, y, s=10, c=c, cmap=cmap, norm=norm, alpha=0.35, linewidths=0)
             r, p, slope, intercept, (xs, ys) = corr_linfit(x, y)
             ax.plot(xs, ys, color="#DE8F05", linewidth=2.0)
-            stats_txt = f"Pearson r={r:.3f}, p={p:.1e}\n y={slope:.3f}x+{intercept:.3f}"
+            stats_txt = f"Pearson r={r:.3f}\n y={slope:.3f}x+{intercept:.3f}"
         else:
             stats_txt = "n=0"
 
@@ -365,8 +362,8 @@ def evaluate(exp_config):
                 ha="right", va="top",
                 bbox=dict(boxstyle="round", facecolor="white", edgecolor="#888", alpha=0.95, pad=0.35), linespacing=1.15)
 
-        ax.set_title(f"{title} (n={len(x):,})", pad=6)
-        ax.set_ylabel("Prediction Probability of Label")
+        ax.set_title(f"{title}", pad=12)
+        ax.set_ylabel("Prob. Difference \n(IL - Raw)")
         ax.set_ylim(*Y_LIM)
         ax.grid(True, linestyle="--", linewidth=0.6)
         for spine in ["top","right"]:
@@ -374,18 +371,16 @@ def evaluate(exp_config):
 
     ax_bot.set_xlabel("Future Distance")
 
-    # 본 그림 오른쪽 여백 확보
     fig.subplots_adjust(right=0.8, hspace=0.28)
 
-    # 별도 컬러바 축(figure 좌표계): left=0.90 로 더 오른쪽
     cax = fig.add_axes([0.83, 0.12, 0.025, 0.76])
     sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = fig.colorbar(sm, cax=cax)
-    cbar.ax.set_ylabel("Relative distance change ((current - future)/current)", rotation=90, labelpad=16)
+    cbar.ax.set_ylabel("Relative distance change", rotation=90, labelpad=16)
     out_base = f"{exp_config['model_path']}_prob"
-    plt.savefig(out_base + ".svg", dpi=300, bbox_inches="tight", pad_inches=0.1)
-    print(f"[Saved] {out_base}.svg")
+    plt.savefig(out_base + "_diff.pdf", dpi=300, bbox_inches="tight", pad_inches=0.1)
+    print(f"[Saved] {out_base}.pdf")
 
 # ------------------------------ Main ------------------------------
 def set_seed(seed=42, deterministic=False):
@@ -399,7 +394,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser('Select the dynamics model that you use')
     parser.add_argument('--exp', type=str, default='other', choices=['other', 'ego'])
     parser.add_argument('--model', type=str, default='early_lp', choices=['early_lp', 'final_lp', 'baseline'])
-    parser.add_argument('--model-path', '-mp', type=str, default='exp_80000_subset_aix')
+    parser.add_argument('--model-path', '-mp', type=str, default='exp_100')
     parser.add_argument('--seed', '-s', type=int, default=3)
     parser.add_argument('--num-scene', '-n', type=int, default=100)
     parser.add_argument('--future-step', '-f', type=int, default=10)
@@ -409,12 +404,12 @@ if __name__ == "__main__":
         'font.family': 'Times New Roman',
         "figure.dpi": 300,
         "savefig.dpi": 300,
-        "axes.titlesize": 19,
-        "axes.labelsize": 17,
-        "xtick.labelsize": 15,
-        "ytick.labelsize": 15,
-        "legend.fontsize": 15,
-        "font.size": 15,
+        "axes.titlesize": 34,
+        "axes.labelsize": 28,
+        "xtick.labelsize": 28,
+        "ytick.labelsize": 28,
+        "legend.fontsize": 24,
+        "font.size": 24,
         "axes.linewidth": 0.8,
         "axes.titlepad": 10,
         "figure.facecolor": "white",
@@ -427,11 +422,13 @@ if __name__ == "__main__":
     backbone_name = os.listdir(lp_base_path)[-1]
     lp_path = os.path.join(lp_base_path, backbone_name, f'seed{args.seed}')
     backbone_path = f'{exp_path}/{backbone_name}' if 'pth' in backbone_name else f'{exp_path}/{backbone_name}.pth'
+    raw_path = f'{lp_path}/pos_baseline_{args.future_step}.pth'
     lp_path = f'{lp_path}/pos_{args.model}_{args.future_step}.pth'
 
     set_seed(0)
     exp_config = dict(
         lp_path=lp_path,
+        raw_path=raw_path,
         backbone_path=backbone_path,
         model=args.model,
         exp=args.exp,

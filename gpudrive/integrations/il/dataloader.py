@@ -3,34 +3,34 @@ import numpy as np
 from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class ExpertDataset(torch.utils.data.Dataset):
-    def __init__(self, obs, actions, valid_masks=None, partner_mask=None, road_mask=None,
+    def __init__(self, obs, actions, masks=None, partner_mask=None, road_mask=None,
                  rollout_len=5, pred_len=1, aux_future_step=None, ego_global_pos=None, ego_global_rot=None,
                  use_tom=False):
         # obs
-        self.obs = obs
+        self.obs = np.pad(obs, ((0, 0), (rollout_len - 1, 0), (0, 0)))
 
         # actions
         self.actions = actions
         
         # masks
-        B, T, _ = actions.shape
-        self.valid_masks = valid_masks
+        valid_masks = 1 - masks
+        action_mask = (np.abs(actions[..., 1]) >  0.5) | (np.abs(actions[..., 0]) >  5) | (np.abs(actions[..., -1]) > 0.2)
+        valid_masks[action_mask] = 0
+        B, T, _ = obs.shape
+        new_shape = (B, T + rollout_len - 1)
+        new_valid_mask = np.zeros(new_shape, dtype=self.obs.dtype)
+        new_valid_mask[:, rollout_len - 1:] = valid_masks
+        self.valid_masks = new_valid_mask.astype('bool')
         self.use_mask = True if self.valid_masks is not None else False
 
         # partner_mask
-        self.partner_mask = partner_mask
-        
-        # road mask
-        self.road_mask = road_mask
-
-        # aux info (not used)
         self.aux_valid_mask = None
+        partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
         self.aux_mask = None
         self.other_info = None
         self.other_pos = None
         if use_tom:
             # todo: concat remove need
-            partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
             aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, 
                                                      future_timestep=aux_future_step)
             max_aux_actions = np.max(aux_info[..., -4:], axis=-1)
@@ -42,8 +42,18 @@ class ExpertDataset(torch.utils.data.Dataset):
             current_relative_pos = self._transform_relative_pos(aux_info, ego_global_pos, ego_global_rot, future_step=aux_future_step)
             current_relative_pos[self.aux_mask] = 0
             self.other_pos = self._get_multi_class_pos(current_relative_pos)
+
+        self.partner_mask = np.pad(partner_mask, ((0, 0), (rollout_len - 1, 0), (0, 0)), constant_values=2)
+        self.partner_mask = self.partner_mask  == 2
+        road_mask = road_mask.astype(bool)
+        self.road_mask = np.pad(
+            road_mask,
+            pad_width=((0, 0), (rollout_len - 1, 0), (0, 0)),
+            mode='constant',
+            constant_values=True
+        )
           
-        # etc
+        self.num_timestep = 1 if len(obs.shape) == 2 else obs.shape[1] - rollout_len - pred_len + 2
         self.rollout_len = rollout_len
         self.pred_len = pred_len
         self.valid_indices = self._compute_valid_indices()
@@ -176,25 +186,28 @@ class ExpertDataset(torch.utils.data.Dataset):
         idx2 = int(idx2)
         # row, column -> 
         batch = ()
-        for var_name in self.full_var:
-            if self.__dict__[var_name] is not None:
-                if var_name in ['obs', 'road_mask', 'partner_mask']:
-                    data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
-                elif var_name in ['actions']:
-                    data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
-                elif var_name in ['other_pos', 'aux_mask']:
-                    data = self.__dict__[var_name][idx1, idx2]
-                else:
-                    raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
-                if isinstance(data, np.ndarray):
-                    data = torch.tensor(data)
-                
-                batch = batch + (data, )
-                if var_name == 'valid_masks':
-                    ego_mask_data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len]
-                    if ego_mask_data != True:
-                        print('Not valid data!!!')
-
+        if self.num_timestep > 1:
+            for var_name in self.full_var:
+                if self.__dict__[var_name] is not None:
+                    if var_name in ['obs', 'road_mask', 'partner_mask']:
+                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len] # idx 0 -> (0, 0:10) -> (0, 9) end with first timestep
+                    elif var_name in ['actions']:
+                        data = self.__dict__[var_name][idx1, idx2:idx2 + self.pred_len] # idx 0 -> (0, 0:5) -> start with first timestep
+                    elif var_name in ['other_pos', 'aux_mask']:
+                        data = self.__dict__[var_name][idx1, idx2]
+                    else:
+                        raise ValueError(f"Not in data {self.full_var}. Your input is {var_name}")
+                    batch = batch + (data, )
+                    if var_name == 'valid_masks':
+                        ego_mask_data = self.__dict__[var_name][idx1, idx2:idx2 + self.rollout_len]
+                        if ego_mask_data != True:
+                            print('Not valid data!!!')
+            batch = batch + (torch.tensor([idx1, idx2]),)
+        else:
+            for var_name in self.full_var:
+                if self.__dict__[var_name] is not None:
+                    data = self.__dict__[var_name][idx]
+                    batch = batch + (data, )
         return batch
     
 
@@ -216,22 +229,3 @@ if __name__ == "__main__":
     dyaw = filtered_actions[:, 2]
     print(f'dx max {dx.max():.3f} min {dx.min():.3f} dy max {dy.max():.3f} min {dy.max():.3f} dyaw max {dyaw.max():.3f} min {dyaw.max():.3f} ')
     print(f'dx mean {dx.mean():.3f} std {dx.std():.3f} dy mean {dy.mean():.3f} std {dy.std():.3f} dyaw max {dyaw.mean():.3f} std {dyaw.std():.3f} ')
-    
-    
-    with np.load(os.path.join("/data/full_version/processed/final", "training_trajectory_1000.npz"), mmap_mode='r') as npz:
-        expert_obs = npz['obs']
-        expert_actions = npz['actions']
-        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
-        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
-        road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
-    dataset = ExpertDataset(
-        expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
-        rollout_len=5, pred_len=1, aux_future_step=None,
-        ego_global_pos=None, ego_global_rot=None
-    )
-    dataloader = DataLoader(
-        dataset,
-        batch_size=512,
-        shuffle=True,
-    )
-    

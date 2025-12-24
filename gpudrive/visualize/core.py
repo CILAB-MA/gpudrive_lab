@@ -1836,7 +1836,6 @@ class MatplotlibVisualizer:
         ego_pos_x = np.array(agent_states.pos_x[env_idx, controlled_agents])
         ego_pos_y = np.array(agent_states.pos_y[env_idx, controlled_agents])
         ego_rot   = np.array(agent_states.rotation_angle[env_idx, controlled_agents])
-
         grid_corners = np.linspace(0.05*MIN_REL_AGENT_POS, 0.05*MAX_REL_AGENT_POS, GRID_CELL_COUNT)
         grid_x, grid_y = np.meshgrid(grid_corners, grid_corners)
         grid_points = np.stack([grid_x.flatten(), grid_y.flatten()], axis=0)  # (2,N)

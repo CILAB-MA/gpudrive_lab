@@ -20,7 +20,7 @@ from box import Box
 # GPUDrive
 from gpudrive.integrations.il.dataloader import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
-from gpudrive.integrations.il.loss import gmm_loss, aux_loss, l1_loss, focal_loss
+from gpudrive.integrations.il.loss import gmm_loss
 # from algorithms.il.utils import *
 
 logger = logging.getLogger(__name__)
@@ -68,12 +68,13 @@ def get_grad_norm(params, step=None):
     return max_grad_norm, grad_name
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
-    expert_obs = np.load(os.path.join(data_path, "obs", data_file), mmap_mode='r')
-    expert_actions = np.load(os.path.join(data_path, "actions", data_file), mmap_mode='r')
-    expert_masks = np.load(os.path.join(data_path, "valid_mask", data_file), mmap_mode='r')
-    partner_mask = np.load(os.path.join(data_path, "partner_mask", data_file), mmap_mode='r')
-    road_mask = np.load(os.path.join(data_path, "road_mask", data_file), mmap_mode='r')
-    
+    with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
+        expert_obs = npz['obs']
+        expert_actions = npz['actions']
+        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
+        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
+        road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
+
     dataset = ExpertDataset(
         expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
         rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step,
@@ -110,11 +111,11 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     for i, batch in enumerate(eval_expert_data_loader):
         batch_size = batch[0].size(0)
         total_samples += batch_size
-        if len(batch) == 6:
-            obs, expert_action, partner_masks, road_masks, other_pos, aux_mask = batch
+        if len(batch) == 7:
+            obs, expert_action, partner_masks, road_masks, other_pos, aux_mask, data_idx = batch
             other_pos = other_pos.to(exp_config.device)
-        elif len(batch) == 4:
-            obs, expert_action, partner_masks, road_masks = batch
+        elif len(batch) == 5:
+            obs, expert_action, partner_masks, road_masks, data_idx = batch 
 
         obs, expert_action = obs.to(config.device), expert_action.to(config.device)
         partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
@@ -228,9 +229,9 @@ def train(exp_config=None):
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    train_data_file = f"training_trajectory_{exp_config.num_scene}.npy"
+    train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_2500.npy"
+    eval_data_file =  f"validation_trajectory_2500.npz"
     expert_data_loader = get_dataloader(train_data_path, train_data_file, exp_config)
     eval_expert_data_loader = get_dataloader(eval_data_path, eval_data_file, exp_config,
                                             isshuffle=False)
@@ -253,11 +254,11 @@ def train(exp_config=None):
         for n, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
-            if len(batch) == 6:
-                obs, expert_action, partner_masks, road_masks, other_pos, aux_mask = batch
+            if len(batch) == 7:
+                obs, expert_action, partner_masks, road_masks, other_pos, aux_mask, data_idx = batch
                 other_pos = other_pos.to(exp_config.device)
-            elif len(batch) == 4:
-                obs, expert_action, partner_masks, road_masks = batch 
+            elif len(batch) == 5:
+                obs, expert_action, partner_masks, road_masks, data_idx = batch 
             other_pos = other_pos.to(exp_config.device) if len(batch) > 5 else None
             obs, expert_action = obs.to(exp_config.device), expert_action.to(exp_config.device)
             partner_masks = partner_masks.to(exp_config.device) if len(batch) > 3 else None

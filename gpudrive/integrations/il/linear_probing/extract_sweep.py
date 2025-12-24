@@ -32,14 +32,12 @@ if __name__ == '__main__':
                 history = run.history()
                 best_row = history.loc[history["eval/pos_loss"].idxmin()]
 
-                row = best_row.to_dict()
+                row = best_row.to_dict() 
                 eval_summary = {k: v for k, v in row.items() if k.startswith("eval/")}
 
-                # 나머지 정보도 추가
                 future_step = "future_step"
                 eval_summary["_step"] = int(row["_step"])
 
-                # 여긴 여전히 summary에서 가져와야 함 (step과 무관하니까)
                 summary = run.summary._json_dict
                 eval_summary[future_step] = config.get(future_step)
                 eval_summary["model"] = config.get("model")
@@ -47,7 +45,6 @@ if __name__ == '__main__':
                 eval_summary["experiment"] = config.get("exp")
                 eval_summary["sweep"] = config.get("name")
                 all_runs.append(eval_summary)
-
 
     df = pd.DataFrame(all_runs)
     print(df)

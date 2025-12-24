@@ -4,9 +4,8 @@ set -euo pipefail
 
 # Usage: ./run_pairs.sh [training|validation|testing] [script_path]
 DATASET="${1:-training}"
-SCRIPT="${2:-your_script.py}"   # ← 파이썬 파일명 지정
+SCRIPT="${2:-your_script.py}" 
 
-# 출력 폴더(및 global 하위) 보장
 mkdir -p /data/full_version/processed/2000_subset/global
 
 for NUM in $(seq 2000 42000 80000); do

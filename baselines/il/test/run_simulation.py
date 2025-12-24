@@ -30,7 +30,7 @@ if __name__ == "__main__":
     models = os.listdir(os.path.join(args.model_path, args.sweep_name))
     print(models)
     for model in tqdm(models):
-        for dataset in ['training', 'validation']:
+        for dataset in ['validation']: # Options: ['training', 'validation']
             if '.pth' not in model:
                 continue
             if 'optim' in model:
@@ -45,7 +45,6 @@ if __name__ == "__main__":
             arguments = f"-mc -sa {args.sim_agent} -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
             if args.make_video:
                 arguments += ' -mv'
-            # command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} /root/anaconda3/envs/gpudrive/bin/python baselines/il/test/simulation.py {arguments}"
             command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} python baselines/il/test/simulation.py {arguments}"
             result = subprocess.run(command, shell=True)
             if result.returncode != 0:
