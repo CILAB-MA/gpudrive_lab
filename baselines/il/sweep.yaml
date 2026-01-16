@@ -1,6 +1,6 @@
 program: baselines/il/il.py
 method: grid
-name: test
+name: rebuttal_1000
 metric:
   goal: minimize
   name: eval/loss
@@ -12,7 +12,7 @@ parameters:
   num_scene:
     values: [1000]
   total_gradient_steps:
-    values: [700000]
+    values: [100000]
   # ILCONFIG
   network_dim:
     values: [128]

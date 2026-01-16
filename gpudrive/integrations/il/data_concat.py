@@ -112,8 +112,8 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'])
     args = parser.parse_args()
 
-    save_path = "/data/full_version/processed/test/"
-    save_name = f"{args.dataset}_{args.num_scene}.npz"
+    save_path = "/data/full_version/processed/final_rebuttal/"
+    save_name = f"{args.dataset}_{args.num_scene}_seed{args.seed}.npz"
     subset_path = f"/data/full_version/processed/{args.dataset}_subset_v5"
 
     run(save_path, save_name, subset_path, args.num_scene, seed=args.seed)
