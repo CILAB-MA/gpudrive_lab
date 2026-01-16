@@ -1,0 +1,30 @@
+program: baselines/il/linear_prob.py
+method: grid
+name: test
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  # MODEL
+  model_path:
+    value: "/data/full_version/model/cov1792_clip10"
+  model_name:
+    values: ["early_attn_s3_0630_072820_60000"]
+  # DATA
+  future_step:
+    values: [10, 20, 30, 40]
+  num_scene:
+    values: [1000]
+  exp:
+    values: ['ego']
+  model:
+    values: ['early_lp', 'final_lp', 'baseline']
+  # EXPERIMENT
+  batch_size:
+    values: [256]
+  total_gradient_steps:
+    values: [100000]
+  lr:
+    values: [0.0015]
+  seed:
+    values: [3, 11, 42]

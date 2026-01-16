@@ -1,0 +1,22 @@
+program: baselines/il/il.py
+method: grid
+name: rebuttal_1000
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  model_name:
+    values: ["early_attn"]
+  seed:
+    values: [0, 77]
+  num_scene:
+    values: [1000]
+  total_gradient_steps:
+    values: [100000]
+  # ILCONFIG
+  network_dim:
+    values: [128]
+  head_dim:
+    values: [64]
+  num_layer:
+    values: [[4, 3]]
