@@ -1,6 +1,6 @@
 program: baselines/il/il_memmap.py
 method: grid
-name: rebuttal_1000_memmap
+name: rebuttal_80000_memmap
 metric:
   goal: minimize
   name: eval/loss
@@ -10,9 +10,9 @@ parameters:
   seed:
     values: [0, 77]
   num_scene:
-    values: [1000]
+    values: [80000]
   total_gradient_steps:
-    values: [100000]
+    values: [850000]
   # ILCONFIG
   network_dim:
     values: [128]
