@@ -18,7 +18,7 @@ from baselines.il.config.config import EnvConfig
 from baselines.il.il_utils import *
 from box import Box
 # GPUDrive
-from gpudrive.integrations.il.dataloader import ExpertDataset
+from gpudrive.integrations.il.dataloader_memmap import ExpertDataset
 from gpudrive.integrations.il.model.model import EarlyFusionAttnBCNet
 from gpudrive.integrations.il.loss import gmm_loss
 # from algorithms.il.utils import *
@@ -67,18 +67,15 @@ def get_grad_norm(params, step=None):
                 grad_name = str(name)
     return max_grad_norm, grad_name
 
-def get_dataloader(data_path, data_file, config, isshuffle=True):
-    with np.load(os.path.join(data_path, data_file), mmap_mode='r') as npz:
-        expert_obs = npz['obs']
-        expert_actions = npz['actions']
-        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
-        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
-        road_mask = npz['road_mask'] if 'road_mask' in npz.keys() else None
+def get_dataloader(data_path, data_dir, config, isshuffle=True):
+    expert_obs = np.load(os.path.join(data_path, data_dir, "obs.npy"), mmap_mode='r')
+    expert_actions = np.load(os.path.join(data_path, data_dir, "actions.npy"), mmap_mode='r')
+    partner_mask = np.load(os.path.join(data_path, data_dir, "partner_mask.npy"), mmap_mode='r')
+    road_mask = np.load(os.path.join(data_path, data_dir, "road_mask.npy"), mmap_mode='r')
 
     dataset = ExpertDataset(
-        expert_obs, expert_actions, expert_masks, partner_mask, road_mask,
-        rollout_len=config.rollout_len, pred_len=config.pred_len, aux_future_step=config.aux_future_step,
-        ego_global_pos=None, ego_global_rot=None
+        expert_obs, expert_actions, partner_mask, road_mask,
+        rollout_len=config.rollout_len, pred_len=config.pred_len
     )
     dataloader = DataLoader(
         dataset,
@@ -111,16 +108,14 @@ def evaluate(eval_expert_data_loader, config, bc_policy, num_train_sample):
     for i, batch in enumerate(eval_expert_data_loader):
         batch_size = batch[0].size(0)
         total_samples += batch_size
-        if len(batch) == 7:
-            obs, expert_action, partner_masks, road_masks, other_pos, aux_mask, data_idx = batch
-            other_pos = other_pos.to(exp_config.device)
-        elif len(batch) == 5:
-            obs, expert_action, partner_masks, road_masks, data_idx = batch 
-
-        obs, expert_action = obs.to(config.device), expert_action.to(config.device)
-        partner_masks = partner_masks.to(config.device) if len(batch) > 3 else None
-        road_masks = road_masks.to(config.device) if len(batch) > 3 else None
+        obs, expert_action, partner_masks, road_masks = batch
+        
+        obs = obs.to(config.device)
+        expert_action = expert_action.to(config.device)
+        partner_masks = partner_masks.to(config.device)
+        road_masks = road_masks.to(config.device)
         all_masks= [partner_masks, road_masks]
+        
         with torch.no_grad():
             context, other_embeds, other_weights, *_  = bc_policy.get_context(obs, all_masks)
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
@@ -228,12 +223,11 @@ def train(exp_config=None):
         wandb_tags = list(wandb.run.tags)
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
-    train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    train_data_file = f"training_trajectory_{exp_config.num_scene}_seed{exp_config.seed}.npz"
-    eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"validation_trajectory_2500.npz"
-    expert_data_loader = get_dataloader(train_data_path, train_data_file, exp_config)
-    eval_expert_data_loader = get_dataloader(eval_data_path, eval_data_file, exp_config,
+    base_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
+    train_data_dir = f"training_trajectory_{exp_config.num_scene}_seed{exp_config.seed}"
+    eval_data_dir =  f"validation_trajectory_2500"
+    expert_data_loader = get_dataloader(base_data_path, train_data_dir, exp_config)
+    eval_expert_data_loader = get_dataloader(base_data_path, eval_data_dir, exp_config,
                                             isshuffle=False)
     num_train_sample = len(expert_data_loader.dataset)
     best_loss = 9999999
@@ -254,17 +248,14 @@ def train(exp_config=None):
         for n, batch in enumerate(expert_data_loader):
             if gradient_steps >= exp_config.total_gradient_steps:
                 break
-            if len(batch) == 7:
-                obs, expert_action, partner_masks, road_masks, other_pos, aux_mask, data_idx = batch
-                other_pos = other_pos.to(exp_config.device)
-            elif len(batch) == 5:
-                obs, expert_action, partner_masks, road_masks, data_idx = batch 
-            other_pos = other_pos.to(exp_config.device) if len(batch) > 5 else None
-            obs, expert_action = obs.to(exp_config.device), expert_action.to(exp_config.device)
-            partner_masks = partner_masks.to(exp_config.device) if len(batch) > 3 else None
-            road_masks = road_masks.to(exp_config.device) if len(batch) > 3 else None
+
+            obs, expert_action, partner_masks, road_masks = batch 
+            obs = obs.to(exp_config.device)
+            expert_action = expert_action.to(exp_config.device)
+            partner_masks = partner_masks.to(exp_config.device)
+            road_masks = road_masks.to(exp_config.device)
             all_masks= [partner_masks, road_masks]
-            context, other_embeds, other_weights, *_ = bc_policy.get_context(obs, all_masks)
+            context, *_ = bc_policy.get_context(obs, all_masks)
             # l1 loss version
 
             pred_loss, _ = gmm_loss(bc_policy, context, expert_action)
@@ -337,10 +328,10 @@ def train(exp_config=None):
 
 if __name__ == "__main__":
     args = parse_args()
-    with open('baselines/il/config/il.yaml', "r") as f:
+    with open('baselines/il/config/il_memmap.yaml', "r") as f:
         exp_config = Box(yaml.safe_load(f))
     if args.use_wandb:
-        with open("baselines/il/sweep.yaml") as f:
+        with open("baselines/il/sweep_memmap.yaml") as f:
             sweep_config = yaml.safe_load(f)
             sweep_params = sweep_config.setdefault("parameters", {})
             for k, v in exp_config.items():

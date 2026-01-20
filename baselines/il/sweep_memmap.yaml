@@ -1,6 +1,6 @@
-program: baselines/il/il.py
+program: baselines/il/il_memmap.py
 method: grid
-name: rebuttal_1000
+name: rebuttal_1000_memmap
 metric:
   goal: minimize
   name: eval/loss
