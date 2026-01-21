@@ -7,6 +7,16 @@ import random
 import tempfile
 import argparse
 
+FIXED_DTYPES = {
+    "obs": np.float32,
+    "actions": np.float32,
+    "dead_mask": np.bool_,
+    "partner_mask": np.int64,
+    "road_mask": np.bool_,
+    "ego_global_rot": np.float32,
+    "ego_global_pos": np.float32,
+}
+
 def print_memory_usage():
     """현재 RAM 사용량을 출력합니다."""
     mem = psutil.virtual_memory()
@@ -49,7 +59,7 @@ def save_large_npz(file_paths, keys_to_process, save_path, save_name):
                     
                     if key not in shapes:
                         shapes[key] = data[key].shape[1:] # 첫 차원(배치)을 제외한 나머지 차원
-                        dtypes[key] = data[key].dtype
+                        dtypes[key] = FIXED_DTYPES[key]
                     
                     total_rows[key] += data[key].shape[0]
         except Exception as e:
@@ -82,6 +92,10 @@ def save_large_npz(file_paths, keys_to_process, save_path, save_name):
                             continue
                         
                         chunk = data[key]
+                        
+                        if chunk.dtype != dtypes[key]:
+                            print(f"[CAST] {key}: {chunk.dtype} → {dtypes[key]}")
+                            chunk = chunk.astype(dtypes[key], copy=False)
                         count = chunk.shape[0]
                         start = cursors[key]
                         end = start + count
@@ -101,9 +115,7 @@ def save_large_npz(file_paths, keys_to_process, save_path, save_name):
         np.savez_compressed(full_save_path, **save_dict)
         
         # 명시적으로 memmap 닫기 (Windows 등에서 파일 잠금 방지)
-        for key in memmaps:
-            del memmaps[key]
-        gc.collect()
+        memmaps.clear()
 
     print(f"[DONE] Saved to {full_save_path}")
 
