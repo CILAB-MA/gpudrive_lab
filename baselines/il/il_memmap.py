@@ -224,7 +224,7 @@ def train(exp_config=None):
         wandb_tags.append(f"trainable_params_{trainable_params}")
         wandb.run.tags = tuple(wandb_tags)
     base_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    train_data_dir = f"training_trajectory_{exp_config.num_scene}_seed{exp_config.seed}"
+    train_data_dir = f"training_trajectory_{exp_config.num_scene}"
     eval_data_dir =  f"validation_trajectory_2500"
     expert_data_loader = get_dataloader(base_data_path, train_data_dir, exp_config)
     eval_expert_data_loader = get_dataloader(base_data_path, eval_data_dir, exp_config,
