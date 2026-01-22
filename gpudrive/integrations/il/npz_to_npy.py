@@ -1,8 +1,9 @@
 import argparse
 import numpy as np
 import os
-import shutil
-import gc  # 가비지 컬렉션용
+import gc
+import sys
+from tqdm import tqdm  # tqdm 임포트
 
 ROLL_OUT_LEN = 5
 PRED_LEN = 1
@@ -12,10 +13,10 @@ PRED_LEN = 1
 # --------------------------------------------------
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--npz-path', type=str,
-                        default="/data/full_version/final/training_trajectory_80000.npz")
+    parser.add_argument('--data-dir', type=str,
+                        default="/data/full_version/training_subset_v5") 
     parser.add_argument('--save-path', type=str,
-                        default="/data/full_version/final_rebuttal/npy")
+                        default="/data/full_version/final_rebuttal/npy/training_trajectory_80000")
     return parser.parse_args()
 
 # --------------------------------------------------
@@ -43,106 +44,172 @@ def preprocess_road_masks(road_mask):
     return np.pad(road_mask, ((0, 0), (4, 0), (0, 0)),
                   mode='constant', constant_values=True)
 
+# --------------------------------------------------
+# File List Generator
+# --------------------------------------------------
+def get_file_list(data_dir):
+    file_list = []
+    # 0부터 79900까지 100단위
+    for i in range(0, 80000, 100):
+        filename = f"trajectory_{i}.npz"
+        path = os.path.join(data_dir, filename)
+        if os.path.exists(path):
+            file_list.append(path)
+        # 존재하지 않는 파일 경고는 너무 많을 수 있으므로 생략하거나 필요한 경우 주석 해제
+        # else:
+        #    print(f"Warning: {filename} not found.")
+    return file_list
 
 if __name__ == "__main__":
     args = parse_args()
 
-    save_dir = os.path.join(
-        args.save_path,
-        os.path.basename(args.npz_path).replace(".npz", "")
-    )
-    os.makedirs(save_dir, exist_ok=True)
-
-    print(f"Loading npz from {args.npz_path}...")
-    # 600GB 로드 (RAM 60% 사용)
-    data = np.load(args.npz_path)
-    print("NPZ loaded.")
-
-    # 필요한 데이터만 참조 후 data 객체 삭제 유도 가능하면 좋음
-    obs = data["obs"]
-    actions = data["actions"]
+    os.makedirs(args.save_path, exist_ok=True)
     
-    # 마스크 전처리
-    print("Preprocessing masks...")
-    valid_mask = preprocess_valid_masks(data["dead_mask"], actions)
-    partner_mask = preprocess_partner_masks(data["partner_mask"])
-    road_mask = preprocess_road_masks(data["road_mask"])
+    npz_files = get_file_list(args.data_dir)
+    print(f"Found {len(npz_files)} npz files to process.")
 
-    # data 객체 명시적 삭제로 메모리 확보 시도 (obs, actions 등은 참조 유지)
-    del data
+    if len(npz_files) == 0:
+        print("No files found. Exiting.")
+        sys.exit()
+
+    # ==================================================================
+    # [Pass 1] 총 유효 샘플 수 계산
+    # ==================================================================
+    print("\n>>> [Pass 1/2] Counting total valid samples...")
+    
+    total_count = 0
+    
+    # Shape 확인용 임시 로드
+    temp_data = np.load(npz_files[0])
+    obs_shape_F = temp_data["obs"].shape[-1]
+    act_shape_A = temp_data["actions"].shape[-1]
+    partner_last_dim = preprocess_partner_masks(temp_data["partner_mask"]).shape[-1]
+    road_last_dim = preprocess_road_masks(temp_data["road_mask"]).shape[-1]
+    del temp_data
     gc.collect()
 
-    B, T, F = obs.shape
-    A = actions.shape[-1]
-
-    print("Counting valid samples...")
-    count = 0
-    # 유효 샘플 개수 카운팅 (수정 없음)
-    for b in range(B):
-        for t in range(T - (ROLL_OUT_LEN + PRED_LEN - 2)):
-            if valid_mask[b, t + ROLL_OUT_LEN + PRED_LEN - 2]:
-                count += 1
-
-    print(f"Total valid samples: {count}")
+    # TQDM 적용: Pass 1
+    # desc: 진행바 제목, unit: 단위 표시
+    pbar1 = tqdm(npz_files, desc="Counting", unit="file")
     
-    # 예상 용량 계산 및 경고
-    estimated_size_gb = (count * ROLL_OUT_LEN * F * 4) / (1024**3)  # float32 = 4 bytes
-    print(f"Estimated Output Size: {estimated_size_gb:.2f} GB")
-    print("⚠️ Ensure you have enough DISK space (not RAM).")
+    for fpath in pbar1:
+        try:
+            with np.load(fpath) as data:
+                actions = data["actions"]
+                dead_mask = data["dead_mask"]
+                
+                valid_mask = preprocess_valid_masks(dead_mask, actions)
+                
+                B, T, _ = actions.shape
+                
+                for b in range(B):
+                    time_indices = np.arange(T - (ROLL_OUT_LEN + PRED_LEN - 2))
+                    target_indices = time_indices + ROLL_OUT_LEN + PRED_LEN - 2
+                    
+                    valid_count_b = np.sum(valid_mask[b, target_indices])
+                    total_count += valid_count_b
+            
+            # 진행바 옆에 현재 누적 카운트 표시 (실시간 확인 가능)
+            pbar1.set_postfix(samples=total_count)
 
-    # --------------------------------------------------
-    # ⭐ 핵심 수정: np.lib.format.open_memmap 사용
-    # --------------------------------------------------
-    # 이 함수는 .npy 헤더를 포함하여 파일을 생성하므로, 
-    # 나중에 변환할 필요 없이 작업이 끝나면 바로 유효한 .npy 파일이 됩니다.
-    
-    print("Creating npy files directly on disk...")
+        except Exception as e:
+            # tqdm 사용 중 print를 쓰면 UI가 깨지므로 pbar.write 사용
+            pbar1.write(f"Error reading {fpath}: {e}")
+            continue
+
+    print(f"\nTotal valid samples calculated: {total_count}")
+    estimated_size_gb = (total_count * ROLL_OUT_LEN * obs_shape_F * 4) / (1024**3)
+    print(f"Estimated Obs.npy Size: {estimated_size_gb:.2f} GB")
+
+    # ==================================================================
+    # [Memory Mapping] 파일 생성
+    # ==================================================================
+    print("\n>>> Creating memmap files...")
     
     obs_mm = np.lib.format.open_memmap(
-        os.path.join(save_dir, "obs.npy"),
-        mode='w+', dtype=np.float32, shape=(count, ROLL_OUT_LEN, F)
+        os.path.join(args.save_path, "obs.npy"),
+        mode='w+', dtype='float32', shape=(int(total_count), ROLL_OUT_LEN, obs_shape_F)
     )
 
     actions_mm = np.lib.format.open_memmap(
-        os.path.join(save_dir, "actions.npy"),
-        mode='w+', dtype=np.float32, shape=(count, PRED_LEN, A)
+        os.path.join(args.save_path, "actions.npy"),
+        mode='w+', dtype='float32', shape=(int(total_count), PRED_LEN, act_shape_A)
     )
 
     partner_mm = np.lib.format.open_memmap(
-        os.path.join(save_dir, "partner_mask.npy"),
-        mode='w+', dtype=np.bool_, shape=(count, ROLL_OUT_LEN, partner_mask.shape[-1])
+        os.path.join(args.save_path, "partner_mask.npy"),
+        mode='w+', dtype='bool', shape=(int(total_count), ROLL_OUT_LEN, partner_last_dim)
     )
 
     road_mm = np.lib.format.open_memmap(
-        os.path.join(save_dir, "road_mask.npy"),
-        mode='w+', dtype=np.bool_, shape=(count, ROLL_OUT_LEN, road_mask.shape[-1])
+        os.path.join(args.save_path, "road_mask.npy"),
+        mode='w+', dtype='bool', shape=(int(total_count), ROLL_OUT_LEN, road_last_dim)
     )
 
-    print("Writing data to npy files...")
-    idx = 0
-    for b in range(B):
-        # 진행 상황 로깅 (대용량 처리시 필수)
-        if b % 100 == 0:
-            print(f"Processing batch {b}/{B}...")
+    # ==================================================================
+    # [Pass 2] 데이터 쓰기
+    # ==================================================================
+    print("\n>>> [Pass 2/2] Writing data to disk...")
+    
+    global_idx = 0
+    
+    # TQDM 적용: Pass 2
+    pbar2 = tqdm(npz_files, desc="Writing", unit="file")
+
+    for fpath in pbar2:
+        try:
+            data = np.load(fpath)
             
-        for t in range(T - (ROLL_OUT_LEN + PRED_LEN - 2)):
-            if not valid_mask[b, t + ROLL_OUT_LEN + PRED_LEN - 2]:
-                continue
+            obs = data["obs"]
+            actions = data["actions"]
+            
+            valid_mask = preprocess_valid_masks(data["dead_mask"], actions)
+            partner_mask = preprocess_partner_masks(data["partner_mask"])
+            road_mask = preprocess_road_masks(data["road_mask"])
+            
+            del data
 
-            # RAM(obs) -> Disk(obs_mm) 복사
-            # OS가 알아서 페이지 캐싱을 관리하므로 RAM이 터지지 않음
-            obs_mm[idx] = obs[b, t:t + ROLL_OUT_LEN]
-            actions_mm[idx] = actions[b, t:t + PRED_LEN]
-            partner_mm[idx] = partner_mask[b, t:t + ROLL_OUT_LEN]
-            road_mm[idx] = road_mask[b, t:t + ROLL_OUT_LEN]
+            B, T, _ = obs.shape
 
-            idx += 1
+            for b in range(B):
+                time_steps = T - (ROLL_OUT_LEN + PRED_LEN - 2)
+                check_indices = np.arange(time_steps) + ROLL_OUT_LEN + PRED_LEN - 2
+                is_valid = valid_mask[b, check_indices]
+                
+                num_valid = np.sum(is_valid)
+                if num_valid == 0:
+                    continue
 
-    # 변경사항 디스크 동기화 (선택사항, 안전을 위해)
+                valid_t_indices = np.where(is_valid)[0]
+
+                for t in valid_t_indices:
+                    obs_mm[global_idx] = obs[b, t:t + ROLL_OUT_LEN]
+                    actions_mm[global_idx] = actions[b, t:t + PRED_LEN]
+                    partner_mm[global_idx] = partner_mask[b, t:t + ROLL_OUT_LEN]
+                    road_mm[global_idx] = road_mask[b, t:t + ROLL_OUT_LEN]
+                    
+                    global_idx += 1
+            
+            del obs, actions, valid_mask, partner_mask, road_mask
+            gc.collect()
+
+            # 진행바 옆에 현재 저장된 인덱스 표시
+            pbar2.set_postfix(saved=global_idx)
+
+        except Exception as e:
+            pbar2.write(f"Error processing {fpath}: {e}")
+            continue
+
+    # Flush
     obs_mm.flush()
     actions_mm.flush()
     partner_mm.flush()
     road_mm.flush()
 
-    print("Saved final npy files successfully.")
-    print("Preprocessing finished.")
+    pbar2.close() # tqdm 종료 (for문 끝나면 자동이지만 명시적으로)
+
+    print("\nAll done!")
+    print(f"Final Global Index: {global_idx}")
+    print(f"Expected Count: {total_count}")
+    
+    assert global_idx == total_count, "Index Mismatch Error! Something went wrong."
