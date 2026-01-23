@@ -71,14 +71,14 @@ def run(save_path, save_name, subset_path, num_scenes, seed=42):
         gc.collect()
 
 
-    obs = np.concatenate(obs_list, axis=0)[:num_scenes]
-    actions = np.concatenate(actions_list, axis=0)[:num_scenes]
-    dead_masks = np.concatenate(dead_masks_list, axis=0)[:num_scenes]
-    partner_masks = np.concatenate(partner_masks_list, axis=0)[:num_scenes]
-    road_masks = np.concatenate(road_masks_list, axis=0)[:num_scenes]
+    obs = np.concatenate(obs_list, axis=0)
+    actions = np.concatenate(actions_list, axis=0)
+    dead_masks = np.concatenate(dead_masks_list, axis=0)
+    partner_masks = np.concatenate(partner_masks_list, axis=0)
+    road_masks = np.concatenate(road_masks_list, axis=0)
 
-    ego_global_rots = np.concatenate(ego_global_rots_list, axis=0)[:num_scenes]
-    ego_global_poss = np.concatenate(ego_global_poss_list, axis=0)[:num_scenes]
+    ego_global_rots = np.concatenate(ego_global_rots_list, axis=0)
+    ego_global_poss = np.concatenate(ego_global_poss_list, axis=0)
 
     print("[INFO] compressing & saving...")
 
