@@ -218,16 +218,17 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             rid = id_b[e]
 
             valid = (t != 0)
-            x_v = x[valid]
-            y_v = y[valid]
             t_v = t[valid]
-            rid_v = rid[valid]
+            x_v = x[valid][t_v == 1]
+            y_v = y[valid][t_v == 1]
 
             x_list.append(x_v.detach().cpu().numpy())
             y_list.append(y_v.detach().cpu().numpy())
-            point_edge_mask_list.append((t_v == 2).detach().cpu().numpy())
+            point_edge_mask_list.append((t_v == 1).detach().cpu().numpy())
 
-            _, seg_counts = torch.unique_consecutive(rid_v, return_counts=True) 
+            vals, seg_counts = torch.unique_consecutive(t_v, return_counts=True) 
+            seg_counts = seg_counts[vals == 1]
+
             lengths_np = seg_counts.to(torch.int32).detach().cpu().numpy()
             lengths_list.append(lengths_np)
 

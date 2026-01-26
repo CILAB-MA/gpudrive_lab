@@ -20,6 +20,40 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+def collect_wosac_random_baseline(env, num_agent):
+    obs = env.reset()
+    alive_agent_mask = env.cont_agent_mask.clone()
+    dead_agent_mask = ~env.cont_agent_mask.clone()
+    global_agent_obs = env.get_global_state()
+    ego_xy, ego_heading = get_global_infos(global_agent_obs)
+    ego_length = global_agent_obs.vehicle_length[alive_agent_mask]
+    ego_width = global_agent_obs.vehicle_width[alive_agent_mask]
+
+    simulated_xy = torch.zeros((num_agent, 91, 2)).to("cuda")
+    simulated_heading = torch.zeros((num_agent, 91, 1)).to("cuda")
+    simulated_xy[:, 0] = ego_xy[alive_agent_mask]
+    simulated_heading[:, 0] = ego_heading[alive_agent_mask]
+
+    # Update using Gaussian:
+    samples = torch.normal(mean=1.0, std=0.1, size=(num_agent, 91, 3), device="cuda")
+    for time_step in tqdm(range(1, env.episode_len)):
+        dx, dy, d_heading = samples[:, time_step, 0], samples[:, time_step, 1], samples[:, time_step, 2]
+        x, y, heading = simulated_xy[:, time_step - 1, 0] , simulated_xy[:, time_step - 1, 1],  simulated_heading[:, time_step - 1]
+
+        cos_h = torch.cos(heading).reshape(-1)
+        sin_h = torch.sin(heading).reshape(-1)
+
+        x += dx * cos_h - dy * sin_h
+        y += dx * sin_h + dy * cos_h
+        heading += d_heading.unsqueeze(-1)
+
+        simulated_xy[:, time_step, 0] = x
+        simulated_xy[:, time_step, 1] = y
+        simulated_heading[:, time_step] = heading
+
+    return simulated_xy, simulated_heading, ego_length, ego_width
+
+
 
 def get_global_infos(global_agent_obs):
     ego_x = global_agent_obs.pos_x
@@ -55,7 +89,7 @@ def collect_rollout(env, bc_policy, num_agent):
         partner_mask = env.get_partner_mask().to("cuda")
         partner_mask_bool = partner_mask == 2
         all_masks = [partner_mask_bool[~dead_agent_mask].unsqueeze(1), road_mask[~dead_agent_mask].unsqueeze(1)]
-
+        
         # Record when agent status changed(goal or collided)
         off_road = infos.off_road[alive_agent_mask]
         veh_collision = infos.collided[alive_agent_mask]
@@ -124,7 +158,10 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     simulated_xy = torch.zeros((num_agent, num_rollout, 2, 91))
     simulated_heading = torch.zeros((num_agent, num_rollout, 91))
     for n in range(num_rollout):
-        rollout_xy, rollout_heading, ego_length, ego_width = collect_rollout(env, bc_policy,num_agent)
+        if args.is_random:
+            rollout_xy, rollout_heading, ego_length, ego_width = collect_wosac_random_baseline(env, num_agent)
+        else:
+            rollout_xy, rollout_heading, ego_length, ego_width = collect_rollout(env, bc_policy, num_agent)
         rollout_xy = rollout_xy.transpose(1, 2)
         rollout_heading = rollout_heading.squeeze(-1)
         simulated_xy[:, n] = rollout_xy
@@ -347,7 +384,25 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     scene_level_results = scene_level_results[
         ["num_agents"] + [col for col in scene_level_results.columns if col != "num_agents"]
     ]
+    kin_cols = [
+        "likelihood_linear_speed",
+        "likelihood_linear_acceleration",
+        "likelihood_angular_speed",
+        "likelihood_angular_acceleration",
+    ]
+    int_cols = [
+        "likelihood_distance_to_nearest_object",
+        "likelihood_time_to_collision",
+        "likelihood_collision_indication",
+    ]
+    map_cols = [
+        "likelihood_distance_to_road_edge",
+        "likelihood_offroad_indication",
+    ]
 
+    scene_level_results["kinematic_metrics"] = scene_level_results[kin_cols].mean(axis=1)
+    scene_level_results["interactive_metrics"] = scene_level_results[int_cols].mean(axis=1)
+    scene_level_results["map_based_metrics"] = scene_level_results[map_cols].mean(axis=1)
     aggregate_results = True
     if aggregate_results:
         aggregate_metrics = scene_level_results.mean().to_dict()
@@ -377,8 +432,7 @@ if __name__ == "__main__":
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
     parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # early_attn_s11_0808_043910
-    parser.add_argument('--make-video', '-mv', action='store_true')
-    parser.add_argument('--make-csv', '-mc', action='store_true')
+    parser.add_argument('--is-random', '-r', action='store_true')
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     parser.add_argument('--init-steps', type=int, default=10)
@@ -415,6 +469,7 @@ if __name__ == "__main__":
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
         collision_behavior='ignore',
         num_stack=5,
+        remove_non_vehicles=False
         init_steps=args.init_steps
     )
     render_config = RenderConfig(
@@ -438,9 +493,13 @@ if __name__ == "__main__":
     else:
         remove_controlled_agents = True
     import json
+    from pathlib import Path
+    p = Path(args.model_path)
+    parts = p.resolve().parts
+    name = p.name if not args.is_random else "random"
     for i in tqdm(range(num_iter)):
         results = run(args, env, bc_policy, dataset=args.dataset)
-        with open("/data/full_version/wosac.json", "a", encoding="utf-8") as f:
+        with open(f"/data/full_version/debug_{name}.json", "a", encoding="utf-8") as f:
             f.write(json.dumps(results, ensure_ascii=False))
             f.write("\n")
         if i != num_iter - 1:

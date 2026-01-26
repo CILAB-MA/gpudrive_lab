@@ -992,7 +992,6 @@ def compute_map_features(
     num_agents = x_t.shape[0]
     num_rollouts = x_t.shape[1]
     num_steps = x_t.shape[2]
-
     if valid is None:
         valid_t = torch.ones((num_agents, num_rollouts, num_steps), dtype=torch.bool, device=device)
     else:
@@ -1016,6 +1015,8 @@ def compute_map_features(
         polyline_indices = np.where(polyline_mask)[0]
 
         scenario_lengths = road_edge_polylines["lengths"][polyline_mask]
+        if polyline_mask.sum() == 0:
+            continue
 
         scenario_x_list = []
         scenario_y_list = []
