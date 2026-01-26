@@ -15,6 +15,7 @@ from gpudrive.env.config import EnvConfig, RenderConfig
 from gpudrive.env.env_torch import GPUDriveTorchEnv
 from gpudrive.env.dataset import SceneDataLoader
 from baselines.il.test.metrics import *
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -36,11 +37,16 @@ def collect_rollout(env, bc_policy, num_agent):
     ego_length = global_agent_obs.vehicle_length[alive_agent_mask]
     ego_width = global_agent_obs.vehicle_width[alive_agent_mask]
 
-    simulated_xy = torch.zeros((num_agent, 91, 2))
-    simulated_heading = torch.zeros((num_agent, 91, 1))
+    simulated_xy = torch.zeros((num_agent, 91, 2)).to("cuda")
+    simulated_heading = torch.zeros((num_agent, 91, 1)).to("cuda")
     simulated_xy[:, 0] = ego_xy[alive_agent_mask]
     simulated_heading[:, 0] = ego_heading[alive_agent_mask]
-
+    infos = env.get_infos()
+    goal_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.float32).to("cuda")
+    off_road_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to("cuda")
+    off_road_ep = infos.off_road[alive_agent_mask]
+    veh_collision_ep = infos.collided[alive_agent_mask]
+    goal_achieved_ep = infos.goal_achieved[alive_agent_mask]
     for time_step in tqdm(range(env.episode_len)):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
 
@@ -50,6 +56,14 @@ def collect_rollout(env, bc_policy, num_agent):
         partner_mask_bool = partner_mask == 2
         all_masks = [partner_mask_bool[~dead_agent_mask].unsqueeze(1), road_mask[~dead_agent_mask].unsqueeze(1)]
 
+        # Record when agent status changed(goal or collided)
+        off_road = infos.off_road[alive_agent_mask]
+        veh_collision = infos.collided[alive_agent_mask]
+        goal_achieved = infos.goal_achieved[alive_agent_mask]
+        goal_mask = (goal_achieved > 0) & (goal_timesteps == -1)
+        off_road_mask = (off_road > 0) & (off_road_timesteps == -1)
+        off_road_timesteps[off_road_mask] = time_step
+        goal_timesteps[goal_mask] = time_step
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
@@ -60,28 +74,47 @@ def collect_rollout(env, bc_policy, num_agent):
         env.step_dynamics(all_actions)
         obs = env.get_obs()
         dones = env.get_dones()
-
+        infos = env.get_infos()
+        off_road_ep += infos.off_road[alive_agent_mask]
+        veh_collision_ep += infos.collided[alive_agent_mask]
+        goal_achieved_ep += infos.goal_achieved[alive_agent_mask]
+        off_road_ep = torch.clamp(off_road_ep, max=1)
+        veh_collision_ep = torch.clamp(veh_collision_ep, max=1)
+        goal_achieved_ep = torch.clamp(goal_achieved_ep, max=1)
+        dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
             break
         elif not dones[alive_agent_mask].all():
             global_agent_obs = env.get_global_state()
             ego_xy, ego_heading = get_global_infos(global_agent_obs)
-            simulated_xy[:, time_step + 1] = ego_xy[alive_agent_mask]
-            simulated_heading[:, time_step + 1] = ego_heading[alive_agent_mask]
-
+            ego_xy_filtered = ego_xy[alive_agent_mask]
+            ego_heading_filtered  = ego_heading[alive_agent_mask]
+            if goal_achieved_ep.any(): 
+                # since gpudrive remove the vehicle after goal arrived, so fix the last pos if reached goal
+                ego_xy_filtered[goal_achieved_ep.bool()] = simulated_xy[goal_achieved_ep.bool(), time_step]
+                ego_heading_filtered[goal_achieved_ep.bool()] = simulated_heading[goal_achieved_ep.bool(), time_step]
+            simulated_xy[:, time_step + 1] = ego_xy_filtered
+            simulated_heading[:, time_step + 1] = ego_heading_filtered
+    off_road_rate = off_road_ep.sum().float() / alive_agent_mask.sum().float()
+    veh_coll_rate = veh_collision_ep.sum().float() / alive_agent_mask.sum().float()
+    goal_rate = goal_achieved_ep.sum().float() / alive_agent_mask.sum().float()
+    print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
+    print()
     return simulated_xy, simulated_heading, ego_length, ego_width
 
-def run(args, env, bc_policy, dataset, num_rollout=3):
+def run(args, env, bc_policy, dataset, num_rollout=32):
     obs = env.reset()
     scenario_ids = env.get_scenario_ids()
     scenario_ids_list = np.array([v for k, v in sorted(scenario_ids.items())])
     tracks_to_predict = env.get_tracks_to_predict()
     alive_agent_mask = env.cont_agent_mask.clone()
-    # road_edge_polylines = env.get_road_edge_polyline()
-
+    
+    road_edge_polylines = env.get_road_edge_polyline()
+    
     num_agent_per_env = alive_agent_mask.sum(-1).detach().cpu().numpy()
-    scenario_ids_list = np.repeat(scenario_ids_list, num_agent_per_env) 
-    scenario_ids_list = scenario_ids_list[:, None]
+    scenario_ids_agent = np.repeat(scenario_ids_list, num_agent_per_env) 
+    scenario_ids_agent = scenario_ids_agent[:, None]
+
     _, expert_xy, _, expert_heading, expert_valids  = env.get_expert_actions() 
     expert_xy = expert_xy[alive_agent_mask].transpose(1, 2).unsqueeze(1)
     expert_heading = expert_heading[alive_agent_mask].transpose(1, 2)
@@ -105,6 +138,7 @@ def run(args, env, bc_policy, dataset, num_rollout=3):
     ego_length = ego_length.detach().cpu().numpy()
     ego_width = ego_width.detach().cpu().numpy()
     only_tracks_to_predict = only_tracks_to_predict.bool().detach().cpu().numpy()
+    
     eval_sim_xy = simulated_xy[only_tracks_to_predict]
     eval_sim_heading = simulated_heading[only_tracks_to_predict]
     eval_expert_xy = expert_xy[only_tracks_to_predict]
@@ -112,46 +146,46 @@ def run(args, env, bc_policy, dataset, num_rollout=3):
     eval_expert_valids = expert_valids[only_tracks_to_predict]
     eval_ego_length = ego_length[only_tracks_to_predict]
     eval_ego_width = ego_width[only_tracks_to_predict]
-    eval_scenario_ids = scenario_ids_list[only_tracks_to_predict]
+    eval_scenario_ids = scenario_ids_agent[only_tracks_to_predict]
 
-    sim_linear_speed, sim_linear_accel, sim_angular_speed, sim_angular_accel = compute_kinematic_features(eval_sim_xy[:, :, 0], eval_sim_xy[:, :, 1], eval_sim_heading) # (num_rollout, 2, 91)
-    ref_linear_speed, ref_linear_accel, ref_angular_speed, ref_angular_accel = compute_kinematic_features(eval_expert_xy[:, :, 0], eval_expert_xy[:, :, 1], eval_expert_heading)
+    sim_linear_speed, sim_linear_accel, sim_angular_speed, sim_angular_accel = compute_kinematic_features(
+        eval_sim_xy[:, :, 0], eval_sim_xy[:, :, 1], eval_sim_heading) # (num_rollout, 2, 91)
+    ref_linear_speed, ref_linear_accel, ref_angular_speed, ref_angular_accel = compute_kinematic_features(
+        eval_expert_xy[:, :, 0], eval_expert_xy[:, :, 1], eval_expert_heading)
+    
     speed_validity, acceleration_validity = compute_kinematic_validity(eval_expert_valids) # (1, 1, 91)
 
     sim_signed_distances, sim_collision_per_step, sim_time_to_collision = compute_interaction_features(
-            simulated_xy, simulated_heading, scenario_ids_list, ego_length, ego_width, only_tracks_to_predict, device="cuda"
+            simulated_xy, simulated_heading, scenario_ids_agent, ego_length, ego_width, only_tracks_to_predict, device="cuda"
         )
-    ref_signed_distances, ref_collision_per_step, ref_time_to_collision = compute_interaction_features(
-            expert_xy, expert_heading, scenario_ids_list, ego_length, ego_width, only_tracks_to_predict, device="cuda", valid=expert_valids,
-        )
-    # TODO: make road_edge_points and calculate
-    # sim_distance_to_road_edge, sim_offroad_per_step = metrics.compute_map_features(
-    #         eval_sim_xy,
-    #         eval_sim_heading,
-    #         eval_scenario_ids,
-    #         eval_ego_length,
-    #         eval_ego_width,
-    #         road_edge_polylines,
-    #         device=self.device,
-    #     )
-
-    # ref_distance_to_road_edge, ref_offroad_per_step = metrics.compute_map_features(
-    #         eval_expert_xy,
-    #         eval_expert_heading,
-    #         eval_scenario_ids,
-    #         eval_ego_length,
-    #         eval_ego_width,
-    #         road_edge_polylines,
-    #         device="cuda",
-    #         valid=expert_valids,
-    #     )
-    ade, min_ade = compute_displacement_error(eval_sim_xy[:, :, 0], eval_sim_xy[:, :, 1], eval_expert_xy[:, :, 0], eval_expert_xy[:, :, 1], eval_expert_valids)
-    # print(f'Success World idx : ', torch.where(goal_achieved_ep == 1)[0].tolist())
-
-    sim_collision_indication = np.any(np.where(eval_expert_valids, sim_collision_per_step, False), axis=2)
-    ref_collision_indication = np.any(np.where(eval_expert_valids, ref_collision_per_step, False), axis=2)
     
-    # TODO: 여기서부터 해야함
+    ref_signed_distances, ref_collision_per_step, ref_time_to_collision = compute_interaction_features(
+            expert_xy, expert_heading, scenario_ids_agent, ego_length, ego_width, only_tracks_to_predict, device="cuda", valid=expert_valids,
+        )
+    
+    sim_distance_to_road_edge, sim_offroad_per_step = compute_map_features(
+            eval_sim_xy,
+            eval_sim_heading,
+            eval_scenario_ids,
+            eval_ego_length,
+            eval_ego_width,
+            road_edge_polylines,
+            device="cuda",
+        )
+
+    ref_distance_to_road_edge, ref_offroad_per_step = compute_map_features(
+            eval_expert_xy,
+            eval_expert_heading,
+            eval_scenario_ids,
+            eval_ego_length,
+            eval_ego_width,
+            road_edge_polylines,
+            device="cuda",
+            valid=eval_expert_valids,
+        )
+    
+    ade, min_ade = compute_displacement_error(eval_sim_xy[:, :, 0], eval_sim_xy[:, :, 1], eval_expert_xy[:, :, 0], eval_expert_xy[:, :, 1], eval_expert_valids)
+
     linear_speed_log_likelihood = log_likelihood_estimate_timeseries(
             log_values=ref_linear_speed,
             sim_values=sim_linear_speed,
@@ -182,50 +216,171 @@ def run(args, env, bc_policy, dataset, num_rollout=3):
             sim_values=sim_time_to_collision,
             meta_data=meta_data["time_to_collision"]
         )
-    # distance_to_road_edge_log_likelihood = log_likelihood_estimate_timeseries(
-    #         log_values=ref_distance_to_road_edge,
-    #         sim_values=sim_distance_to_road_edge,
-    #         meta_data=meta_data["distance_to_road_edge"]
-    #     )
+    distance_to_road_edge_log_likelihood = log_likelihood_estimate_timeseries(
+            log_values=ref_distance_to_road_edge,
+            sim_values=sim_distance_to_road_edge,
+            meta_data=meta_data["distance_to_road_edge"]
+        )
     
-    # sim_num_offroad = np.sum(sim_offroad_indication, axis=1)
-    # ref_num_offroad = np.sum(ref_offroad_indication, axis=1)
-    if args.make_csv:
-        if not os.path.exists(f"{args.model_path}/{args.sim_agent}"):
-            os.makedirs(f"{args.model_path}/{args.sim_agent}")
-        csv_path = f"{args.model_path}/{args.sim_agent}/result_{args.partner_portion_test}.csv"
-        file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
-        with open(csv_path, 'a', encoding='utf-8') as f:
-            if file_is_empty:
-                column_name = "Model,Dataset"
-                
-                labels = ["Total"]
-                metrics = ["Num","OffRoad","VehCollision","Goal","Collision","GoalProgress",]
+    speed_log_likelihood = reduce_average_with_validity(
+        linear_speed_log_likelihood,
+        speed_validity[:, 0, :],
+        axis=1,
+    )
 
-                for l, label in enumerate(labels):
-                    for metric in metrics:
-                        if l == 0 and metric == "Num":
-                            continue
-                        column_name += f",{label}{metric}"
-                f.write(column_name + ",\n")
-            data = f"{args.model_name},{dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},"
-            f.write(data + ",\n")
+    accel_log_likelihood = reduce_average_with_validity(
+        linear_accel_log_likelihood,
+        acceleration_validity[:, 0, :],
+        axis=1,
+    )
+
+    angular_speed_log_likelihood = reduce_average_with_validity(
+        angular_speed_log_likelihood,
+        speed_validity[:, 0, :],
+        axis=1,
+    )
+
+    angular_accel_log_likelihood = reduce_average_with_validity(
+        angular_accel_log_likelihood,
+        acceleration_validity[:, 0, :],
+        axis=1,
+    )
+
+    distance_to_nearest_object_log_likelihood = reduce_average_with_validity(
+        distance_to_nearest_object_log_likelihood,
+        eval_expert_valids[:, 0, :],
+        axis=1,
+    )
+
+    # TTC is computed only for vehicles
+    ttc_valid = eval_expert_valids
+    time_to_collision_log_likelihood = reduce_average_with_validity(
+        time_to_collision_log_likelihood,
+        ttc_valid[:, 0, :],
+        axis=1,
+    )
+
+    distance_to_road_edge_log_likelihood = reduce_average_with_validity(
+        distance_to_road_edge_log_likelihood,
+        eval_expert_valids[:, 0, :],
+        axis=1,
+    )
+
+    sim_collision_indication = np.any(np.where(eval_expert_valids, sim_collision_per_step, False), axis=2)
+    ref_collision_indication = np.any(np.where(eval_expert_valids, ref_collision_per_step, False), axis=2)
+
+    sim_num_collisions = np.sum(sim_collision_indication, axis=1)
+    ref_num_collisions = np.sum(ref_collision_indication, axis=1)
+
+    collision_log_likelihood = log_likelihood_estimate_scenario_level(
+            log_values=ref_collision_indication[:, 0],
+            sim_values=sim_collision_indication,
+            min_val=0.0,
+            max_val=1.0,
+            num_bins=2,
+            use_bernoulli=True,
+        )
+    
+    sim_offroad_indication = np.any(np.where(eval_expert_valids, sim_offroad_per_step, False), axis=2)
+    ref_offroad_indication = np.any(np.where(eval_expert_valids, ref_offroad_per_step, False), axis=2)
+
+    sim_num_offroad = np.sum(sim_offroad_indication, axis=1)
+    ref_num_offroad = np.sum(ref_offroad_indication, axis=1)
+    offroad_log_likelihood = log_likelihood_estimate_scenario_level(
+                log_values=ref_offroad_indication[:, 0],
+                sim_values=sim_offroad_indication,
+                min_val=0.0,
+                max_val=1.0,
+                num_bins=2,
+                use_bernoulli=True,
+            )
+    
+    # eval_agent_ids = ground_truth_trajectories["id"][only_tracks_to_predict]
+
+    df = pd.DataFrame(
+        {
+            # "agent_id": eval_agent_ids.flatten(),
+            "scenario_id": eval_scenario_ids.flatten(),
+            "num_collisions_sim": sim_num_collisions.flatten(),
+            "num_collisions_ref": ref_num_collisions.flatten(),
+            "num_offroad_sim": sim_num_offroad.flatten(),
+            "num_offroad_ref": ref_num_offroad.flatten(),
+            "ade": ade,
+            "min_ade": min_ade,
+            "likelihood_linear_speed": speed_log_likelihood,
+            "likelihood_linear_acceleration": accel_log_likelihood,
+            "likelihood_angular_speed": angular_speed_log_likelihood,
+            "likelihood_angular_acceleration": angular_accel_log_likelihood,
+            "likelihood_distance_to_nearest_object": distance_to_nearest_object_log_likelihood,
+            "likelihood_time_to_collision": time_to_collision_log_likelihood,
+            "likelihood_collision_indication": collision_log_likelihood,
+            "likelihood_distance_to_road_edge": distance_to_road_edge_log_likelihood,
+            "likelihood_offroad_indication": offroad_log_likelihood,
+        }
+    )
+
+    scene_level_results = df.groupby("scenario_id")[
+        [
+            "ade",
+            "min_ade",
+            "num_collisions_sim",
+            "num_collisions_ref",
+            "num_offroad_sim",
+            "num_offroad_ref",
+            "likelihood_linear_speed",
+            "likelihood_linear_acceleration",
+            "likelihood_angular_speed",
+            "likelihood_angular_acceleration",
+            "likelihood_distance_to_nearest_object",
+            "likelihood_time_to_collision",
+            "likelihood_collision_indication",
+            "likelihood_distance_to_road_edge",
+            "likelihood_offroad_indication",
+        ]
+    ].mean()
+    
+    likelihood_cols = [c for c in scene_level_results.columns if "likelihood" in c]
+    scene_level_results[likelihood_cols] = np.exp(scene_level_results[likelihood_cols])
+    
+    scene_level_results["realism_meta_score"] = scene_level_results.apply(compute_metametric, axis=1)
+    scene_level_results["num_agents"] = df.groupby("scenario_id").size()
+    scene_level_results = scene_level_results[
+        ["num_agents"] + [col for col in scene_level_results.columns if col != "num_agents"]
+    ]
+
+    aggregate_results = True
+    if aggregate_results:
+        aggregate_metrics = scene_level_results.mean().to_dict()
+        aggregate_metrics["total_num_agents"] = scene_level_results["num_agents"].sum()
+        # Convert numpy types to Python native types
+        return {k: v.item() if hasattr(v, "item") else v for k, v in aggregate_metrics.items()}
+    else:
+        print("\n Scene-level results:\n")
+        print(scene_level_results)
+
+        print(f"\n Overall realism meta score: {scene_level_results['realism_meta_score'].mean():.4f}")
+        print(f"\n Overall minADE: {scene_level_results['min_ade'].mean():.4f}")
+        print(f"\n Overall ADE: {scene_level_results['ade'].mean():.4f}")
+
+        # print(f"\n Full agent-level results:\n")
+        # print(df)
+        return scene_level_results
+
 
     # return off_road_rate, veh_coll_rate, goal_rate, collision_rate
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     
-    parser.add_argument('--dataset-size', type=int, default=10) # total_world
-    parser.add_argument('--batch-size', type=int, default=10) # num_world
+    parser.add_argument('--dataset-size', type=int, default=50) # total_world
+    parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/log_replay_test')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0826_035640.pth') # early_attn_s11_0808_043910
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # early_attn_s11_0808_043910
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
-    parser.add_argument('--partner-portion-test', '-pp', type=float, default=1.0)
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
-    parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
+    parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 128
@@ -281,9 +436,12 @@ if __name__ == "__main__":
         remove_controlled_agents = False
     else:
         remove_controlled_agents = True
-
+    import json
     for i in tqdm(range(num_iter)):
-        run(args, env, bc_policy, dataset=args.dataset)
+        results = run(args, env, bc_policy, dataset=args.dataset)
+        with open("/data/full_version/wosac.json", "a", encoding="utf-8") as f:
+            f.write(json.dumps(results, ensure_ascii=False))
+            f.write("\n")
         if i != num_iter - 1:
             print('SWAP!!')
             env.swap_data_batch()

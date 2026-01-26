@@ -189,13 +189,69 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         return metadata.tracks_to_predict
     
     def get_road_edge_polyline(self):
-        global_road_graph = GlobalRoadGraphPoints.from_tensor(
+        grg = GlobalRoadGraphPoints.from_tensor(
             roadgraph_tensor=self.sim.map_observation_tensor(),
             backend=self.backend,
             device=self.device,
         )
-        return global_road_graph
-    
+
+        x_b = grg.x        # (num_env, num_points)
+        y_b = grg.y
+        t_b = grg.type     # (num_env, num_points)
+        id_b = grg.id      # (num_env, num_points)  # polyline/segment id
+
+        num_env, num_points = x_b.shape
+
+        scene_ids = self.get_scenario_ids()
+        scenario_ids_list = np.array([v for k, v in sorted(scene_ids.items())], dtype=object)
+
+        x_list, y_list = [], []
+        point_edge_mask_list = []   # edge == 2
+        lengths_list = []
+        scenario_id_poly_list = [] 
+
+        for e in range(num_env):
+            x = x_b[e]
+            y = y_b[e]
+            t = t_b[e]
+            rid = id_b[e]
+
+            valid = (t != 0)
+            x_v = x[valid]
+            y_v = y[valid]
+            t_v = t[valid]
+            rid_v = rid[valid]
+
+            x_list.append(x_v.detach().cpu().numpy())
+            y_list.append(y_v.detach().cpu().numpy())
+            point_edge_mask_list.append((t_v == 2).detach().cpu().numpy())
+
+            _, seg_counts = torch.unique_consecutive(rid_v, return_counts=True) 
+            lengths_np = seg_counts.to(torch.int32).detach().cpu().numpy()
+            lengths_list.append(lengths_np)
+
+            sid = scenario_ids_list[e]
+            scenario_id_poly_list.append(np.full((lengths_np.shape[0],), sid, dtype=object))
+
+        x_all = np.concatenate(x_list) if x_list else np.empty((0,), dtype=np.float32)
+        y_all = np.concatenate(y_list) if y_list else np.empty((0,), dtype=np.float32)
+        edge_mask_points = np.concatenate(point_edge_mask_list) if point_edge_mask_list else np.empty((0,), dtype=bool)
+
+        lengths = np.concatenate(lengths_list).astype(np.int32) if lengths_list else np.empty((0,), dtype=np.int32)
+        scenario_id = np.concatenate(scenario_id_poly_list) if scenario_id_poly_list else np.empty((0,), dtype=object)
+
+        assert int(lengths.sum()) == int(x_all.shape[0]), (lengths.sum(), x_all.shape[0])
+        assert lengths.shape[0] == scenario_id.shape[0]
+
+        return dict(
+            x=x_all,
+            y=y_all,
+            lengths=lengths,    
+            scenario_id=scenario_id, 
+            edge_mask=edge_mask_points
+        )
+
+        
     def get_global_state(self):
         global_agent_obs = GlobalEgoState.from_tensor(
             abs_self_obs_tensor=self.sim.absolute_self_observation_tensor(),

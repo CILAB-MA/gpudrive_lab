@@ -20,12 +20,24 @@ NUM_VERTICES_IN_BOX = 4
 EXTREMELY_LARGE_DISTANCE = 1e10
 OFFROAD_DISTANCE_THRESHOLD = 0.0
 
+_METRIC_FIELD_NAMES = [
+    "linear_speed",
+    "linear_acceleration",
+    "angular_speed",
+    "angular_acceleration",
+    "distance_to_nearest_object",
+    "time_to_collision",
+    "collision_indication",
+    "distance_to_road_edge",
+    "offroad_indication",
+]
+
 meta_data = dict(
     linear_speed=dict(
         min_val=0.0,
         max_val=25.0,
-        num_bins=0,
-        additive_smoothing_pseudocount=0.1,
+        num_bins=10,
+        additive_smoothing=0.1,
         independent_timesteps=True,
         metametric_weight=0.05
     ),
@@ -33,7 +45,7 @@ meta_data = dict(
         min_val=-12.0,
         max_val=12.0,
         num_bins=11,
-        additive_smoothing_pseudocount=0.1,
+        additive_smoothing=0.1,
         independent_timesteps=True,
         metametric_weight=0.05
     ),
@@ -41,7 +53,7 @@ meta_data = dict(
         min_val=-0.628,
         max_val=0.628,
         num_bins=11,
-        additive_smoothing_pseudocount=0.1,
+        additive_smoothing=0.1,
         independent_timesteps=True,
         metametric_weight=0.05
     ),
@@ -49,7 +61,7 @@ meta_data = dict(
         min_val=-3.14,
         max_val=3.14,
         num_bins=11,
-        additive_smoothing_pseudocount=0.1,
+        additive_smoothing=0.1,
         independent_timesteps=True,
         metametric_weight=0.05
     ),
@@ -57,7 +69,7 @@ meta_data = dict(
         min_val=-5.0,
         max_val=40.0,
         num_bins=10,
-        additive_smoothing_pseudocount=0.1,
+        additive_smoothing=0.1,
         independent_timesteps=True,
         metametric_weight=0.1
     ),
@@ -65,7 +77,7 @@ meta_data = dict(
         min_val=0.0,
         max_val=5.0,
         num_bins=10,
-        additive_smoothing_pseudocount=0.1,
+        additive_smoothing=0.1,
         independent_timesteps=True,
         metametric_weight=0.1
     ),
@@ -73,9 +85,17 @@ meta_data = dict(
         min_val=-20.0,
         max_val=40.0,
         num_bins=10,
-        additive_smoothing_pseudocount=0.1,
+        additive_smoothing=0.1,
         independent_timesteps=True,
         metametric_weight=0.05
+    ),
+    collision_indication=dict(
+        metametric_weight=0.25,
+        bernoulli = True
+    ),
+    offroad_indication=dict(
+        metametric_weight=0.25,
+        bernoulli = True
     ),
 )
 
@@ -955,8 +975,7 @@ def _compute_signed_distance_to_polylines(
 
 
 def compute_map_features(
-    x: np.ndarray,
-    y: np.ndarray,
+    xy: np.ndarray,
     heading: np.ndarray,
     scenario_ids: np.ndarray,
     agent_length: np.ndarray,
@@ -965,8 +984,8 @@ def compute_map_features(
     device: torch.device,
     valid: np.ndarray | None = None,
 ):
-    x_t = _to_tensor(x, torch.float32, device=device)
-    y_t = _to_tensor(y, torch.float32, device=device)
+    x_t = _to_tensor(xy[:, :, 0, :], torch.float32, device=device)
+    y_t = _to_tensor(xy[:, :, 1, :], torch.float32, device=device)
     heading_t = _to_tensor(heading, torch.float32, device=device)
     agent_length_t = _to_tensor(agent_length, torch.float32, device=device)
     agent_width_t = _to_tensor(agent_width, torch.float32, device=device)
@@ -1076,7 +1095,7 @@ def log_likelihood_estimate_timeseries(
     # max_val: float,
     # num_bins: int,
     # additive_smoothing: float,
-    treat_timesteps_independently: bool = True,
+    # treat_timesteps_independently: bool = True,
     # sanity_check: bool = False,
     # plot_agent_idx: int = 0,
 ) -> np.ndarray:
@@ -1085,6 +1104,7 @@ def log_likelihood_estimate_timeseries(
     max_val = meta_data["max_val"]
     num_bins = meta_data["num_bins"]
     additive_smoothing = meta_data["additive_smoothing"]
+    treat_timesteps_independently = meta_data["independent_timesteps"]
     if treat_timesteps_independently:
         # Ignore temporal structure: We end up with (n_agents, n_rollouts * n_steps)
         log_flat = log_values.reshape(n_agents, n_steps)
@@ -1118,21 +1138,6 @@ def histogram_estimate(
     num_bins: int,
     additive_smoothing: float,
 ) -> np.ndarray:
-    """Computes log-likelihoods of samples based on histograms.
-
-    Args:
-        log_samples: Shape (n_agents, sample_size) - samples to evaluate
-        sim_samples: Shape (n_agents, sample_size) - samples to build distribution from
-        min_val: Minimum value for histogram bins
-        max_val: Maximum value for histogram bins
-        num_bins: Number of histogram bins
-        additive_smoothing: Pseudocount for Laplace smoothing (default: 0.1)
-        sanity_check: If True, plot visualization for debugging
-
-    Returns:
-        Shape (n_agents, sample_size) - log-likelihood of each log sample
-        under the corresponding sim distribution
-    """
 
     n_agents, sample_size = sim_samples.shape
 
@@ -1164,11 +1169,78 @@ def histogram_estimate(
 
     return log_probs
 
-def get_histogram_params(self, metric_name: str):
-    return (
-        self.metrics_config.getfloat(metric_name, "histogram.min_val"),
-        self.metrics_config.getfloat(metric_name, "histogram.max_val"),
-        self.metrics_config.getint(metric_name, "histogram.num_bins"),
-        self.metrics_config.getfloat(metric_name, "histogram.additive_smoothing_pseudocount"),
-        self.metrics_config.getboolean(metric_name, "independent_timesteps"),
+def reduce_average_with_validity(tensor: np.ndarray, validity: np.ndarray, axis: int = None) -> np.ndarray:
+    if tensor.shape != validity.shape:
+        raise ValueError(
+            f"Shapes of `tensor` and `validity` must be the same. (Actual: {tensor.shape}, {validity.shape})."
+        )
+    cond_sum = np.sum(np.where(validity, tensor, np.zeros_like(tensor)), axis=axis, keepdims=False)
+    valid_sum = np.sum(validity.astype(np.float32), axis=axis, keepdims=False)
+
+    # Safe division:
+    safe_valid_sum = np.where(valid_sum == 0, 1, valid_sum)
+
+    return np.where(valid_sum == 0, np.nan, cond_sum / safe_valid_sum)
+
+def log_likelihood_estimate_scenario_level(
+    log_values: np.ndarray,
+    sim_values: np.ndarray,
+    min_val: float,
+    max_val: float,
+    num_bins: int,
+    additive_smoothing: float | None = None,
+    use_bernoulli: bool = False,
+) -> np.ndarray:
+    if log_values.ndim != 1:
+        raise ValueError(f"log_values must be 1D, got shape {log_values.shape}")
+    if sim_values.ndim != 2:
+        raise ValueError(f"sim_values must be 2D, got shape {sim_values.shape}")
+
+    log_values_2d = log_values[:, np.newaxis]
+    sim_values_2d = sim_values
+
+    if use_bernoulli:
+        log_likelihood_2d = bernoulli_estimate(
+            log_values_2d.astype(bool),
+            sim_values_2d.astype(bool),
+            additive_smoothing=0.001,
+        )
+    else:
+        log_likelihood_2d = histogram_estimate(
+            log_values_2d,
+            sim_values_2d,
+            min_val=min_val,
+            max_val=max_val,
+            num_bins=num_bins,
+            additive_smoothing=additive_smoothing,
+        )
+
+    return log_likelihood_2d[:, 0]
+
+def bernoulli_estimate(
+    log_samples: np.ndarray,
+    sim_samples: np.ndarray,
+    additive_smoothing: float,
+) -> np.ndarray:
+    if log_samples.dtype != bool:
+        raise ValueError("log_samples must be boolean array for Bernoulli estimate")
+    if sim_samples.dtype != bool:
+        raise ValueError("sim_samples must be boolean array for Bernoulli estimate")
+
+    return histogram_estimate(
+        log_samples.astype(float),
+        sim_samples.astype(float),
+        min_val=-0.5,
+        max_val=1.5,
+        num_bins=2,
+        additive_smoothing=additive_smoothing,
     )
+
+def compute_metametric(metrics) -> float:
+        metametric = 0.0
+        for field_name in _METRIC_FIELD_NAMES:
+            likelihood_field_name = "likelihood_" + field_name
+            weight = meta_data[field_name]["metametric_weight"]
+            metric_score = metrics[likelihood_field_name]
+            metametric += weight * metric_score
+        return metametric
