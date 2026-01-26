@@ -61,6 +61,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
             self.num_worlds, dtype=torch.short, device=self.device
         )
         self.num_stack = config.num_stack
+        self.init_steps = getattr(self.config, "init_steps", 0)
 
         # Initialize reward weights tensor if using reward_conditioned
         self.reward_weights_tensor = None
@@ -535,7 +536,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         self.world_time_steps.zero_()
 
         # Advance the simulator with log playback if warmup steps are provided
-        if self.init_steps > 0:
+        if self.init_steps > 0 and self.config.use_vbd:
             self.advance_sim_with_log_playback(
                 init_steps=self.init_steps,
                 # render_init=self.render_config.render_init,

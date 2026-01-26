@@ -585,6 +585,11 @@ void Manager::reset(std::vector<int32_t> worldsToReset) {
     }
 
     impl_->reset();
+
+    // warmup steps
+    for (int i = 0; i < impl_->cfg.params.initSteps; i++) {
+        impl_->step();
+    }
 }
 
 void Manager::setMaps(const std::vector<std::string> &maps)

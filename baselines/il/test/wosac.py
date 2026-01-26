@@ -381,6 +381,7 @@ if __name__ == "__main__":
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
+    parser.add_argument('--init-steps', type=int, default=10)
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 128
@@ -413,8 +414,8 @@ if __name__ == "__main__":
         dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
         collision_behavior='ignore',
-        num_stack=5
-
+        num_stack=5,
+        init_steps=args.init_steps
     )
     render_config = RenderConfig(
     )

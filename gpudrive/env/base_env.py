@@ -109,6 +109,7 @@ class GPUDriveGymEnv(gym.Env, metaclass=abc.ABCMeta):
 
         params = madrona_gpudrive.Parameters()
         
+        params.initSteps = self.init_steps 
         params.polylineReductionThreshold = (
             self.config.polyline_reduction_threshold
         )

@@ -322,8 +322,6 @@ inline void movementSystem(Engine &e,
         }
     }
 
-    const auto &controlledState = e.get<ControlledState>(agent_iface.e);
-
     if (responseType == ResponseType::Static) {
         // Do nothing. The agent is static.
         // Agent can only be static if isStaticAgentControlled is set to true.
@@ -341,6 +339,32 @@ inline void movementSystem(Engine &e,
         velocity.angular = Vector3::zero();
         return;
     }
+
+    // warmup steps: follow expert trajectory
+    StepsRemaining &stepsRemaining = e.get<StepsRemaining>(agent_iface.e);
+    CountT curStepIdx = getCurrentStep(stepsRemaining);
+
+    if (curStepIdx < e.data().params.initSteps) {
+        const Trajectory &trajectory = e.get<Trajectory>(agent_iface.e);
+
+        position.x = trajectory.positions[curStepIdx].x;
+        position.y = trajectory.positions[curStepIdx].y;
+        position.z = 1;
+
+        velocity.linear.x = trajectory.velocities[curStepIdx].x;
+        velocity.linear.y = trajectory.velocities[curStepIdx].y;
+        velocity.linear.z = 0;
+        velocity.angular = Vector3::zero();
+
+        rotation = Quat::angleAxis(
+            trajectory.headings[curStepIdx],
+            madrona::math::up
+        );
+
+        return;
+    }
+
+    const auto &controlledState = e.get<ControlledState>(agent_iface.e);
 
     if (controlledState.controlled) {
         Action &action = e.get<Action>(agent_iface.e);
