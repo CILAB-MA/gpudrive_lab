@@ -469,7 +469,7 @@ if __name__ == "__main__":
         dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
         collision_behavior='ignore',
         num_stack=5,
-        remove_non_vehicles=False
+        remove_non_vehicles=False,
         init_steps=args.init_steps
     )
     render_config = RenderConfig(
