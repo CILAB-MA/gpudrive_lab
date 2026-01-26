@@ -31,6 +31,8 @@ def collect_wosac_random_baseline(env, num_agent, init_step=10):
 
     simulated_xy = torch.zeros((num_agent, 81, 2)).to("cuda")
     simulated_heading = torch.zeros((num_agent, 81, 1)).to("cuda")
+    infos = env.get_infos()
+    goal_achieved_init = infos.goal_achieved[alive_agent_mask]
     simulated_xy[:, 0] = ego_xy[alive_agent_mask]
     simulated_heading[:, 0] = ego_heading[alive_agent_mask]
 
@@ -43,14 +45,14 @@ def collect_wosac_random_baseline(env, num_agent, init_step=10):
         cos_h = torch.cos(heading).reshape(-1)
         sin_h = torch.sin(heading).reshape(-1)
 
-        x += dx * cos_h - dy * sin_h
-        y += dx * sin_h + dy * cos_h
+        x_n = x + dx * cos_h - dy * sin_h
+        y_n = y + dx * sin_h + dy * cos_h
         heading += d_heading.unsqueeze(-1)
 
-        simulated_xy[:, time_step, 0] = x
-        simulated_xy[:, time_step, 1] = y
+        simulated_xy[:, time_step, 0] = x_n
+        simulated_xy[:, time_step, 1] = y_n
         simulated_heading[:, time_step] = heading
-    return simulated_xy, simulated_heading, ego_length, ego_width
+    return simulated_xy, simulated_heading, ego_length, ego_width, goal_achieved_init.bool()
 
 
 
@@ -69,12 +71,12 @@ def collect_rollout(env, bc_policy, num_agent, init_step=10):
     ego_xy, ego_heading = get_global_infos(global_agent_obs)
     ego_length = global_agent_obs.vehicle_length[alive_agent_mask]
     ego_width = global_agent_obs.vehicle_width[alive_agent_mask]
-
     simulated_xy = torch.zeros((num_agent, 81, 2)).to("cuda")
     simulated_heading = torch.zeros((num_agent, 81, 1)).to("cuda")
     simulated_xy[:, 0] = ego_xy[alive_agent_mask]
     simulated_heading[:, 0] = ego_heading[alive_agent_mask]
     infos = env.get_infos()
+    goal_achieved_init = infos.goal_achieved[alive_agent_mask]
     goal_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.float32).to("cuda")
     off_road_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to("cuda")
     off_road_ep = infos.off_road[alive_agent_mask]
@@ -133,7 +135,7 @@ def collect_rollout(env, bc_policy, num_agent, init_step=10):
     goal_rate = goal_achieved_ep.sum().float() / alive_agent_mask.sum().float()
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
     print()
-    return simulated_xy, simulated_heading, ego_length, ego_width
+    return simulated_xy, simulated_heading, ego_length, ego_width, goal_achieved_init.bool()
 
 def run(args, env, bc_policy, dataset, num_rollout=32):
     obs = env.reset()
@@ -160,9 +162,9 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     simulated_heading = torch.zeros((num_agent, num_rollout, 81))
     for n in range(num_rollout):
         if args.is_random:
-            rollout_xy, rollout_heading, ego_length, ego_width = collect_wosac_random_baseline(env, num_agent)
+            rollout_xy, rollout_heading, ego_length, ego_width, goal_achieved_init = collect_wosac_random_baseline(env, num_agent)
         else:
-            rollout_xy, rollout_heading, ego_length, ego_width = collect_rollout(env, bc_policy, num_agent)
+            rollout_xy, rollout_heading, ego_length, ego_width, goal_achieved_init = collect_rollout(env, bc_policy, num_agent)
         rollout_xy = rollout_xy.transpose(1, 2)
         rollout_heading = rollout_heading.squeeze(-1)
         simulated_xy[:, n] = rollout_xy
@@ -172,15 +174,17 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
         torch.cuda.empty_cache()
         gc.collect()
     # Extract score
-    simulated_xy = simulated_xy.detach().cpu().numpy()
-    simulated_heading = simulated_heading.detach().cpu().numpy()
-    expert_xy = expert_xy.detach().cpu().numpy()
-    expert_heading = expert_heading.detach().cpu().numpy()
-    expert_valids = expert_valids.detach().cpu().numpy()
-    ego_length = ego_length.detach().cpu().numpy()
-    ego_width = ego_width.detach().cpu().numpy()
-    is_vehicle = is_vehicle.detach().cpu().numpy()
-    only_tracks_to_predict = only_tracks_to_predict.bool().detach().cpu().numpy()
+    goal_achieved_init = goal_achieved_init.detach().cpu().numpy()
+    simulated_xy = simulated_xy[~goal_achieved_init].detach().cpu().numpy()
+    simulated_heading = simulated_heading[~goal_achieved_init].detach().cpu().numpy()
+    expert_xy = expert_xy[~goal_achieved_init].detach().cpu().numpy()
+    expert_heading = expert_heading[~goal_achieved_init].detach().cpu().numpy()
+    expert_valids = expert_valids[~goal_achieved_init].detach().cpu().numpy()
+    ego_length = ego_length[~goal_achieved_init].detach().cpu().numpy()
+    ego_width = ego_width[~goal_achieved_init].detach().cpu().numpy()
+    is_vehicle = is_vehicle[~goal_achieved_init].detach().cpu().numpy()
+    only_tracks_to_predict = only_tracks_to_predict[~goal_achieved_init].bool().detach().cpu().numpy()
+    scenario_ids_agent = scenario_ids_agent[~goal_achieved_init]
     
     eval_sim_xy = simulated_xy[only_tracks_to_predict]
     eval_sim_heading = simulated_heading[only_tracks_to_predict]
@@ -442,7 +446,7 @@ if __name__ == "__main__":
     parser.add_argument('--is-random', '-r', action='store_true')
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--init-steps', type=int, default=10)
+    parser.add_argument('--init-steps', type=int, default=11)
     args = parser.parse_args()
     # Configurations
     num_cont_agents = 128
@@ -502,7 +506,7 @@ if __name__ == "__main__":
     name = p.name if not args.is_random else "random"
     for i in tqdm(range(num_iter)):
         results = run(args, env, bc_policy, dataset=args.dataset)
-        with open(f"/data/full_version/debug_{name}.json", "a", encoding="utf-8") as f:
+        with open(f"/data/full_version/exp_{name}.json", "a", encoding="utf-8") as f:
             f.write(json.dumps(results, ensure_ascii=False))
             f.write("\n")
         if i != num_iter - 1:
