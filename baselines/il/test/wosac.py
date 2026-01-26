@@ -16,11 +16,11 @@ from gpudrive.env.env_torch import GPUDriveTorchEnv
 from gpudrive.env.dataset import SceneDataLoader
 from baselines.il.test.metrics import *
 import pandas as pd
-
+import gc
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-def collect_wosac_random_baseline(env, num_agent):
+def collect_wosac_random_baseline(env, num_agent, init_step=10):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -29,14 +29,14 @@ def collect_wosac_random_baseline(env, num_agent):
     ego_length = global_agent_obs.vehicle_length[alive_agent_mask]
     ego_width = global_agent_obs.vehicle_width[alive_agent_mask]
 
-    simulated_xy = torch.zeros((num_agent, 91, 2)).to("cuda")
-    simulated_heading = torch.zeros((num_agent, 91, 1)).to("cuda")
+    simulated_xy = torch.zeros((num_agent, 81, 2)).to("cuda")
+    simulated_heading = torch.zeros((num_agent, 81, 1)).to("cuda")
     simulated_xy[:, 0] = ego_xy[alive_agent_mask]
     simulated_heading[:, 0] = ego_heading[alive_agent_mask]
 
     # Update using Gaussian:
-    samples = torch.normal(mean=1.0, std=0.1, size=(num_agent, 91, 3), device="cuda")
-    for time_step in tqdm(range(1, env.episode_len)):
+    samples = torch.normal(mean=1.0, std=0.1, size=(num_agent, 81, 3), device="cuda")
+    for time_step in tqdm(range(1, env.episode_len - init_step)):
         dx, dy, d_heading = samples[:, time_step, 0], samples[:, time_step, 1], samples[:, time_step, 2]
         x, y, heading = simulated_xy[:, time_step - 1, 0] , simulated_xy[:, time_step - 1, 1],  simulated_heading[:, time_step - 1]
 
@@ -50,7 +50,6 @@ def collect_wosac_random_baseline(env, num_agent):
         simulated_xy[:, time_step, 0] = x
         simulated_xy[:, time_step, 1] = y
         simulated_heading[:, time_step] = heading
-
     return simulated_xy, simulated_heading, ego_length, ego_width
 
 
@@ -62,7 +61,7 @@ def get_global_infos(global_agent_obs):
     ego_xy = torch.cat([ego_x.unsqueeze(-1), ego_y.unsqueeze(-1)], dim=-1)
     return ego_xy, ego_heading
 
-def collect_rollout(env, bc_policy, num_agent):
+def collect_rollout(env, bc_policy, num_agent, init_step=10):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -71,8 +70,8 @@ def collect_rollout(env, bc_policy, num_agent):
     ego_length = global_agent_obs.vehicle_length[alive_agent_mask]
     ego_width = global_agent_obs.vehicle_width[alive_agent_mask]
 
-    simulated_xy = torch.zeros((num_agent, 91, 2)).to("cuda")
-    simulated_heading = torch.zeros((num_agent, 91, 1)).to("cuda")
+    simulated_xy = torch.zeros((num_agent, 81, 2)).to("cuda")
+    simulated_heading = torch.zeros((num_agent, 81, 1)).to("cuda")
     simulated_xy[:, 0] = ego_xy[alive_agent_mask]
     simulated_heading[:, 0] = ego_heading[alive_agent_mask]
     infos = env.get_infos()
@@ -81,7 +80,7 @@ def collect_rollout(env, bc_policy, num_agent):
     off_road_ep = infos.off_road[alive_agent_mask]
     veh_collision_ep = infos.collided[alive_agent_mask]
     goal_achieved_ep = infos.goal_achieved[alive_agent_mask]
-    for time_step in tqdm(range(env.episode_len)):
+    for time_step in tqdm(range(env.episode_len - init_step)):
         all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
 
         # MASK
@@ -141,6 +140,7 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     scenario_ids = env.get_scenario_ids()
     scenario_ids_list = np.array([v for k, v in sorted(scenario_ids.items())])
     tracks_to_predict = env.get_tracks_to_predict()
+    is_sdc = env.get_is_sdc()
     alive_agent_mask = env.cont_agent_mask.clone()
     
     road_edge_polylines = env.get_road_edge_polyline()
@@ -150,13 +150,14 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     scenario_ids_agent = scenario_ids_agent[:, None]
 
     _, expert_xy, _, expert_heading, expert_valids  = env.get_expert_actions() 
-    expert_xy = expert_xy[alive_agent_mask].transpose(1, 2).unsqueeze(1)
-    expert_heading = expert_heading[alive_agent_mask].transpose(1, 2)
-    expert_valids = expert_valids[alive_agent_mask].transpose(1, 2)
+    expert_xy = expert_xy[alive_agent_mask].transpose(1, 2).unsqueeze(1)[..., 10:]
+    expert_heading = expert_heading[alive_agent_mask].transpose(1, 2)[..., 10:]
+    expert_valids = expert_valids[alive_agent_mask].transpose(1, 2)[..., 10:]
     only_tracks_to_predict = tracks_to_predict[alive_agent_mask]
+    is_vehicle = is_sdc[alive_agent_mask].unsqueeze(-1)
     num_agent = obs[alive_agent_mask].shape[0]
-    simulated_xy = torch.zeros((num_agent, num_rollout, 2, 91))
-    simulated_heading = torch.zeros((num_agent, num_rollout, 91))
+    simulated_xy = torch.zeros((num_agent, num_rollout, 2, 81))
+    simulated_heading = torch.zeros((num_agent, num_rollout, 81))
     for n in range(num_rollout):
         if args.is_random:
             rollout_xy, rollout_heading, ego_length, ego_width = collect_wosac_random_baseline(env, num_agent)
@@ -166,6 +167,10 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
         rollout_heading = rollout_heading.squeeze(-1)
         simulated_xy[:, n] = rollout_xy
         simulated_heading[:, n] = rollout_heading
+
+        del rollout_xy, rollout_heading
+        torch.cuda.empty_cache()
+        gc.collect()
     # Extract score
     simulated_xy = simulated_xy.detach().cpu().numpy()
     simulated_heading = simulated_heading.detach().cpu().numpy()
@@ -174,6 +179,7 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     expert_valids = expert_valids.detach().cpu().numpy()
     ego_length = ego_length.detach().cpu().numpy()
     ego_width = ego_width.detach().cpu().numpy()
+    is_vehicle = is_vehicle.detach().cpu().numpy()
     only_tracks_to_predict = only_tracks_to_predict.bool().detach().cpu().numpy()
     
     eval_sim_xy = simulated_xy[only_tracks_to_predict]
@@ -184,13 +190,14 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     eval_ego_length = ego_length[only_tracks_to_predict]
     eval_ego_width = ego_width[only_tracks_to_predict]
     eval_scenario_ids = scenario_ids_agent[only_tracks_to_predict]
+    eval_is_vehicle = is_vehicle[only_tracks_to_predict]
 
     sim_linear_speed, sim_linear_accel, sim_angular_speed, sim_angular_accel = compute_kinematic_features(
-        eval_sim_xy[:, :, 0], eval_sim_xy[:, :, 1], eval_sim_heading) # (num_rollout, 2, 91)
+        eval_sim_xy[:, :, 0], eval_sim_xy[:, :, 1], eval_sim_heading) # (num_rollout, 2, 81)
     ref_linear_speed, ref_linear_accel, ref_angular_speed, ref_angular_accel = compute_kinematic_features(
         eval_expert_xy[:, :, 0], eval_expert_xy[:, :, 1], eval_expert_heading)
     
-    speed_validity, acceleration_validity = compute_kinematic_validity(eval_expert_valids) # (1, 1, 91)
+    speed_validity, acceleration_validity = compute_kinematic_validity(expert_valids[only_tracks_to_predict]) # (1, 1, 81)
 
     sim_signed_distances, sim_collision_per_step, sim_time_to_collision = compute_interaction_features(
             simulated_xy, simulated_heading, scenario_ids_agent, ego_length, ego_width, only_tracks_to_predict, device="cuda"
@@ -290,7 +297,7 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
     )
 
     # TTC is computed only for vehicles
-    ttc_valid = eval_expert_valids
+    ttc_valid = eval_expert_valids & eval_is_vehicle[..., None].astype("bool")
     time_to_collision_log_likelihood = reduce_average_with_validity(
         time_to_collision_log_likelihood,
         ttc_valid[:, 0, :],
@@ -427,11 +434,11 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     
-    parser.add_argument('--dataset-size', type=int, default=50) # total_world
-    parser.add_argument('--batch-size', type=int, default=50) # num_world
+    parser.add_argument('--dataset-size', type=int, default=80) # total_world
+    parser.add_argument('--batch-size', type=int, default=80) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # early_attn_s11_0808_043910
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth')
     parser.add_argument('--is-random', '-r', action='store_true')
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
@@ -488,10 +495,6 @@ if __name__ == "__main__":
     bc_policy = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False).to("cuda")
     bc_policy.eval()
     num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
-    if args.sim_agent == 'log_replay':
-        remove_controlled_agents = False
-    else:
-        remove_controlled_agents = True
     import json
     from pathlib import Path
     p = Path(args.model_path)

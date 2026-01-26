@@ -189,6 +189,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         return metadata.tracks_to_predict
     
+    def get_is_sdc(self):
+        metadata = Metadata.from_tensor(
+            metadata_tensor=self.sim.metadata_tensor(),
+            backend=self.backend,
+        )
+        return metadata.is_sdc
+    
     def get_road_edge_polyline(self):
         grg = GlobalRoadGraphPoints.from_tensor(
             roadgraph_tensor=self.sim.map_observation_tensor(),
@@ -207,7 +214,7 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         scenario_ids_list = np.array([v for k, v in sorted(scene_ids.items())], dtype=object)
 
         x_list, y_list = [], []
-        point_edge_mask_list = []   # edge == 2
+        point_edge_mask_list = []   # edge == 1
         lengths_list = []
         scenario_id_poly_list = [] 
 
