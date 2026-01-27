@@ -118,6 +118,13 @@ def collect_rollout(env, bc_policy, num_agent, init_step=10):
         goal_achieved_ep = torch.clamp(goal_achieved_ep, max=1)
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         if (dead_agent_mask == True).all():
+            ego_xy_filtered[goal_achieved_ep.bool()] = simulated_xy[goal_achieved_ep.bool(), time_step]
+            ego_heading_filtered[goal_achieved_ep.bool()] = simulated_heading[goal_achieved_ep.bool(), time_step]
+            rem = 81 - (time_step + 1)
+            xy_fill = ego_xy_filtered.unsqueeze(1).expand(-1, rem, -1)  # (N, rem, 2)
+            headomg_fill = ego_heading_filtered.unsqueeze(1).expand(-1, rem, -1)  # (N, rem, 2)
+            simulated_xy[:, time_step + 1:] = xy_fill
+            simulated_heading[:, time_step + 1:] = headomg_fill
             break
         elif not dones[alive_agent_mask].all():
             global_agent_obs = env.get_global_state()
@@ -438,11 +445,11 @@ def run(args, env, bc_policy, dataset, num_rollout=32):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     
-    parser.add_argument('--dataset-size', type=int, default=80) # total_world
-    parser.add_argument('--batch-size', type=int, default=80) # num_world
+    parser.add_argument('--dataset-size', type=int, default=50) # total_world
+    parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_100')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0901_064245.pth')
     parser.add_argument('--is-random', '-r', action='store_true')
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
@@ -466,7 +473,7 @@ if __name__ == "__main__":
         scene_loader = SceneDataLoader(
             root=f"/data/full_version/data/validation/",
             batch_size=args.batch_size,
-            dataset_size=9987,
+            dataset_size=1000,
             sample_with_replacement=False,
             shuffle=False,
         )
@@ -503,7 +510,7 @@ if __name__ == "__main__":
     from pathlib import Path
     p = Path(args.model_path)
     parts = p.resolve().parts
-    name = p.name if not args.is_random else "random"
+    name = p.name + f"_{args.model_name[11:13]}" if not args.is_random else "random"
     for i in tqdm(range(num_iter)):
         results = run(args, env, bc_policy, dataset=args.dataset)
         with open(f"/data/full_version/exp_{name}.json", "a", encoding="utf-8") as f:
