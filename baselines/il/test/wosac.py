@@ -449,7 +449,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_100')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0901_064245.pth')
+    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s11_0901_104935.pth')
     parser.add_argument('--is-random', '-r', action='store_true')
     parser.add_argument('--sim-agent', '-sa', type=str, default='log_replay', choices=['log_replay', 'self_play', 'delta_replay'])
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
@@ -477,7 +477,7 @@ if __name__ == "__main__":
             sample_with_replacement=False,
             shuffle=False,
         )
-        dataset_size = 9987
+        dataset_size = 1000
     print(f'{args.dataset} len scene loader {len(scene_loader)}')
     
     env_config = EnvConfig(
