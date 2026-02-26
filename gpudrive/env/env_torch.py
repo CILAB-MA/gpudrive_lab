@@ -181,6 +181,21 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         _ = model.eval()
         return model
     
+    def get_tracks_to_predict(self):
+        metadata = Metadata.from_tensor(
+            metadata_tensor=self.sim.metadata_tensor(),
+            backend=self.backend,
+        )
+        return metadata.tracks_to_predict
+    
+    def get_road_edge_polyline(self):
+        global_road_graph = GlobalRoadGraphPoints.from_tensor(
+            roadgraph_tensor=self.sim.map_observation_tensor(),
+            backend=self.backend,
+            device=self.device,
+        )
+        return global_road_graph
+    
     def get_global_state(self):
         global_agent_obs = GlobalEgoState.from_tensor(
             abs_self_obs_tensor=self.sim.absolute_self_observation_tensor(),
