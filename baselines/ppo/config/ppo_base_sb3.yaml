@@ -1,4 +1,4 @@
-data_dir: "data/processed/examples"
+data_dir: "/data/full_version/data/training"
 num_worlds: 100
 k_unique_scenes: 4
 device: "cuda"  # or "cpu"
@@ -20,9 +20,9 @@ track_time_to_solve: false
 sync_tensorboard: true
 logging_collection_window: 100
 log_freq: 100
-project_name: "gpudrive"
-group_name: "my_experiment"
-entity: " "
+project_name: "gpudrive_lab_rl"
+group_name: "100scene"
+entity: "cilab-ma"
 tags:
   - "ppo"
 wandb_mode: "online"  # Options: online, offline, disabled

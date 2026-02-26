@@ -6,7 +6,7 @@ from datetime import datetime
 import dataclasses
 from gpudrive.integrations.sb3.ppo import IPPO
 from gpudrive.integrations.sb3.callbacks import MultiAgentCallback
-from gpudrive.env.config import EnvConfig
+from baselines.ppo.config import EnvConfig
 from gpudrive.env.wrappers.sb3_wrapper import SB3MultiAgentEnv
 
 from gpudrive.networks.perm_eq_late_fusion import (
