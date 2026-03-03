@@ -879,7 +879,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         )
         if self.config.norm_obs:
             partner_obs.normalize()
-        self.partner_ids = partner_obs.ids.squeeze(-1)
+        if mask is None:
+            self.partner_ids = partner_obs.ids.squeeze(-1)
         if mask is not None:
             return partner_obs.data.flatten(start_dim=1)
         else:
@@ -1216,7 +1217,8 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         ego_states = self._get_ego_state(mask)
         partner_observations = self._get_partner_obs(mask)
         road_map_observations = self._get_road_map_obs(mask)
-        self.partner_mask = self.make_partner_mask(partner_observations)
+        if mask is None:
+            self.partner_mask = self.make_partner_mask(partner_observations)
         if (
             self.use_vbd
             and self.vbd_model is not None
@@ -1244,12 +1246,13 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
                 dim=-1,
             )
             
-        # Observation stacking
-        if reset:
+        # Observation stacking for IL
+        if self.num_stack == 1:
+            return obs.clone()
+        elif reset:
             stacked_obs = torch.zeros_like(obs).repeat(1, 1, self.num_stack - 1) if self.num_stack > 1 else torch.empty_like(obs)[..., 0:0]
         else:
             stacked_obs = self.stacked_obs[..., obs.shape[-1]:]
-        
         self.stacked_obs = torch.cat([stacked_obs, obs], dim=-1)
         return self.stacked_obs.clone()
 
@@ -1285,7 +1288,6 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         """Get the partner mask. Shape: [num_worlds, max_agent_count, max_agent_count - 1, 1]"""
         if not self.config.partner_obs:
             return torch.Tensor().to(self.device)
-
         B, A, _ = partner_observations.shape
         partner_observations = partner_observations.reshape(B, A, 127, 6)
         partner_sum = partner_observations.sum(-1)
