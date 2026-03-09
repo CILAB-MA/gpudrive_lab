@@ -1,0 +1,53 @@
+import wandb, yaml, os
+import pandas as pd
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser('Select the dynamics model that you use')
+    parser.add_argument('--save-name', '-sn', type=str, default='lp100_v2')
+    parser.add_argument("--sweep-ids", '-s', nargs="+", type=str)
+    args = parser.parse_args()
+    
+    return args
+
+if __name__ == '__main__':
+    args = parse_args()
+    with open('private.yaml', "r") as file:
+        wandb_config = yaml.safe_load(file)
+
+    ENTITY = wandb_config.get("entity")
+    PROJECT = wandb_config.get("lp_project")
+    sweep_ids = args.sweep_ids
+
+    all_runs = []
+    api = wandb.Api()
+    for sweep_id in sweep_ids:
+        sweep = api.sweep(f"{ENTITY}/{PROJECT}/{sweep_id}")
+        
+        for run in sweep.runs:
+            if run.state == "finished":
+                config = run.config
+                name = run.name
+
+                history = run.history()
+                best_row = history.loc[history["eval/pos_loss"].idxmin()]
+
+                row = best_row.to_dict() 
+                eval_summary = {k: v for k, v in row.items() if k.startswith("eval/")}
+
+                future_step = "future_step"
+                eval_summary["_step"] = int(row["_step"])
+
+                summary = run.summary._json_dict
+                eval_summary[future_step] = config.get(future_step)
+                eval_summary["model"] = config.get("model")
+                eval_summary["seed"] = config.get("seed")
+                eval_summary["experiment"] = config.get("exp")
+                eval_summary["sweep"] = config.get("name")
+                all_runs.append(eval_summary)
+
+    df = pd.DataFrame(all_runs)
+    print(df)
+    csv_filename = f"/data/full_version/linear_probing_final/{args.save_name}.csv"
+    os.makedirs(f"/data/full_version/linear_probing_final", exist_ok=True)
+    df.to_csv(csv_filename, index=False)
