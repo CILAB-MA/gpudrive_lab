@@ -229,7 +229,7 @@ def train(exp_config=None):
             # if exp_config.exp == 'ego':
             #     future_mask = future_mask.squeeze(1)
             pred_pos = pos_linear_model(lp_input)
-            future_mask = ~future_mask
+            future_mask = ~future_mask if exp_config.exp == 'other' else future_mask # TODO: else future_mask.squeeze(1) ???
             masked_pos = pred_pos[future_mask]
             
             # get future expert pos and action
@@ -302,7 +302,7 @@ def train(exp_config=None):
                     with torch.no_grad():
                         # get future pred pos and action
                         pred_pos = pos_linear_model(lp_input)
-                        future_mask = ~future_mask
+                        future_mask = ~future_mask if exp_config.exp == 'other' else future_mask # TODO: else future_mask.squeeze(1) ???
                         masked_pos = pred_pos[future_mask]
                         masked_label = labels[future_mask]
                         # get future expert actionpartner_mask
