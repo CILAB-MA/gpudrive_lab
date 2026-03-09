@@ -1,0 +1,30 @@
+program: baselines/il/linear_prob.py
+method: grid
+name: test
+metric:
+  goal: minimize
+  name: eval/loss
+parameters:
+  # MODEL
+  model_path:
+    value: "/data/after_cvpr/rl/scene_10000/PPO____S_200__03_04_04_06_56_997"
+  model_name:
+    values: ["model_PPO____S_200__03_04_04_06_56_997_007604"]
+  # DATA
+  future_step:
+    values: [10, 20, 30, 40]
+  num_scene:
+    values: [10000]
+  exp:
+    values: ['ego', 'other']
+  model:
+    values: ['lp']
+  # EXPERIMENT
+  batch_size:
+    values: [256]
+  total_gradient_steps:
+    values: [75000]
+  lr:
+    values: [0.0015]
+  seed:
+    values: [3, 11, 42]

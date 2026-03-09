@@ -1,5 +1,7 @@
 """Obtain a policy using behavioral cloning."""
 import logging
+
+import h5py
 import numpy as np
 import torch
 from torch.optim import AdamW
@@ -43,25 +45,39 @@ def set_seed(seed=42, deterministic=False):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False 
 
+def _load_trajectory_file(filepath):
+    """Load trajectory data from npz or h5. Returns dict-like with array values."""
+    h5_path = filepath.replace(".npz", ".h5")
+    if os.path.exists(h5_path):
+        with h5py.File(h5_path, "r") as f:
+            return {k: np.array(f[k]) for k in f.keys()}
+    with np.load(filepath) as data:
+        return {k: data[k] for k in data.keys()}
+
+
 def get_dataloader(data_path, data_file, config, isshuffle=True):
-    with np.load(os.path.join(data_path, data_file)) as npz:
-        ego_labels = None
-        partner_labels = None
-        expert_obs = npz['obs']
-        expert_actions = npz['actions']
-        expert_masks = npz['dead_mask'] if 'dead_mask' in npz.keys() else None
-        partner_mask = npz['partner_mask'] if 'partner_mask' in npz.keys() else None
-        if config.exp == 'ego':
-            ego_labels = npz['ego_labels'].astype('int') if 'ego_labels' in npz.keys() else None
-        if config.exp == 'other':
-            partner_labels = npz['partner_labels'].astype('int') if 'partner_labels' in npz.keys() else None
+    main_path = os.path.join(data_path, data_file)
+    data = _load_trajectory_file(main_path)
+    ego_labels = None
+    partner_labels = None
+    expert_obs = data["obs"]
+    expert_actions = data["actions"]
+    expert_masks = data["dead_mask"] if "dead_mask" in data else None
+    partner_mask = data["partner_mask"] if "partner_mask" in data else None
+    if config.exp == "ego":
+        ego_labels = data["ego_labels"].astype("int") if "ego_labels" in data else None
+    if config.exp == "other":
+        partner_labels = data["partner_labels"].astype("int") if "partner_labels" in data else None
+
     ego_global_pos = None
     ego_global_rot = None
-    if 'validation' in data_file:
-        data_file = data_file[6:]
-    with np.load(os.path.join(data_path, "global_" + data_file)) as global_npz:
-        ego_global_pos = global_npz['ego_global_pos']
-        ego_global_rot = global_npz['ego_global_rot']
+    global_file = data_file
+    if "validation" in data_file:
+        global_file = data_file[6:]  # strip "label/"
+    global_path = os.path.join(data_path, "global_" + global_file)
+    global_data = _load_trajectory_file(global_path)
+    ego_global_pos = global_data["ego_global_pos"]
+    ego_global_rot = global_data["ego_global_rot"]
     dataset = FutureDataset(
         expert_obs, expert_actions, ego_global_pos, ego_global_rot, expert_masks, partner_mask,
         future_step=config.future_step, exp=config.exp, partner_labels=partner_labels, ego_labels=ego_labels
@@ -127,7 +143,6 @@ def train(exp_config=None):
                 wandb_dict[k] = v    
         exp_config = Box(wandb_dict)
         wandb.run.name = f"{exp_config.model_name}_{exp_config.seed}"
-        wandb.run.save()
     exp_config.update(vars(args))
     set_seed(exp_config.seed)
     # Backbone and heads
@@ -147,10 +162,6 @@ def train(exp_config=None):
         ).to("cuda")
         backbone.load_state_dict(params["parameters"])
         backbone.eval()
-        if exp_config.exp == 'early_lp':
-            layers = register_all_layers_forward_hook(backbone.partner_embed)
-        else:
-            layers = register_all_layers_forward_hook(backbone.ego_embed)
         hidden_dim = 64
     if exp_config.exp == 'other':
         ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x in {0,1,6,7} or y in {0,1,6,7}})
@@ -378,7 +389,7 @@ if __name__ == "__main__":
     with open('baselines/il/config/lp.yaml', "r") as f:
         exp_config = Box(yaml.safe_load(f))
     if args.use_wandb:
-        with open("baselines/il/lp_sweep.yaml") as f:
+        with open("gpudrive/integrations/rl/lp_sweep.yaml") as f:
             sweep_config = yaml.safe_load(f)
             sweep_params = sweep_config.setdefault("parameters", {})
             for k, v in exp_config.items():
