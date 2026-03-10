@@ -1,0 +1,304 @@
+"""Obtain a policy using behavioral cloning."""
+import os, sys
+sys.path.append(os.getcwd())
+
+import logging, imageio
+import torch
+import numpy as np
+import pandas as pd
+import argparse
+from tqdm import tqdm
+import mediapy as media
+
+# GPUDrive
+from gpudrive.env.config import EnvConfig, RenderConfig
+from gpudrive.env.env_torch import GPUDriveTorchEnv
+from gpudrive.env.dataset import SceneDataLoader
+from gpudrive.visualize.utils import img_from_fig
+from gpudrive.networks.late_fusion import NeuralNet
+import pufferlib, yaml
+from box import Box
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+def load_config(config_path):
+    """Load the configuration file."""
+    with open(config_path, "r") as f:
+        config = Box(yaml.safe_load(f))
+    return pufferlib.namespace(**config)
+
+def run(args, env, policy, dataset, scene_batch_idx, expert_dict=None):
+    obs = env.reset()
+
+    alive_agent_mask = env.cont_agent_mask.clone()
+    dead_agent_mask = ~env.cont_agent_mask.clone()
+
+    frames = [[] for _ in range(args.batch_size)]
+    expert_actions, _, _, _, _  = env.get_expert_actions() 
+    obs_stack1_feat_size = int(obs.shape[-1] / 5)
+    poss = obs[alive_agent_mask][:, obs_stack1_feat_size * 4 + 3:obs_stack1_feat_size * 4 + 5]
+    init_goal_dist = torch.linalg.norm(poss, dim=-1)
+    dist_metrics = torch.zeros_like(alive_agent_mask, dtype=torch.float32)
+    infos = env.get_infos()
+    goal_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.float32).to("cuda")
+    off_road_timesteps = torch.full((alive_agent_mask.sum(), ), fill_value=-1, dtype=torch.int32).to("cuda")
+    if expert_dict is not None:
+        # Extract expert done step
+        sorted_keys = sorted(expert_dict.keys())
+        scene_labels = np.stack([expert_dict[k]['label'] for k in sorted_keys])
+        turn_mask = torch.from_numpy(scene_labels == 'TURN').to("cuda")
+        normal_mask = torch.from_numpy(scene_labels == 'NORMAL').to("cuda")
+        straight_mask = torch.from_numpy(scene_labels == 'STRAIGHT').to("cuda")
+        reverse_mask = torch.from_numpy(scene_labels == 'RETREAT').to("cuda")
+        expert_timesteps = np.stack([expert_dict[k]['done_step'] for k in sorted_keys])
+        expert_timesteps = torch.from_numpy(expert_timesteps).to(dtype=goal_timesteps.dtype).to("cuda")
+
+    off_road_ep = infos.off_road[alive_agent_mask]
+    veh_collision_ep = infos.collided[alive_agent_mask]
+    goal_achieved_ep = infos.goal_achieved[alive_agent_mask]
+    for time_step in tqdm(range(env.episode_len)):
+        all_actions = torch.zeros(obs.shape[0], obs.shape[1]).to("cuda").long()
+        
+        # MASK
+        road_mask = env.get_road_mask().to("cuda")
+        partner_mask = env.get_partner_mask().to("cuda")
+        partner_mask_bool = partner_mask == 2
+        poss = obs[alive_agent_mask][:, obs_stack1_feat_size * 4 + 3:obs_stack1_feat_size * 4 + 5]
+        dist = torch.linalg.norm(poss, dim=-1)
+        dist_metrics[alive_agent_mask] = dist
+
+        # Record when agent status changed(goal or collided)
+        off_road = infos.off_road[alive_agent_mask]
+        veh_collision = infos.collided[alive_agent_mask]
+        goal_achieved = infos.goal_achieved[alive_agent_mask]
+        goal_mask = (goal_achieved > 0) & (goal_timesteps == -1)
+        off_road_mask = (off_road > 0) & (off_road_timesteps == -1)
+        if expert_dict is not None:
+            goal_timesteps[goal_mask] = time_step / expert_timesteps[goal_mask]
+        off_road_timesteps[off_road_mask] = time_step
+
+        with torch.no_grad():
+            # for padding zero
+            alive_obs = obs[~dead_agent_mask]
+            actions, *_ = policy(alive_obs)
+        all_actions[~dead_agent_mask] = actions
+
+        if args.make_video:
+            sim_states = env.vis.plot_simulator_state(
+                    env_indices=list(range(args.batch_size)),
+                    time_steps=[time_step]*args.batch_size,
+                    plot_importance_weight=False,
+                    plot_linear_probing=False,
+                    plot_linear_probing_label=False
+                )
+
+            for i in range(args.batch_size):
+                frames[i].append(
+                    img_from_fig(sim_states[i])
+                )
+
+        env.step_dynamics(all_actions)
+        obs = env.get_obs()
+        dones = env.get_dones()
+        infos = env.get_infos()
+        off_road_ep += infos.off_road[alive_agent_mask]
+        veh_collision_ep += infos.collided[alive_agent_mask]
+        goal_achieved_ep += infos.goal_achieved[alive_agent_mask]
+        goal_achieved_ep = torch.clamp(goal_achieved_ep, max=1)
+        dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
+        # print(f'STEP: {off_road_ep.sum()} {veh_collision_ep.sum()} {goal_achieved_ep.sum()}')
+        if (dead_agent_mask == True).all():
+            break
+    if expert_dict is not None:
+        # Calculate average timesteps for status
+        valid_goal_times = goal_timesteps[goal_timesteps >= 0].float()
+        goal_time_avg = valid_goal_times.mean().item() if len(valid_goal_times) > 0 else -1
+    goal_progress_ratio = dist_metrics[alive_agent_mask] / init_goal_dist
+    goal_progress_ratio[goal_achieved_ep.bool()] = 0
+    if expert_dict is not None:
+        # calculate the different label
+        label_masks = [turn_mask, normal_mask, reverse_mask, straight_mask]
+        offroads, veh_colls, goals, goal_progresses, goal_time_avgs, num_labels = [], [], [], [], [], []
+        collisions = []
+        for label_mask in label_masks:
+            num_labels.append(label_mask.sum())
+            offroads.append(
+                torch.where(off_road_ep[label_mask] > 0, 1, 0).sum()
+            )
+            veh_colls.append(
+                torch.where(veh_collision_ep[label_mask] > 0, 1, 0).sum()
+            )
+            collisions.append(
+                torch.where(off_road_ep[label_mask] > 0, 1, 0).sum()
+                + torch.where(veh_collision_ep[label_mask] > 0, 1, 0).sum()
+            )
+            goals.append(goal_achieved_ep[label_mask].sum())
+            goal_progresses.append((1 - goal_progress_ratio)[label_mask].sum())
+            label_timesteps = goal_timesteps[label_mask]
+            label_timesteps = label_timesteps[label_timesteps >= 0].float()
+            label_time_avg = label_timesteps.sum().item() if len(label_timesteps) > 0 else 0
+            goal_time_avgs.append(label_time_avg)
+
+    goal_progress_ratio = (1 - goal_progress_ratio).mean()
+    print('Agents Achieved Ratio to Goal', goal_progress_ratio)
+    num_finished_agents = alive_agent_mask.sum().float()
+    off_road_rate = (
+        torch.where(off_road_ep > 0, 1, 0).sum().float() / num_finished_agents
+    )
+    veh_coll_rate = (
+        torch.where(veh_collision_ep > 0, 1, 0).sum().float()
+        / num_finished_agents
+    )
+    collision_rate = veh_coll_rate
+    goal_rate = goal_achieved_ep.sum().float() / num_finished_agents
+
+    print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
+    # print(f'Success World idx : ', torch.where(goal_achieved_ep == 1)[0].tolist())
+    if expert_dict is not None:
+        print(f'Goal Reached Time : {goal_time_avg}')
+    if args.make_csv:
+        if not os.path.exists(f"{args.model_path}/{args.sim_agent}"):
+            os.makedirs(f"{args.model_path}/{args.sim_agent}")
+        csv_path = f"{args.model_path}/{args.sim_agent}/result_{args.partner_portion_test}.csv"
+        file_is_empty = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
+        with open(csv_path, 'a', encoding='utf-8') as f:
+            if file_is_empty:
+                column_name = "Model,Dataset"
+                
+                labels = ["Total"]
+                metrics = ["Num","OffRoad","VehCollision","Goal","Collision","GoalProgress",]
+                if expert_dict is not None:
+                    labels += ["Turn", "Normal", "Reverse", "Straight"]
+                    metrics += ["GoalTime"]
+
+                for l, label in enumerate(labels):
+                    for metric in metrics:
+                        if l == 0 and metric == "Num":
+                            continue
+                        column_name += f",{label}{metric}"
+                f.write(column_name + ",\n")
+            data = f"{args.model_name},{dataset},{off_road_rate},{veh_coll_rate},{goal_rate},{collision_rate},{goal_progress_ratio},"
+            if expert_dict is not None:
+                data += f"{goal_time_avg},"
+                for l in range(4):
+                    data += f"{num_labels[l]},{offroads[l]},{veh_colls[l]},{goals[l]},{collisions[l]},{goal_progresses[l]},{goal_time_avgs[l]},"
+            f.write(data + ",\n")
+
+    if args.make_video:
+        video_path = os.path.join(args.video_path, args.dataset, args.model_name, args.sim_agent, str(args.partner_portion_test))
+        if not os.path.exists(video_path):
+            os.makedirs(video_path)
+        for world_render_idx in range(args.batch_size):
+            if world_render_idx in torch.where(veh_collision_ep >= 1)[0].tolist():
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(veh_col).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
+            elif world_render_idx in torch.where(off_road_ep >= 1)[0].tolist():
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(off_road).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
+            elif world_render_idx in torch.where(goal_achieved_ep >= 1)[0].tolist():
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(goal).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
+            else:
+                media.write_video(f'{video_path}/world_{world_render_idx + scene_batch_idx * args.batch_size}(non_goal).mp4', np.array(frames[world_render_idx]), fps=10, codec='libx264')
+    return off_road_rate, veh_coll_rate, goal_rate, collision_rate
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser('Simulation experiment')
+    
+    parser.add_argument('--dataset-size', type=int, default=10000) # total_world
+    parser.add_argument('--batch-size', type=int, default=50) # num_world
+    # EXPERIMENT
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/scene_10000/PPO____S_200__03_04_04_06_56_997')
+    parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_200__03_04_04_06_56_997_007600.pt') # early_attn_s11_0808_043910
+    parser.add_argument('--make-video', '-mv', action='store_true')
+    parser.add_argument('--make-csv', '-mc', action='store_true')
+    parser.add_argument('--make-data', '-md', action='store_true')
+    parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/videos')
+    parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
+    parser.add_argument('--sim-agent', '-sa', type=str, default='self_play', choices=['log_replay', 'self_play', 'delta_replay'])
+    parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
+    args = parser.parse_args()
+    # Configurations
+    num_cont_agents = 1 if args.sim_agent == 'log_replay' else 128
+
+    # Create data loader
+    if args.dataset == 'training':
+        scene_loader = SceneDataLoader(
+            root=f"/data/full_version/data/training/",
+            batch_size=args.batch_size,
+            dataset_size=args.dataset_size,
+            sample_with_replacement=False,
+            shuffle=False,
+        )
+        dataset_size = args.dataset_size
+    else:
+        # Test Scene
+        scene_loader = SceneDataLoader(
+            root=f"/data/full_version/data/validation/",
+            batch_size=args.batch_size,
+            dataset_size=9987,
+            sample_with_replacement=False,
+            shuffle=False,
+        )
+        dataset_size = 9987
+    print(f'{args.dataset} len scene loader {len(scene_loader)}')
+    
+    env_config = EnvConfig(
+        dynamics_model="classic",
+        collision_behavior='ignore',
+        steer_actions=torch.round(
+                torch.linspace(-torch.pi, torch.pi, 13),
+                decimals=3,
+            ),
+        accel_actions=torch.round(
+                torch.linspace(-4.0, 4.0, 7), decimals=3
+            ),
+        num_stack=1
+
+    )
+    render_config = RenderConfig(
+    )
+
+    # Make env
+    env = GPUDriveTorchEnv(
+        config=env_config,
+        data_loader=scene_loader,
+        max_cont_agents=num_cont_agents,  # Number of agents to control
+        device="cuda",
+        render_config=render_config,
+        action_type="discrete",
+    )
+    print(f'model: {args.model_path}/{args.model_name}', )
+    config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
+        
+    params = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False)
+    bc_policy = NeuralNet(
+        input_dim=64,
+        action_dim=91,
+        hidden_dim=128,
+        config=config.environment,
+    ).to("cuda")
+    bc_policy.load_state_dict(params["parameters"])
+    bc_policy.eval()
+    num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
+    if args.sim_agent == 'log_replay':
+        remove_controlled_agents = False
+    else:
+        remove_controlled_agents = True
+    # Train Scene
+    env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=remove_controlled_agents)
+    if args.sim_agent == 'log_replay' or args.sim_agent == 'delta_replay':
+        df_name = f'/data/full_version/expert_{args.dataset}_data_v2.csv'
+        df = pd.read_csv(df_name)
+        scene_dict =df.set_index('scene_idx') .to_dict(orient='index')
+
+    for i in tqdm(range(num_iter)):
+        if args.sim_agent == 'log_replay' or args.sim_agent == 'delta_replay':
+            expert_dict = {k: scene_dict[k + i * args.batch_size] for k in range(args.batch_size) if k + i * args.batch_size in scene_dict}
+        else:
+            expert_dict = None
+        run(args, env, bc_policy, dataset=args.dataset, scene_batch_idx=i, expert_dict=expert_dict)
+        if i != num_iter - 1:
+            print('SWAP!!')
+            env.swap_data_batch()
+            env.remove_agents_by_id(args.partner_portion_test, remove_controlled_agents=remove_controlled_agents)
+    env.close()
+

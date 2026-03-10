@@ -147,7 +147,7 @@ def train(exp_config=None):
     set_seed(exp_config.seed)
     # Backbone and heads
     if exp_config.model == 'baseline':
-        hidden_dim = 30 if exp_config.exp == 'ego' else 60 # ego info
+        hidden_dim = 6 if exp_config.exp == 'ego' else 12 # ego info
         backbone = None
     else:
         # Load default configs
@@ -208,11 +208,11 @@ def train(exp_config=None):
             future_mask = future_mask.to("cuda")
 
             if exp_config.model == 'baseline':
-                baseline_obs = obs[..., :6].reshape(-1, 30)
+                baseline_obs = obs[..., :6].reshape(-1, 6)
                 if exp_config.exp == 'other':
                     B, T, _ = obs.shape
                     ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
-                    partner_obs = obs[..., 6:6 * 128].reshape(B, T, 127, 6)
+                    partner_obs = obs[..., 6:6 * 128].reshape(B, 1, 127, 6)
                     lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
                 else:
                     lp_input = baseline_obs
@@ -229,7 +229,7 @@ def train(exp_config=None):
             # if exp_config.exp == 'ego':
             #     future_mask = future_mask.squeeze(1)
             pred_pos = pos_linear_model(lp_input)
-            future_mask = ~future_mask
+            future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
             masked_pos = pred_pos[future_mask]
             
             # get future expert pos and action
@@ -283,11 +283,11 @@ def train(exp_config=None):
                         future_mask = future_mask.to("cuda")
                         labels = labels.to("cuda")
                     if exp_config.model == 'baseline':
-                        baseline_obs = obs[..., :6].reshape(-1, 30)
+                        baseline_obs = obs[..., :6].reshape(-1, 6)
                         if exp_config.exp == 'other':
                             B, T, _ = obs.shape
                             ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
-                            partner_obs = obs[..., 6:6 * 128].reshape(B, T, 127, 6)
+                            partner_obs = obs[..., 6:6 * 128].reshape(B, 1, 127, 6)
                             lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
                         else:
                             lp_input = baseline_obs
@@ -302,7 +302,7 @@ def train(exp_config=None):
                     with torch.no_grad():
                         # get future pred pos and action
                         pred_pos = pos_linear_model(lp_input)
-                        future_mask = ~future_mask
+                        future_mask = ~future_mask if exp_config.exp == 'other' else future_mask
                         masked_pos = pred_pos[future_mask]
                         masked_label = labels[future_mask]
                         # get future expert actionpartner_mask
@@ -386,7 +386,7 @@ def train(exp_config=None):
     
 if __name__ == "__main__":
     args = parse_args()
-    with open('baselines/il/config/lp.yaml', "r") as f:
+    with open('gpudrive/integrations/rl/lp.yaml', "r") as f:
         exp_config = Box(yaml.safe_load(f))
     if args.use_wandb:
         with open("gpudrive/integrations/rl/lp_sweep.yaml") as f:
