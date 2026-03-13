@@ -1,13 +1,13 @@
 program: baselines/il/linear_prob.py
 method: grid
-name: lp_10000_baseline
+name: rl_10000
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   # MODEL
   model_path:
-    value: "/data/after_cvpr/rl/scene_10000/PPO____S_200__03_04_04_06_56_997"
+    value: "/data/after_cvpr/rl/scene_10000/"
   model_name:
     values: ["model_PPO____S_200__03_04_04_06_56_997_007604"]
   # DATA
@@ -18,7 +18,7 @@ parameters:
   exp:
     values: ['ego', 'other']
   model:
-    values: ['baseline']
+    values: ['baseline', 'lp']
   # EXPERIMENT
   batch_size:
     values: [256]

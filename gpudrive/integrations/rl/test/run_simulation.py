@@ -13,8 +13,8 @@ def arg_parse():
     parser = argparse.ArgumentParser()
     # MODEL
     parser.add_argument('--sweep-name', '-sn', type=str, default='data_cut_add')
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model')
-    parser.add_argument('--video-path', '-vp', type=str, default='/data/full_version/video')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/')
+    parser.add_argument('--video-path', '-vp', type=str, default='/data/after_cvpr/video')
     parser.add_argument('--dataset-size', type=int, default=1000) # total_world
     parser.add_argument('--batch-size', type=int, default=100) # num_world
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     print(models)
     for model in tqdm(models):
         for dataset in ['validation']: # Options: ['training', 'validation']
-            if '.pth' not in model:
+            if '.pt' not in model:
                 continue
             if 'optim' in model:
                 continue
@@ -45,7 +45,7 @@ if __name__ == "__main__":
             arguments = f"-mc -sa {args.sim_agent} -d {dataset} --dataset-size {args.dataset_size} -mp {model_path} -vp {video_path} -mn {model} --batch-size {args.batch_size} -pp {args.partner_portion_test}"
             if args.make_video:
                 arguments += ' -mv'
-            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} python baselines/il/test/simulation.py {arguments}"
+            command = f"CUDA_VISIBLE_DEVICES={args.gpu_id} python gpudrive/integrations/rl/simulation.py {arguments}"
             result = subprocess.run(command, shell=True)
             if result.returncode != 0:
                 print(f"Error: Command failed with return code {result.returncode}")

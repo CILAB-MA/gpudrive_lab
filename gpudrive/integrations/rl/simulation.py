@@ -29,15 +29,12 @@ def load_config(config_path):
     return pufferlib.namespace(**config)
 
 def run(args, env, policy, dataset, scene_batch_idx, expert_dict=None):
-    obs = env.reset()
-
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
+    obs = env.reset(alive_agent_mask)
 
     frames = [[] for _ in range(args.batch_size)]
-    expert_actions, _, _, _, _  = env.get_expert_actions() 
-    obs_stack1_feat_size = int(obs.shape[-1] / 5)
-    poss = obs[alive_agent_mask][:, obs_stack1_feat_size * 4 + 3:obs_stack1_feat_size * 4 + 5]
+    poss = obs[:, 3:5]
     init_goal_dist = torch.linalg.norm(poss, dim=-1)
     dist_metrics = torch.zeros_like(alive_agent_mask, dtype=torch.float32)
     infos = env.get_infos()
@@ -54,17 +51,17 @@ def run(args, env, policy, dataset, scene_batch_idx, expert_dict=None):
         expert_timesteps = np.stack([expert_dict[k]['done_step'] for k in sorted_keys])
         expert_timesteps = torch.from_numpy(expert_timesteps).to(dtype=goal_timesteps.dtype).to("cuda")
 
-    off_road_ep = infos.off_road[alive_agent_mask]
-    veh_collision_ep = infos.collided[alive_agent_mask]
-    goal_achieved_ep = infos.goal_achieved[alive_agent_mask]
+    off_road_ep = torch.zeros_like(alive_agent_mask).float()
+    veh_collision_ep = torch.zeros_like(alive_agent_mask).float()
+    goal_achieved_ep = torch.zeros_like(alive_agent_mask).float()
+    all_actions = torch.zeros_like(alive_agent_mask).to("cuda").long()
     for time_step in tqdm(range(env.episode_len)):
-        all_actions = torch.zeros(obs.shape[0], obs.shape[1]).to("cuda").long()
         
         # MASK
         road_mask = env.get_road_mask().to("cuda")
         partner_mask = env.get_partner_mask().to("cuda")
         partner_mask_bool = partner_mask == 2
-        poss = obs[alive_agent_mask][:, obs_stack1_feat_size * 4 + 3:obs_stack1_feat_size * 4 + 5]
+        poss = obs[:, 3:5]
         dist = torch.linalg.norm(poss, dim=-1)
         dist_metrics[alive_agent_mask] = dist
 
@@ -80,9 +77,9 @@ def run(args, env, policy, dataset, scene_batch_idx, expert_dict=None):
 
         with torch.no_grad():
             # for padding zero
-            alive_obs = obs[~dead_agent_mask]
+            alive_obs = obs
             actions, *_ = policy(alive_obs)
-        all_actions[~dead_agent_mask] = actions
+        all_actions[alive_agent_mask] = actions
 
         if args.make_video:
             sim_states = env.vis.plot_simulator_state(
@@ -99,12 +96,12 @@ def run(args, env, policy, dataset, scene_batch_idx, expert_dict=None):
                 )
 
         env.step_dynamics(all_actions)
-        obs = env.get_obs()
+        obs = env.get_obs(alive_agent_mask)
         dones = env.get_dones()
         infos = env.get_infos()
-        off_road_ep += infos.off_road[alive_agent_mask]
-        veh_collision_ep += infos.collided[alive_agent_mask]
-        goal_achieved_ep += infos.goal_achieved[alive_agent_mask]
+        off_road_ep += infos.off_road
+        veh_collision_ep += infos.collided
+        goal_achieved_ep += infos.goal_achieved
         goal_achieved_ep = torch.clamp(goal_achieved_ep, max=1)
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
         # print(f'STEP: {off_road_ep.sum()} {veh_collision_ep.sum()} {goal_achieved_ep.sum()}')
@@ -115,7 +112,7 @@ def run(args, env, policy, dataset, scene_batch_idx, expert_dict=None):
         valid_goal_times = goal_timesteps[goal_timesteps >= 0].float()
         goal_time_avg = valid_goal_times.mean().item() if len(valid_goal_times) > 0 else -1
     goal_progress_ratio = dist_metrics[alive_agent_mask] / init_goal_dist
-    goal_progress_ratio[goal_achieved_ep.bool()] = 0
+    goal_progress_ratio[goal_achieved_ep[alive_agent_mask].bool()] = 0
     if expert_dict is not None:
         # calculate the different label
         label_masks = [turn_mask, normal_mask, reverse_mask, straight_mask]
@@ -144,14 +141,14 @@ def run(args, env, policy, dataset, scene_batch_idx, expert_dict=None):
     print('Agents Achieved Ratio to Goal', goal_progress_ratio)
     num_finished_agents = alive_agent_mask.sum().float()
     off_road_rate = (
-        torch.where(off_road_ep > 0, 1, 0).sum().float() / num_finished_agents
+        torch.where(off_road_ep[alive_agent_mask] > 0, 1, 0).sum().float() / num_finished_agents
     )
     veh_coll_rate = (
-        torch.where(veh_collision_ep > 0, 1, 0).sum().float()
+        torch.where(veh_collision_ep[alive_agent_mask] > 0, 1, 0).sum().float()
         / num_finished_agents
     )
     collision_rate = veh_coll_rate
-    goal_rate = goal_achieved_ep.sum().float() / num_finished_agents
+    goal_rate = goal_achieved_ep[alive_agent_mask].sum().float() / num_finished_agents
 
     print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate}')
     # print(f'Success World idx : ', torch.where(goal_achieved_ep == 1)[0].tolist())
@@ -207,7 +204,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch-size', type=int, default=50) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/scene_10000/PPO____S_200__03_04_04_06_56_997')
-    parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_200__03_04_04_06_56_997_007600.pt') # early_attn_s11_0808_043910
+    parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_200__03_04_04_06_56_997_007604.pt') # early_attn_s11_0808_043910
     parser.add_argument('--make-video', '-mv', action='store_true')
     parser.add_argument('--make-csv', '-mc', action='store_true')
     parser.add_argument('--make-data', '-md', action='store_true')
