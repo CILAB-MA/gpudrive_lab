@@ -13,8 +13,9 @@ class FutureDataset(torch.utils.data.Dataset):
 
         # masks
         valid_masks = 1 - masks
-        action_mask = (np.abs(actions[..., 1]) >  0.5) | (np.abs(actions[..., 0]) >  5) | (np.abs(actions[..., -1]) > 0.2)
-        valid_masks[action_mask] = 0
+        if actions.shape[-1] == 3:
+            action_mask = (np.abs(actions[..., 1]) >  0.5) | (np.abs(actions[..., 0]) >  5) | (np.abs(actions[..., -1]) > 0.2)
+            valid_masks[action_mask] = 0
         self.valid_masks = valid_masks.astype('bool')
         self.future_step = future_step
         print(self.obs.shape, self.actions.shape, self.valid_masks.shape)

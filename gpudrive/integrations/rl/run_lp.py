@@ -210,10 +210,10 @@ def train(exp_config=None):
             if exp_config.model == 'baseline':
                 baseline_obs = obs[..., :6].reshape(-1, 6)
                 if exp_config.exp == 'other':
-                    B, T, _ = obs.shape
-                    ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
-                    partner_obs = obs[..., 6:6 * 128].reshape(B, 1, 127, 6)
-                    lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
+                    B, T = obs.shape
+                    ego_obs = obs[..., :6].unsqueeze(1).repeat(1, 127, 1)
+                    partner_obs = obs[..., 6:6 * 128].reshape(B, 127, 6)
+                    lp_input = torch.cat([ego_obs, partner_obs], dim=-1).reshape(B, 127, -1)
                 else:
                     lp_input = baseline_obs
             else:
@@ -285,10 +285,10 @@ def train(exp_config=None):
                     if exp_config.model == 'baseline':
                         baseline_obs = obs[..., :6].reshape(-1, 6)
                         if exp_config.exp == 'other':
-                            B, T, _ = obs.shape
-                            ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
-                            partner_obs = obs[..., 6:6 * 128].reshape(B, 1, 127, 6)
-                            lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
+                            B, T = obs.shape
+                            ego_obs = obs[..., :6].unsqueeze(1).repeat(1, 127, 1)
+                            partner_obs = obs[..., 6:6 * 128].reshape(B, 127, 6)
+                            lp_input = torch.cat([ego_obs, partner_obs], dim=-1).reshape(B, 127, -1)
                         else:
                             lp_input = baseline_obs
                     else:
