@@ -42,6 +42,11 @@ def run(save_path, save_name, subset_path, num_scenes, seed=42):
     road_masks_list = []
     ego_global_rots_list = []
     ego_global_poss_list = []
+    partner_labels_list = []
+    ego_labels_list = []
+
+    label_path = os.path.join(subset_path, "label")
+    has_labels = os.path.isdir(label_path)
 
     total_loaded = 0
 
@@ -70,6 +75,20 @@ def run(save_path, save_name, subset_path, num_scenes, seed=42):
         del g
         gc.collect()
 
+        if has_labels:
+            label_filename = f"label_{filename}"  # label_trajectory_{sid}.npz
+            label_file_path = os.path.join(label_path, label_filename)
+            if os.path.exists(label_file_path):
+                lbl = np.load(label_file_path)
+                partner_labels_list.append(lbl["partner_label"])
+                ego_labels_list.append(lbl["ego_label"])
+                del lbl
+                gc.collect()
+            else:
+                print(f"[WARN] missing {label_file_path}, skipping all labels")
+                partner_labels_list.clear()
+                ego_labels_list.clear()
+                has_labels = False
 
     obs = np.concatenate(obs_list, axis=0)
     actions = np.concatenate(actions_list, axis=0)
@@ -80,19 +99,26 @@ def run(save_path, save_name, subset_path, num_scenes, seed=42):
     ego_global_rots = np.concatenate(ego_global_rots_list, axis=0)
     ego_global_poss = np.concatenate(ego_global_poss_list, axis=0)
 
+    save_dict = dict(
+        obs=obs,
+        actions=actions,
+        dead_mask=dead_masks,
+        partner_mask=partner_masks, 
+        road_mask=road_masks,
+    )
+    if partner_labels_list and ego_labels_list:
+        partner_labels = np.concatenate(partner_labels_list, axis=0)
+        ego_labels = np.concatenate(ego_labels_list, axis=0)
+        save_dict["partner_labels"] = partner_labels
+        save_dict["ego_labels"] = ego_labels
+        print(f"[INFO] concat labels: partner {partner_labels.shape}, ego {ego_labels.shape}")
+
     print("[INFO] compressing & saving...")
 
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(os.path.join(save_path, "global"), exist_ok=True)
 
-    np.savez_compressed(
-        os.path.join(save_path, save_name),
-        obs=obs,
-        actions=actions,
-        dead_mask=dead_masks,
-        partner_mask=partner_masks,
-        road_mask=road_masks,
-    )
+    np.savez_compressed(os.path.join(save_path, save_name), **save_dict)
 
     np.savez_compressed(
         os.path.join(save_path, "global", f"global_{save_name}"),
@@ -107,13 +133,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-scene', type=int, default=10000)
+    parser.add_argument('--num-scene', type=int, default=2500)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'])
+    parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'])
     args = parser.parse_args()
 
-    save_path = "/data/full_version/processed/final_rebuttal/"
-    save_name = f"{args.dataset}_{args.num_scene}_seed{args.seed}.npz"
-    subset_path = f"/data/full_version/processed/{args.dataset}_subset_v5"
+    save_path = f"/data/after_cvpr/linear_probe_data/scene_1000"
+    save_name = f"{args.dataset}_trajectory_{args.num_scene}.npz"
+    subset_path = f"/data/after_cvpr/linear_probe_data/scene_1000/{args.dataset}_rl_data/"
 
     run(save_path, save_name, subset_path, args.num_scene, seed=args.seed)

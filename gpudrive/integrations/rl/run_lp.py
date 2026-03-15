@@ -72,9 +72,9 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     ego_global_pos = None
     ego_global_rot = None
     global_file = data_file
-    if "validation" in data_file:
-        global_file = data_file[6:]  # strip "label/"
-    global_path = os.path.join(data_path, "global_" + global_file)
+    # if "validation" in data_file:
+    #     global_file = data_file[6:]  # strip "label/"
+    global_path = os.path.join(data_path, "global_" + global_file) # "global", 
     global_data = _load_trajectory_file(global_path)
     ego_global_pos = global_data["ego_global_pos"]
     ego_global_rot = global_data["ego_global_rot"]
@@ -173,7 +173,7 @@ def train(exp_config=None):
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"label/validation_trajectory_2500.npz"
+    eval_data_file =  f"validation_trajectory_2500.npz"
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=exp_config.lr, eps=0.0001)
 
