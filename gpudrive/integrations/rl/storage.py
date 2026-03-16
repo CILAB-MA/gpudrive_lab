@@ -284,11 +284,11 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_stack', type=int, default=1)
-    parser.add_argument('--save_path', type=str, default='/data/after_cvpr/linear_probe_data/scene_1000')
+    parser.add_argument('--save_path', type=str, default='/data/after_cvpr/linear_probe_data/scene_100')
     parser.add_argument('--label_path', type=str, default=None,
-                        help='Path for labels. Default: /data/after_cvpr/linear_probe_data/scene_1000/{dataset}/label')
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/scene_1000/')
-    parser.add_argument('--model-name', '-mn', type=str, default='runs_PPO____S_150__03_08_06_24_47_167_model_PPO____S_150__03_08_06_24_47_167_001522.pt')
+                        help='Path for labels. Default: /data/after_cvpr/linear_probe_data/scene_100/{dataset}/label')
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/scene_100/')
+    parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_150__03_13_10_39_01_723_000761.pt')
     parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'])
     parser.add_argument('--save-trajectory', action='store_true', default=True,
                         help='Save trajectory data (obs, actions, masks)')
@@ -303,7 +303,7 @@ if __name__ == "__main__":
 
     torch.set_printoptions(precision=3, sci_mode=False)
     trajectory_path = os.path.join(args.save_path, f'{args.dataset}_rl_data')
-    label_path = args.label_path or f"/data/after_cvpr/linear_probe_data/scene_1000/{args.dataset}_rl_data/label"
+    label_path = args.label_path or f"/data/after_cvpr/linear_probe_data/scene_100/{args.dataset}_rl_data/label"
 
     env_config = EnvConfig(
         ego_state=True,
