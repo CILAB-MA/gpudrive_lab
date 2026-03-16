@@ -140,6 +140,11 @@ def run_and_save(
     off_road = torch.zeros(alive_agent_num, device=device)
     veh_collision = torch.zeros(alive_agent_num, device=device)
 
+    # For label computation: per-agent previous global pos/yaw (for inverse delta)
+    prev_pos = torch.zeros((alive_agent_num, 2), device=device)
+    prev_yaw = torch.zeros(alive_agent_num, device=device)
+    prev_init = torch.zeros(alive_agent_num, dtype=torch.bool, device=device)
+
     for t in tqdm(range(env.episode_len)):
         with torch.no_grad():
             alive_obs = obs[~dead_agent_mask]
@@ -148,7 +153,6 @@ def run_and_save(
             obs.shape[0], obs.shape[1], device=device, dtype=torch.long
         )
         all_actions[~dead_agent_mask] = actions
-        action_values = env.action_keys_tensor[all_actions]
 
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
@@ -163,10 +167,43 @@ def run_and_save(
                 ].clone()
                 expert_ego_id_lst[idx, t] = agent_info[world_idx, agent_idx, -1]
                 expert_scene_id_lst[idx, t] = world_idx
-                av = action_values[world_idx, agent_idx]
-                log_actions_lst[idx, t, 0] = av[0]
-                log_actions_lst[idx, t, 1] = av[1]
-                log_actions_lst[idx, t, 2] = av[1]
+
+                # --- Inverse delta-style local (dx, dy, dyaw) from global trajectory ---
+                cur_pos = agent_info[world_idx, agent_idx, 0:2]       # (2,)
+                cur_yaw = agent_info[world_idx, agent_idx, 7]         # scalar
+
+                if not prev_init[idx]:
+                    # Initialize at first timestep
+                    prev_pos[idx] = cur_pos
+                    prev_yaw[idx] = cur_yaw
+                    prev_init[idx] = True
+                    dx_local = torch.tensor(0.0, device=device)
+                    dy_local = torch.tensor(0.0, device=device)
+                    dyaw_local = torch.tensor(0.0, device=device)
+                else:
+                    # DeltaGlobal.inverse: world-frame delta
+                    dx_global = torch.clamp(cur_pos[0] - prev_pos[idx, 0], -6.0, 6.0)
+                    dy_global = torch.clamp(cur_pos[1] - prev_pos[idx, 1], -6.0, 6.0)
+                    dyaw_global = cur_yaw - prev_yaw[idx]
+
+                    # DeltaLocal.inverse: rotate into ego frame at time t
+                    yaw_t = prev_yaw[idx]
+                    cos_yaw = torch.cos(-yaw_t)
+                    sin_yaw = torch.sin(-yaw_t)
+                    dx_local = dx_global * cos_yaw - dy_global * sin_yaw
+                    dy_local = dx_global * sin_yaw + dy_global * cos_yaw
+                    dx_local = torch.clamp(dx_local, -6.0, 6.0)
+                    dy_local = torch.clamp(dy_local, -6.0, 6.0)
+                    dyaw_local = torch.atan2(
+                        torch.sin(dyaw_global), torch.cos(dyaw_global)
+                    )
+
+                    prev_pos[idx] = cur_pos
+                    prev_yaw[idx] = cur_yaw
+
+                log_actions_lst[idx, t, 0] = dx_local
+                log_actions_lst[idx, t, 1] = dy_local
+                log_actions_lst[idx, t, 2] = dyaw_local
             expert_dead_mask_lst[idx][t] = dead_agent_mask[world_idx, agent_idx]
 
         env.step_dynamics(all_actions)
