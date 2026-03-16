@@ -133,13 +133,18 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-scene', type=int, default=2500)
+    parser.add_argument('--scene', type=int, default=100,
+                        help='Scene key for paths: save_path/subset_path use scene_{scene} (e.g. 100 -> scene_100)')
+    parser.add_argument('--num-scene', type=int, default=2500,
+                        help='Number of scenes to sample into the concatenated file')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'])
     args = parser.parse_args()
 
-    save_path = f"/data/after_cvpr/linear_probe_data/scene_1000"
+    base = "/data/after_cvpr/linear_probe_data"
+    scene_key = f"scene_{args.scene}"
+    save_path = f"{base}/{scene_key}"
     save_name = f"{args.dataset}_trajectory_{args.num_scene}.npz"
-    subset_path = f"/data/after_cvpr/linear_probe_data/scene_1000/{args.dataset}_rl_data/"
+    subset_path = f"{base}/{scene_key}/{args.dataset}_rl_data"
 
     run(save_path, save_name, subset_path, args.num_scene, seed=args.seed)

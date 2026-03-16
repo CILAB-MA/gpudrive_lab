@@ -246,9 +246,8 @@ def run_and_save(
             partner_id=pid,
         )
 
-    # Save labels (filter: goal achieved only)
+    # Save labels (use same filter as trajectory: goal + no offroad + no collision)
     if save_label and label_path is not None:
-        goal_mask = goal_achieved > 0
         st, en = batch_idx * batch_size, (batch_idx + 1) * batch_size
         scene_labels = get_label(
             log_actions_lst.cpu().numpy(), st, en, done_step, index_array
@@ -270,8 +269,9 @@ def run_and_save(
         labels_flat = np.array(
             [id_to_label.get((s, pid), -1) for s, pid in zip(scene_flat, partner_flat)]
         )
-        partner_labels = labels_flat.reshape(N, T, M)[goal_mask.cpu().numpy()]
-        scene_labels_filtered = scene_labels[goal_mask.cpu().numpy()]
+        save_mask_np = save_mask.cpu().numpy()
+        partner_labels = labels_flat.reshape(N, T, M)[save_mask_np]
+        scene_labels_filtered = scene_labels[save_mask_np]
         os.makedirs(label_path, exist_ok=True)
         np.savez_compressed(
             f'{label_path}/label_trajectory_{batch_size * batch_idx}.npz',
@@ -283,11 +283,15 @@ def run_and_save(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--num-scene', '-n', type=int, default=100,
+                        help='Scene count for paths: save_path/model_path use scene_{num_scene}')
     parser.add_argument('--num_stack', type=int, default=1)
-    parser.add_argument('--save_path', type=str, default='/data/after_cvpr/linear_probe_data/scene_100')
+    parser.add_argument('--save_path', type=str, default=None,
+                        help='Override save base path. Default: /data/after_cvpr/linear_probe_data/scene_{num_scene}')
     parser.add_argument('--label_path', type=str, default=None,
-                        help='Path for labels. Default: /data/after_cvpr/linear_probe_data/scene_100/{dataset}/label')
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/scene_100/')
+                        help='Override label path. Default: {save_path}/{dataset}_rl_data/label')
+    parser.add_argument('--model-path', '-mp', type=str, default=None,
+                        help='Override model dir. Default: /data/after_cvpr/rl/scene_{num_scene}/')
     parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_150__03_13_10_39_01_723_000761.pt')
     parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'])
     parser.add_argument('--save-trajectory', action='store_true', default=True,
@@ -302,8 +306,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
-    trajectory_path = os.path.join(args.save_path, f'{args.dataset}_rl_data')
-    label_path = args.label_path or f"/data/after_cvpr/linear_probe_data/scene_100/{args.dataset}_rl_data/label"
+    base_data = "/data/after_cvpr"
+    scene_key = f"scene_{args.num_scene}"
+    save_path = args.save_path or os.path.join(base_data, "linear_probe_data", scene_key)
+    model_path = args.model_path or os.path.join(base_data, "rl", scene_key + "/")
+    trajectory_path = os.path.join(save_path, f'{args.dataset}_rl_data')
+    label_path = args.label_path or os.path.join(save_path, f"{args.dataset}_rl_data", "label")
 
     env_config = EnvConfig(
         ego_state=True,
@@ -329,9 +337,11 @@ if __name__ == "__main__":
         num_stack=args.num_stack,
     )
     print()
+    print("num_scene : ", args.num_scene, f" (scene_{args.num_scene})")
     print("num_stack : ", args.num_stack)
     print("trajectory_path : ", trajectory_path)
     print("label_path : ", label_path)
+    print("model_path : ", model_path)
     print("dataset : ", args.dataset)
     print("save_trajectory : ", args.save_trajectory)
     print("save_label : ", args.save_label)
@@ -354,7 +364,7 @@ if __name__ == "__main__":
     )
     print('Load policy')
     config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
-    params = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False)
+    params = torch.load(os.path.join(model_path.rstrip("/"), args.model_name), weights_only=False)
     policy = NeuralNet(
         input_dim=64,
         action_dim=91,
