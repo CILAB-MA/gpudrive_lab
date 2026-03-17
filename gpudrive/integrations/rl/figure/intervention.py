@@ -22,9 +22,19 @@ from collections import OrderedDict, defaultdict
 from PIL import Image
 import os
 import matplotlib.pyplot as plt
+from gpudrive.networks.late_fusion import NeuralNet
+import pufferlib, yaml
+from box import Box
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def load_config(config_path):
+    """Load the configuration file."""
+    with open(config_path, "r") as f:
+        config = Box(yaml.safe_load(f))
+    return pufferlib.namespace(**config)
 
 def digitize(t, bins):
     return torch.bucketize(t, bins, right=False)
@@ -300,10 +310,10 @@ if __name__ == "__main__":
     parser.add_argument('--dataset-size', type=int, default=100) # total_world
     parser.add_argument('--batch-size', type=int, default=100) # num_world
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix') #80000_subset_aix
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth') # \early_attn_s3_0908_113203.pth.pth
+    parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/scene_10000') #80000_subset_aix
+    parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_200__03_04_04_06_56_997_007604.pt') # \early_attn_s3_0908_113203.pth.pth
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
-    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention_real_final_original')
+    parser.add_argument('--image-path', '-vp', type=str, default='/data/after_cvpr/images/intervention_real_final_original')
     parser.add_argument('--linear-probing', '-lp', type=str, default='original', choices=['original', 
     'intervention'])
     parser.add_argument('--intervention', '-i', type=str, default='mean', choices=['mean', 
@@ -319,8 +329,8 @@ if __name__ == "__main__":
     cols2 = [f"step{i}_1" for i in (10, 20, 30, 40)]
     cols3 = [f"step{i}_2" for i in (10, 20, 30, 40)]
     # cols4 = [f"step{i}_3" for i in (10, 20, 30, 40)]
-    df = pd.read_csv("/data/full_version/intervention.csv")
-    df_more = pd.read_csv("/data/full_version/intervention_others.csv")
+    df = pd.read_csv("/data/after_cvpr/intervention_rl.csv")
+    df_more = pd.read_csv("/data/after_cvpr/intervention_rl_others.csv")
     intervention_idx = df['intervention_idx'].tolist() 
     intervention_idx_more1 = df_more['intervention_idx_0'].tolist() 
     intervention_idx_more2 = df_more['intervention_idx_1'].tolist() 
@@ -357,26 +367,43 @@ if __name__ == "__main__":
     print(f'{args.dataset} len scene loader {len(scene_loader)}')
     
     # Make env
-    env = GPUDriveTorchEnv(
-        config=EnvConfig(
-            dynamics_model="delta_local",
-            dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
-            dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
-            dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
-            collision_behavior='ignore',
-            num_stack=5
-        ),
-        data_loader=scene_loader,
-        max_cont_agents=1,  # Number of agents to control
-        device="cuda",
-        action_type="continuous",
+    env_config = EnvConfig(
+        dynamics_model="classic",
+        collision_behavior='ignore',
+        steer_actions=torch.round(
+                torch.linspace(-torch.pi, torch.pi, 13),
+                decimals=3,
+            ),
+        accel_actions=torch.round(
+                torch.linspace(-4.0, 4.0, 7), decimals=3
+            ),
+        num_stack=1
+
     )
-    
+
+    # Make env
+    env = GPUDriveTorchEnv(
+        config=env_config,
+        data_loader=scene_loader,
+        max_cont_agents=128,  # Number of agents to control
+        device="cuda",
+        action_type="discrete",
+    )
+
     sweep_name = Path(args.model_path).name    
     # Load policy
     model_path = os.path.join(args.model_path, args.model_name)
     print(f'model: {model_path}')
-    bc_policy = torch.load(f"{model_path}", weights_only=False).to("cuda")
+    config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
+        
+    params = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False)
+    bc_policy = NeuralNet(
+        input_dim=64,
+        action_dim=91,
+        hidden_dim=128,
+        config=config.environment,
+    ).to("cuda")
+    bc_policy.load_state_dict(params["parameters"])
     bc_policy.eval()
     num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
     # Load linear probing model

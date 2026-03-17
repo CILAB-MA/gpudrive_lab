@@ -265,7 +265,7 @@ def parse_args():
         default=None,
         choices=["early_lp", "final_lp", "baseline"],
     )
-    parser.add_argument("--model-path", "-mp", type=str, default=None)
+    parser.add_argument("--model-path", "-mp", type=str, default="scene_10000/model_PPO____S_200__03_04_04_06_56_997_007604")
     parser.add_argument("--seed", "-s", type=int, default=None)
     parser.add_argument("--num-scene", "-n", type=int, default=None)
     parser.add_argument("--future-step", "-f", type=int, default=10)

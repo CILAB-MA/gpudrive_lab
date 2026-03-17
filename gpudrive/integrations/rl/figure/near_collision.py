@@ -26,6 +26,9 @@ from matplotlib.colors import Normalize
 from matplotlib import cm
 from matplotlib import cm
 from matplotlib.colors import TwoSlopeNorm
+from gpudrive.networks.late_fusion import NeuralNet
+import pufferlib, yaml
+from box import Box 
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -49,6 +52,12 @@ def make_group_dict():
         "not_offroad": make_bucket(),
     }
 acc = defaultdict(make_group_dict)
+
+def load_config(config_path):
+    """Load the configuration file."""
+    with open(config_path, "r") as f:
+        config = Box(yaml.safe_load(f))
+    return pufferlib.namespace(**config)
 
 @torch.no_grad()
 def _update_bucket(bucket, y, p, v, pr):
@@ -168,7 +177,7 @@ def register_all_layers_forward_hook(model):
 
     return hidden_vector_dict
 
-def run(args, env, bc_policy, raw_lp_models, other_lp_models, scene_batch_idx, sweep_name, exp):
+def run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx, sweep_name, exp):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -214,9 +223,7 @@ def run(args, env, bc_policy, raw_lp_models, other_lp_models, scene_batch_idx, s
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
-            context, *_ = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
-            actions = bc_policy.get_action(context, deterministic=True)
-            actions = actions.squeeze(1)
+            actions, *_ = policy(alive_obs)
         all_actions[~dead_agent_mask, :] = actions
         env.step_dynamics(all_actions)
         infos = env.get_infos()
@@ -260,20 +267,15 @@ def run(args, env, bc_policy, raw_lp_models, other_lp_models, scene_batch_idx, s
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
-            context, *_ = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
-            actions = bc_policy.get_action(context, deterministic=True)
+            actions, *_ = policy(alive_obs)
             actions = actions.squeeze(1)
-            raw_input = alive_obs.reshape(100, 5, 3368)
-            partner_obs = raw_input[..., 6:128*6]         # (100, 5, 762)
-            ego_obs = raw_input[..., :6]
-            ego_obs = ego_obs.reshape(100, 30).unsqueeze(1).repeat(1, 127, 1)
-            po = partner_obs.reshape(100, 5, 127, 6) # (100, 5, 127, 6)
-            po = po.permute(0, 2, 1, 3)              # (100, 127, 5, 6)
-            po_input = po.reshape(100, 127, 30)
+            partner_obs = alive_obs[..., 6:128*6]         # (100, 5, 762)
+            ego_obs = alive_obs[..., :6]
+            ego_obs = ego_obs.reshape(100, 6).unsqueeze(1).repeat(1, 127, 1)
+            po_input = partner_obs.reshape(100, 127, 6) # (100, 5, 127, 6)
             raw_lp_input = torch.cat([ego_obs, po_input], dim=-1)
             if time_step < env.episode_len - 10: 
-                nth_layer = list(layers.keys())[-1]
-                other_lp_input = layers[nth_layer][:,1:128,:] 
+                other_lp_input = policy.partner_embed(po_input)
                 wm = world_mask
                 for i, (other_lp, raw_lp, future_step) in enumerate(zip(other_lp_models, raw_lp_models, future_steps)):
                     if time_step >= env.episode_len - future_step:
@@ -483,30 +485,43 @@ if __name__ == "__main__":
         shuffle=False,
     )
     dataset_size = args.dataset_size
+
     print(f'{args.dataset} len scene loader {len(scene_loader)}')
-    
-    # Make env
+    env_config = EnvConfig(
+        dynamics_model="classic",
+        collision_behavior='ignore',
+        steer_actions=torch.round(
+                torch.linspace(-torch.pi, torch.pi, 13),
+                decimals=3,
+            ),
+        accel_actions=torch.round(
+                torch.linspace(-4.0, 4.0, 7), decimals=3
+            ),
+        num_stack=1
+
+    )
     env = GPUDriveTorchEnv(
-        config=EnvConfig(
-            dynamics_model="delta_local",
-            dx=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
-            dy=torch.round(torch.tensor([-6.0, 6.0]), decimals=3),
-            dyaw=torch.round(torch.tensor([-np.pi, np.pi]), decimals=3),
-            collision_behavior='ignore',
-            num_stack=5
-        ),
+        config=env_config,
         data_loader=scene_loader,
-        max_cont_agents=1,
+        max_cont_agents=128,  # Number of agents to control
         device="cuda",
-        action_type="continuous",
+        action_type="discrete",
     )
     
     sweep_name = Path(args.model_path).name    
     # Load policy
     model_path = os.path.join(args.model_path, args.model_name)
     print(f'model: {model_path}')
-    bc_policy = torch.load(f"{model_path}", weights_only=False).to("cuda")
-    bc_policy.eval()
+    config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
+    params = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False)
+    policy = NeuralNet(
+        input_dim=64,
+        action_dim=91,
+        hidden_dim=128,
+        config=config.environment,
+    ).to("cuda")
+    policy.load_state_dict(params["parameters"])
+    policy.eval()
     num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
     # Load linear probing model
     lp_ego_root = os.path.join(args.model_path, f'ego_linear_prob', args.model_name.replace('.pth', ''))
@@ -523,11 +538,9 @@ if __name__ == "__main__":
         raw_lp_models.append(raw_model)
     
     # Simulate the environment with the policy
-    df = pd.read_csv(f'/data/full_version/expert_{args.dataset}_data_v2.csv')
-    expert_dict = df.set_index('scene_idx').to_dict(orient='index')
     total_iter = int(args.dataset_size // args.batch_size)
     for i in range(total_iter):
-        run(args, env, bc_policy, raw_lp_models, other_lp_models, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
+        run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
         if i != num_iter - 1:
             env.swap_data_batch()
     env.close()
