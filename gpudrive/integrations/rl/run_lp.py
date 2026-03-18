@@ -74,7 +74,10 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
     global_file = data_file
     if "validation" in data_file and "full_version" in data_path:
         global_file = data_file[6:]  # strip "label/"
-    global_path = os.path.join(data_path, "global", "global_" + global_file) # "global", 
+    if "full_version" not in data_path:
+        global_path = os.path.join(data_path, "global", "global_" + global_file)
+    else:
+        global_path = os.path.join(data_path, "global_" + global_file)
     global_data = _load_trajectory_file(global_path)
     ego_global_pos = global_data["ego_global_pos"]
     ego_global_rot = global_data["ego_global_rot"]
