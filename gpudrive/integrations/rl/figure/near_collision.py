@@ -177,69 +177,75 @@ def register_all_layers_forward_hook(model):
 
     return hidden_vector_dict
 
-def run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx, sweep_name, exp):
+def run(args, env, policy, raw_lp_models, other_lp_models):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
-    frames = [[] for _ in range(args.batch_size)]
-    NUM_WORLD = alive_agent_mask.shape[0]
+    alive_agent_count = alive_agent_mask.sum()
+    # For max_agent=128: track per-agent alive mask; world mask is optional
+    alive_world = (~dead_agent_mask).sum(-1).bool()
     # Extract Linear Probing
-    layers = register_all_layers_forward_hook(bc_policy.fusion_attn)
     
     # =============== save data for linear probing ===============
-    ego_global_pos = torch.zeros((args.batch_size, env.episode_len, 2)).cuda()
-    ego_global_rot = torch.zeros((args.batch_size, env.episode_len)).cuda()
-    other_relative_pos = torch.zeros((args.batch_size, env.episode_len, 127, 2)).cuda()
-    other_relative_mask = torch.zeros((args.batch_size, env.episode_len, 127)).bool().cuda()
+    ego_global_pos = torch.zeros((args.batch_size, 128, env.episode_len, 2)).cuda()
+    ego_global_rot = torch.zeros((args.batch_size, 128, env.episode_len)).cuda()
+    other_relative_pos = torch.zeros((args.batch_size, 128, env.episode_len, 127, 2)).cuda()
+    other_relative_mask = torch.zeros((args.batch_size, 128, env.episode_len, 127)).bool().cuda()
     # ============================================================
     infos = env.get_infos()
-    off_road_ep = torch.zeros((args.batch_size, )).cuda()
-    veh_collision_ep = torch.zeros((args.batch_size, )).cuda()
-    veh_collision_step = torch.full((args.batch_size, ), fill_value=-1, dtype=torch.float32).to("cuda")
-    off_road_step = torch.full((args.batch_size, ), fill_value=-1, dtype=torch.float32).to("cuda")
-    goal_achieved_ep = torch.zeros((args.batch_size, )).cuda()
-    alive_world = alive_agent_mask.sum(-1).bool()
-    global_ego = torch.zeros((args.batch_size, env.episode_len, 3)).cuda()
-    global_other = torch.zeros((args.batch_size, env.episode_len, 127, 2)).cuda()
+    off_road_ep = torch.zeros((args.batch_size, 128)).cuda()
+    veh_collision_ep = torch.zeros((args.batch_size, 128)).cuda()
+    veh_collision_step = torch.full(
+        (args.batch_size, 128), fill_value=-1, dtype=torch.int32, device="cuda"
+    )
+    off_road_step = torch.full(
+        (args.batch_size, 128), fill_value=-1, dtype=torch.int32, device="cuda"
+    )
+    goal_achieved_ep = torch.zeros((args.batch_size, 128)).cuda()
+    global_ego = torch.zeros((args.batch_size, 128, env.episode_len, 3)).cuda()
+    global_other = torch.zeros((args.batch_size, 128, env.episode_len, 127, 2)).cuda()
     for time_step in tqdm(range(env.episode_len)):
-        global_ego_t, global_other_t = env.get_probing_obs()
-        if global_ego_t.shape[0] != len(alive_world):
-            continue
-        global_ego[:, time_step][alive_world] = global_ego_t[alive_world]
-        global_other[:, time_step] = global_other_t
-        all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
+        ego_global_state = env.get_global_state()
+        ego_xy = torch.stack((ego_global_state.pos_x, ego_global_state.pos_y), dim=-1)  # (W,A,2)
+        ego_yaw = ego_global_state.rotation_angle  # (W,A)
+        global_ego[:, :, time_step, :2] = ego_xy
+        global_ego[:, :, time_step, 2] = ego_yaw
+
+        # Partner relative pos from env (normalized). Convert to meters before globalizing.
+        partner_pos = env.get_partner_pos().view(args.batch_size, 128, 127, 2) * MAX_REL_AGENT_POS
+        c = torch.cos(ego_yaw)
+        s = torch.sin(ego_yaw)
+        partner_global_x = ego_xy[..., 0:1] + partner_pos[..., 0] * c.unsqueeze(-1) - partner_pos[..., 1] * s.unsqueeze(-1)
+        partner_global_y = ego_xy[..., 1:2] + partner_pos[..., 0] * s.unsqueeze(-1) + partner_pos[..., 1] * c.unsqueeze(-1)
+        global_other[:, :, time_step, :, 0] = partner_global_x
+        global_other[:, :, time_step, :, 1] = partner_global_y
+        all_actions = torch.zeros(obs.shape[0], obs.shape[1]).to("cuda").long()
         # MASK
         road_mask = env.get_road_mask().to("cuda")
         partner_mask = env.get_partner_mask().to("cuda")
         partner_mask_bool = partner_mask == 2
         lp_partner_mask_bool = torch.logical_or(partner_mask == 2, partner_mask == 1)
-        ego_global_state = env.get_global_state()
-        ego_global_pos[:, time_step][alive_agent_mask.sum(-1) == 1] = torch.stack((ego_global_state.pos_x, ego_global_state.pos_y), dim=-1)[alive_agent_mask]
-        ego_global_rot[:, time_step][alive_agent_mask.sum(-1) == 1] = ego_global_state.rotation_angle[alive_agent_mask]
-        partner_pos = env.get_partner_pos()
-        other_relative_pos[:, time_step][alive_agent_mask.sum(-1) == 1] = partner_pos[alive_agent_mask]
-        other_relative_mask[:, time_step][alive_agent_mask.sum(-1) == 1] = lp_partner_mask_bool[alive_agent_mask]
-        all_masks = [partner_mask_bool[~dead_agent_mask].unsqueeze(1), road_mask[~dead_agent_mask].unsqueeze(1)]
+        ego_global_pos[:, :, time_step] = torch.stack((ego_global_state.pos_x, ego_global_state.pos_y), dim=-1)
+        ego_global_rot[:, :, time_step] = ego_global_state.rotation_angle
+        other_relative_pos[:, :, time_step] = partner_pos / MAX_REL_AGENT_POS
+        other_relative_mask[:, :, time_step] = lp_partner_mask_bool
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
-            actions, *_ = policy(alive_obs)
-        all_actions[~dead_agent_mask, :] = actions
+            actions, *_ = policy(alive_obs, deterministic=True)
+        all_actions[~dead_agent_mask] = actions
         env.step_dynamics(all_actions)
         infos = env.get_infos()
-        off_road_ep[alive_world] += infos.off_road[~dead_agent_mask]
-        veh_collision_ep[alive_world] += infos.collided[~dead_agent_mask]
-        goal_achieved_ep[alive_world] += infos.goal_achieved[~dead_agent_mask]
-        veh_coll_mask = (infos.collided[~dead_agent_mask] > 0).bool() & (veh_collision_step[alive_world] == -1)
-        off_road_mask = (infos.off_road[~dead_agent_mask] > 0).bool() & (off_road_step[alive_world] == -1)
-        alive_idx = alive_world.nonzero(as_tuple=True)[0] 
-        coll_idx = alive_idx[veh_coll_mask] 
-        veh_collision_step[coll_idx] = time_step
-        offroad_idx = alive_idx[off_road_mask] 
-        off_road_step[offroad_idx] = time_step
-        off_road_ep = torch.clamp(off_road_ep, max=1)
-        veh_collision_ep = torch.clamp(veh_collision_ep, max=1)
-        goal_achieved_ep = torch.clamp(goal_achieved_ep, max=1)
+        alive_agents = ~dead_agent_mask
+        off_road_ep[alive_agents] = torch.clamp(off_road_ep[alive_agents] + infos.off_road[alive_agents], max=1)
+        veh_collision_ep[alive_agents] = torch.clamp(veh_collision_ep[alive_agents] + infos.collided[alive_agents], max=1)
+        goal_achieved_ep[alive_agents] = torch.clamp(goal_achieved_ep[alive_agents] + infos.goal_achieved[alive_agents], max=1)
+
+        # first event timestep
+        new_coll = (infos.collided > 0) & (veh_collision_step == -1) & alive_agents
+        new_off = (infos.off_road > 0) & (off_road_step == -1) & alive_agents
+        veh_collision_step[new_coll] = time_step
+        off_road_step[new_off] = time_step
         obs = env.get_obs()
         dones = env.get_dones()
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
@@ -250,29 +256,19 @@ def run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx, swee
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
-    expert_actions, _, _, _, _  = env.get_expert_actions()
-    goal_mask = (goal_achieved_ep == 1)
-    offroad_mask = (off_road_ep == 1)
-    veh_coll_mask = (veh_collision_ep  == 1)
     for time_step in tqdm(range(env.episode_len)):
-        all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
-        # all_actions = expert_actions[:, :, time_step].clone()
-        global_ego_t = global_ego[:, time_step]
+        all_actions = torch.zeros(obs.shape[0], obs.shape[1]).to("cuda").long()
+        global_ego_t = global_ego[:, :, time_step]
         # MASK
-        road_mask = env.get_road_mask().to("cuda")
-        partner_mask = env.get_partner_mask().to("cuda")
         world_mask = (~dead_agent_mask).sum(dim=-1) == 1
-        partner_mask_bool = partner_mask == 2
-        all_masks = [partner_mask_bool[~dead_agent_mask].unsqueeze(1), road_mask[~dead_agent_mask].unsqueeze(1)]
         with torch.no_grad():
             # for padding zero
             alive_obs = obs[~dead_agent_mask]
-            actions, *_ = policy(alive_obs)
-            actions = actions.squeeze(1)
-            partner_obs = alive_obs[..., 6:128*6]         # (100, 5, 762)
+            actions, *_ = policy(alive_obs, deterministic=True)
+            partner_obs = alive_obs[..., 6:128*6]         # (100, 762)
             ego_obs = alive_obs[..., :6]
-            ego_obs = ego_obs.reshape(100, 6).unsqueeze(1).repeat(1, 127, 1)
-            po_input = partner_obs.reshape(100, 127, 6) # (100, 5, 127, 6)
+            ego_obs = ego_obs.unsqueeze(1).repeat(1, 127, 1)
+            po_input = partner_obs.reshape(-1, 127, 6) # (100, 127, 6)
             raw_lp_input = torch.cat([ego_obs, po_input], dim=-1)
             if time_step < env.episode_len - 10: 
                 other_lp_input = policy.partner_embed(po_input)
@@ -280,16 +276,20 @@ def run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx, swee
                 for i, (other_lp, raw_lp, future_step) in enumerate(zip(other_lp_models, raw_lp_models, future_steps)):
                     if time_step >= env.episode_len - future_step:
                         continue
-                    global_others_ft  = global_other[: ,time_step + future_step]
-                    rel = global_others_ft - global_ego_t[:, :2].unsqueeze(1) 
-                    c = torch.cos(global_ego_t[:, 2])                         # (W,)
-                    s = torch.sin(global_ego_t[:, 2])                         # (W,)
-                    Rinv = torch.stack((
-                            torch.stack(( c,  s), dim=-1),          # (W,2)
-                            torch.stack((-s,  c), dim=-1)           # (W,2)
-                        ), dim=-2)                                   # (W,2,2)
+                    global_others_ft  = global_other[:, :, time_step + future_step]
+                    rel = global_others_ft - global_ego_t[..., :2].unsqueeze(2) # (W, N, 127, 2)
+                    c = torch.cos(global_ego_t[..., 2])                         # (W, N, )
+                    s = torch.sin(global_ego_t[..., 2])                         # (W, N, 1)
+                    Rinv = torch.stack(
+                        (
+                            torch.stack((c, s), dim=-1),   # (W, N, 2)
+                            torch.stack((-s, c), dim=-1),  # (W, N, 2)
+                        ),
+                        dim=-2,
+                    )  # (W, N, 2, 2)
 
-                    rel_ego = torch.einsum('bij,bnj->bni', Rinv, rel)
+                    # (W, N, 2, 2) x (W, N, 127, 2) -> (W, N, 127, 2)
+                    rel_ego = torch.einsum("bnij,bnkj->bnki", Rinv, rel)
                     rel_pos = 2 * ((rel_ego - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
                     x, y = rel_pos[..., 0], rel_pos[..., 1]
         
@@ -302,7 +302,7 @@ def run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx, swee
                     x_bins = torch.clip(x_bins, 0, 7)
                     y_bins = torch.clip(y_bins, 0, 7)
                     discrete_pos = x_bins * 8 + y_bins
-                    futm = other_relative_mask[:, time_step + future_step]   
+                    futm = other_relative_mask[:, :, time_step + future_step]   
                     other_pred = other_lp(other_lp_input)
                     raw_pred = raw_lp(raw_lp_input)
                     raw_prob = raw_pred.softmax(dim=-1) 
@@ -317,13 +317,13 @@ def run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx, swee
                                 time_step)
                     else:
                         update_accumulators_for_step(future_step,
-                                other_cls, other_prob, discrete_pos[wm], futm[wm],
-                                goal_achieved_ep[wm], off_road_ep[wm], veh_collision_ep[wm],
-                                veh_collision_step[wm],off_road_step[wm],
+                                other_cls, other_prob, discrete_pos[~dead_agent_mask], futm[~dead_agent_mask],
+                                goal_achieved_ep[~dead_agent_mask], off_road_ep[~dead_agent_mask], veh_collision_ep[~dead_agent_mask],
+                                veh_collision_step[~dead_agent_mask],off_road_step[~dead_agent_mask],
                                 time_step)
 
 
-        all_actions[~dead_agent_mask, :] = actions
+        all_actions[~dead_agent_mask] = actions
         env.step_dynamics(all_actions)
 
         obs = env.get_obs()
@@ -451,17 +451,20 @@ if __name__ == "__main__":
     parser.add_argument('--dataset-size', type=int, default=9987)
     parser.add_argument('--batch-size', type=int, default=100)
     # EXPERIMENT
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix')
-    parser.add_argument('--model-name', '-mn', type=str, default='early_attn_s3_0908_113203.pth')
-    parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_early_lp')
-    parser.add_argument('--image-path', '-vp', type=str, default='/data/full_version/images/intervention')
+    parser.add_argument('--base-path', '-lpp', type=str, default='/data/after_cvpr/rl/scene_10000/')
+    parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_lp')
+    parser.add_argument('--image-path', '-vp', type=str, default='/data/after_cvpr/images/near_collision')
     parser.add_argument('--linear-probing', '-lp', type=str, default='other')
     parser.add_argument('--zoom-radius', type=int, default=50)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     import matplotlib as mpl
     args = parser.parse_args()
+    from matplotlib import font_manager
+    font_path = "/gpudrive_lab/times.ttf"
+    font_prop = font_manager.FontProperties(fname=font_path)
+    print(font_prop.get_name())
     mpl.rcParams.update({
-        'font.family': 'Times New Roman',
+        # 'font.family': 'Times New Roman',
         "figure.dpi": 300,
         "savefig.dpi": 300,
         "axes.titlesize": 19,
@@ -507,13 +510,13 @@ if __name__ == "__main__":
         device="cuda",
         action_type="discrete",
     )
-    
-    sweep_name = Path(args.model_path).name    
+    lp_path = os.path.join(args.base_path, f'other_linear_prob')
+    model_name = os.listdir(lp_path)[-1]
     # Load policy
-    model_path = os.path.join(args.model_path, args.model_name)
+    model_path = os.path.join(args.base_path, f"{model_name}.pt")
     print(f'model: {model_path}')
     config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
-    params = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False)
+    params = torch.load(model_path, weights_only=False)
     policy = NeuralNet(
         input_dim=64,
         action_dim=91,
@@ -524,9 +527,9 @@ if __name__ == "__main__":
     policy.eval()
     num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
     # Load linear probing model
-    lp_ego_root = os.path.join(args.model_path, f'ego_linear_prob', args.model_name.replace('.pth', ''))
-    lp_other_root = os.path.join(args.model_path, f'other_linear_prob', args.model_name.replace('.pth', ''))
-    seed = int(args.model_name.split('_')[2][1:])
+    lp_ego_root = os.path.join(args.base_path, f'ego_linear_prob', model_name.replace('.pth', ''))
+    lp_other_root = os.path.join(args.base_path, f'other_linear_prob', model_name.replace('.pth', ''))
+    seed = 3
     future_steps = [10, 20, 30, 40]
     other_lp_models, raw_lp_models = [], []
     for future_step in future_steps:
@@ -540,7 +543,7 @@ if __name__ == "__main__":
     # Simulate the environment with the policy
     total_iter = int(args.dataset_size // args.batch_size)
     for i in range(total_iter):
-        run(args, env, policy, raw_lp_models, other_lp_models, scene_batch_idx=i, sweep_name=sweep_name, exp=args.linear_probing)
+        run(args, env, policy, raw_lp_models, other_lp_models)
         if i != num_iter - 1:
             env.swap_data_batch()
     env.close()

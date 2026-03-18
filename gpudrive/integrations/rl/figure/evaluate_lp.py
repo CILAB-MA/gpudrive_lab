@@ -363,9 +363,14 @@ if __name__ == "__main__":
     parser.add_argument('--num-scene', '-n', type=int, default=100)
     parser.add_argument('--future-step', '-f', type=int, default=10)
     args = parser.parse_args()
-
+    from matplotlib import font_manager
+    import matplotlib as mpl
+    font_path = "/gpudrive_lab/times.ttf"
+    font_prop = font_manager.FontProperties(fname=font_path)
+    print(font_prop.get_name())
+    mpl.rcParams["font.family"] = font_prop.get_name()
+    mpl.rcParams["font.sans-serif"] = [font_prop.get_name()]
     mpl.rcParams.update({
-        # 'font.family': 'Times New Roman',
         "figure.dpi": 300,
         "savefig.dpi": 300,
         "axes.titlesize": 34,

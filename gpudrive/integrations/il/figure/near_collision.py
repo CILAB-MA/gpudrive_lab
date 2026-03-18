@@ -263,13 +263,13 @@ def run(args, env, bc_policy, raw_lp_models, other_lp_models, scene_batch_idx, s
             context, *_ = (lambda *args: (args[0], args[-2], args[-1]))(*bc_policy.get_context(alive_obs, all_masks))
             actions = bc_policy.get_action(context, deterministic=True)
             actions = actions.squeeze(1)
-            raw_input = alive_obs.reshape(100, 5, 3368)
+            raw_input = alive_obs.reshape(-1, 5, 3368)
             partner_obs = raw_input[..., 6:128*6]         # (100, 5, 762)
             ego_obs = raw_input[..., :6]
-            ego_obs = ego_obs.reshape(100, 30).unsqueeze(1).repeat(1, 127, 1)
-            po = partner_obs.reshape(100, 5, 127, 6) # (100, 5, 127, 6)
+            ego_obs = ego_obs.reshape(-1, 30).unsqueeze(1).repeat(1, 127, 1)
+            po = partner_obs.reshape(-1, 5, 127, 6) # (100, 5, 127, 6)
             po = po.permute(0, 2, 1, 3)              # (100, 127, 5, 6)
-            po_input = po.reshape(100, 127, 30)
+            po_input = po.reshape(-1, 127, 30)
             raw_lp_input = torch.cat([ego_obs, po_input], dim=-1)
             if time_step < env.episode_len - 10: 
                 nth_layer = list(layers.keys())[-1]
