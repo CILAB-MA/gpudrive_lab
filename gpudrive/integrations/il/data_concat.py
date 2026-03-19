@@ -145,6 +145,6 @@ if __name__ == "__main__":
     scene_key = f"scene_{args.scene}"
     save_path = f"{base}/{scene_key}"
     save_name = f"{args.dataset}_trajectory_{args.num_scene}.npz"
-    subset_path = f"{base}/{scene_key}/{args.dataset}_rl_data"
+    subset_path = f"{base}/{scene_key}/{args.dataset}_rl_data_v2"
 
     run(save_path, save_name, subset_path, args.num_scene, seed=args.seed)

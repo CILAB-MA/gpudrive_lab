@@ -3,31 +3,12 @@ import numpy as np
 import os,sys
 from tqdm import tqdm
 sys.path.append(os.getcwd())
-import h5py
 from gpudrive.env.dataset import SceneDataLoader
 from gpudrive.networks.late_fusion import NeuralNet
 from gpudrive.env.config import EnvConfig
 from gpudrive.env.env_torch import GPUDriveTorchEnv
 import pufferlib, yaml
 from box import Box
-
-
-def _save_h5(path: str, arrays: dict):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with h5py.File(path, "w") as f:
-        for k, v in arrays.items():
-            if v is None:
-                continue
-            arr = np.asarray(v)
-            # gzip is a good default: smaller + fast enough; chunks enable partial IO
-            f.create_dataset(
-                k,
-                data=arr,
-                compression="gzip",
-                compression_opts=4,
-                shuffle=True,
-                chunks=True,
-            )
 
 def load_config(config_path):
     """Load the configuration file."""
@@ -266,67 +247,43 @@ def run_and_save(
     goal_mask = goal_achieved > 0
     save_mask = goal_mask & (off_road <= 0) & (veh_collision <= 0)
 
-    # Save trajectory
-    # Previously we saved only "successful" cases (save_mask). That makes downstream
-    # datasets biased and also breaks alignment if other artifacts are produced with
-    # different filters. We now save ALL cases and store outcome flags alongside.
+    # Save trajectory (strict filter: goal + no offroad + no collision)
     if save_trajectory and trajectory_path is not None:
         save_index = batch_idx * batch_size
-        traj = expert_trajectory_lst.to('cpu')
-        acts = rl_actions_lst.to('cpu')
-        dead = expert_dead_mask_lst.to('cpu')
-        pm = expert_partner_mask_lst.to('cpu')
-        rm = expert_road_mask_lst.to('cpu')
-        gp = expert_global_pos_lst.to('cpu')
-        gr = expert_global_rot_lst.to('cpu')
-        pid = expert_partner_id_lst.to('cpu')
-        eid = expert_ego_id_lst.to('cpu')
-        sid = expert_scene_id_lst.to('cpu')
-
-        # Per-agent episode outcomes (saved for ALL agents)
-        outcome_goal = goal_achieved.to('cpu')
-        outcome_off_road = off_road.to('cpu')
-        outcome_collision = veh_collision.to('cpu')
-        outcome_save_mask = save_mask.to('cpu')
-        done_step_cpu = done_step.to('cpu')
-
+        traj = expert_trajectory_lst[save_mask].to('cpu')
+        acts = rl_actions_lst[save_mask].to('cpu')
+        dead = expert_dead_mask_lst[save_mask].to('cpu')
+        pm = expert_partner_mask_lst[save_mask].to('cpu')
+        rm = expert_road_mask_lst[save_mask].to('cpu')
+        gp = expert_global_pos_lst[save_mask].to('cpu')
+        gr = expert_global_rot_lst[save_mask].to('cpu')
+        pid = expert_partner_id_lst[save_mask].to('cpu')
+        eid = expert_ego_id_lst[save_mask].to('cpu')
+        sid = expert_scene_id_lst[save_mask].to('cpu')
         os.makedirs(trajectory_path, exist_ok=True)
         os.makedirs(trajectory_path + '/global', exist_ok=True)
         os.makedirs(trajectory_path + '/id', exist_ok=True)
-        _save_h5(
-            f"{trajectory_path}/trajectory_{save_index}.h5",
-            dict(
-                obs=traj,
-                actions=acts,
-                dead_mask=dead,
-                partner_mask=pm,
-                road_mask=rm,
-                outcome_goal_achieved=outcome_goal,
-                outcome_off_road=outcome_off_road,
-                outcome_vehicle_collision=outcome_collision,
-                outcome_success_mask=outcome_save_mask,
-                done_step=done_step_cpu,
-            ),
+        np.savez_compressed(
+            f"{trajectory_path}/trajectory_{save_index}.npz",
+            obs=traj,
+            actions=acts,
+            dead_mask=dead,
+            partner_mask=pm,
+            road_mask=rm,
         )
-        _save_h5(
-            f"{trajectory_path}/global/global_trajectory_{save_index}.h5",
-            dict(
-                ego_global_pos=gp,
-                ego_global_rot=gr,
-            ),
+        np.savez_compressed(
+            f"{trajectory_path}/global/global_trajectory_{save_index}.npz",
+            ego_global_pos=gp,
+            ego_global_rot=gr,
         )
-        _save_h5(
-            f"{trajectory_path}/id/id_trajectory_{save_index}.h5",
-            dict(
-                ego_id=eid,
-                scene_id=sid,
-                partner_id=pid,
-            ),
+        np.savez_compressed(
+            f"{trajectory_path}/id/id_trajectory_{save_index}.npz",
+            ego_id=eid,
+            scene_id=sid,
+            partner_id=pid,
         )
 
-    # Save labels
-    # Labels are defined for goal-achieved agents. We still compute per-world labels,
-    # then save them aligned with all agents (non-goal agents get label -1).
+    # Save labels (use same filter as trajectory: goal + no offroad + no collision)
     if save_label and label_path is not None:
         st, en = batch_idx * batch_size, (batch_idx + 1) * batch_size
         scene_labels = get_label(
@@ -349,21 +306,16 @@ def run_and_save(
         labels_flat = np.array(
             [id_to_label.get((s, pid), -1) for s, pid in zip(scene_flat, partner_flat)]
         )
-        # Align labels to all agents: non-goal agents are -1.
-        goal_mask_np = goal_mask.cpu().numpy()
-        partner_labels_all = np.full((N, T, M), -1, dtype=labels_flat.dtype)
-        ego_labels_all = np.full((N,), -1, dtype=scene_labels.dtype)
-        partner_labels_all[goal_mask_np] = labels_flat.reshape(N, T, M)[goal_mask_np]
-        ego_labels_all[goal_mask_np] = scene_labels[goal_mask_np]
+        save_mask_np = save_mask.cpu().numpy()
+        partner_labels = labels_flat.reshape(N, T, M)[save_mask_np]
+        scene_labels_filtered = scene_labels[save_mask_np]
         os.makedirs(label_path, exist_ok=True)
-        _save_h5(
-            f'{label_path}/label_trajectory_{batch_size * batch_idx}.h5',
-            dict(
-                partner_label=partner_labels_all,
-                ego_label=ego_labels_all,
-            ),
+        np.savez_compressed(
+            f'{label_path}/label_trajectory_{batch_size * batch_idx}.npz',
+            partner_label=partner_labels,
+            ego_label=scene_labels_filtered,
         )
-        print(f'label goal-achieved agent: {int(goal_mask.sum().item())} / {int(goal_mask.numel())}')
+        print(f'label alive agent: {len(scene_labels_filtered)}')
 
 if __name__ == "__main__":
     import argparse

@@ -1,6 +1,6 @@
-program: baselines/il/linear_prob.py
+program: gpudrive/integrations/rl/run_lp.py
 method: grid
-name: rl_10000_pt2
+name: rl_10000_v2
 metric:
   goal: minimize
   name: eval/loss
@@ -16,11 +16,11 @@ parameters:
     values: ["model_PPO____S_200__03_04_04_06_56_997_007604"] # model_PPO____S_150__03_13_10_39_01_723_000761.pt
   # DATA
   future_step:
-    values: [30, 40]
+    values: [10, 20, 30, 40]
   num_scene:
     values: [10000]
   exp:
-    values: ['other']
+    values: ['other', 'ego']
   model:
     values: ['baseline', 'lp']
   # EXPERIMENT
