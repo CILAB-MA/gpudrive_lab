@@ -383,7 +383,7 @@ def save_diff_heatmaps(
 
     vlim = abs_max if abs_max > 0 else 1.0
 
-    cmap = cm.get_cmap("coolwarm").copy()
+    cmap = plt.get_cmap("coolwarm").copy()
     cmap.set_bad(color="#9e9e9e")
     norm = TwoSlopeNorm(vmin=-vlim, vcenter=0.0, vmax=vlim)
 

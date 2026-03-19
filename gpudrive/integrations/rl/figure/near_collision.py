@@ -35,7 +35,7 @@ logger.setLevel(logging.INFO)
 
 CELLS = 8
 C = CELLS * CELLS
-WINDOW = 15
+WINDOW = 10
 def make_bucket():
     return {"num": torch.zeros(C, device="cuda"),
             "prob": torch.zeros(C, device="cuda"),
@@ -270,9 +270,8 @@ def run(args, env, policy, raw_lp_models, other_lp_models):
             ego_obs = ego_obs.unsqueeze(1).repeat(1, 127, 1)
             po_input = partner_obs.reshape(-1, 127, 6) # (100, 127, 6)
             raw_lp_input = torch.cat([ego_obs, po_input], dim=-1)
-            if time_step < env.episode_len - 10: 
+            if time_step < env.episode_len - 10:
                 other_lp_input = policy.partner_embed(po_input)
-                wm = world_mask
                 for i, (other_lp, raw_lp, future_step) in enumerate(zip(other_lp_models, raw_lp_models, future_steps)):
                     if time_step >= env.episode_len - future_step:
                         continue
@@ -285,9 +284,8 @@ def run(args, env, policy, raw_lp_models, other_lp_models):
                             torch.stack((c, s), dim=-1),   # (W, N, 2)
                             torch.stack((-s, c), dim=-1),  # (W, N, 2)
                         ),
-                        dim=-2,
+                        dim=-1,
                     )  # (W, N, 2, 2)
-
                     # (W, N, 2, 2) x (W, N, 127, 2) -> (W, N, 127, 2)
                     rel_ego = torch.einsum("bnij,bnkj->bnki", Rinv, rel)
                     rel_pos = 2 * ((rel_ego - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
@@ -299,28 +297,28 @@ def run(args, env, policy, raw_lp_models, other_lp_models):
                     x_bins = torch.bucketize(x, xbins) - 1
                     y_bins = torch.bucketize(y, ybins) - 1
                     
+
                     x_bins = torch.clip(x_bins, 0, 7)
                     y_bins = torch.clip(y_bins, 0, 7)
                     discrete_pos = x_bins * 8 + y_bins
                     futm = other_relative_mask[:, :, time_step + future_step]   
                     other_pred = other_lp(other_lp_input)
-                    raw_pred = raw_lp(raw_lp_input)
-                    raw_prob = raw_pred.softmax(dim=-1) 
                     other_prob = other_pred.softmax(dim=-1) 
-                    # ego_orig_cls = ego_orig_pred.argmax(dim=-1) 
-                    other_cls = other_pred.argmax(dim=-1) 
-                    if wm.shape[0] != discrete_pos.shape[0]:
-                        update_accumulators_for_step(future_step,
-                                other_cls, other_prob, discrete_pos, futm,
-                                goal_achieved_ep, off_road_ep, veh_collision_ep,
-                                veh_collision_step, off_road_step,
-                                time_step)
-                    else:
-                        update_accumulators_for_step(future_step,
-                                other_cls, other_prob, discrete_pos[~dead_agent_mask], futm[~dead_agent_mask],
-                                goal_achieved_ep[~dead_agent_mask], off_road_ep[~dead_agent_mask], veh_collision_ep[~dead_agent_mask],
-                                veh_collision_step[~dead_agent_mask],off_road_step[~dead_agent_mask],
-                                time_step)
+                    other_cls = other_pred.argmax(dim=-1)
+                    # Always use alive-agent masking so dimensions match: (N_alive, 127) and (N_alive,).
+                    update_accumulators_for_step(
+                        future_step,
+                        other_cls,
+                        other_prob,
+                        discrete_pos[~dead_agent_mask],
+                        futm[~dead_agent_mask],
+                        goal_achieved_ep[~dead_agent_mask],
+                        off_road_ep[~dead_agent_mask],
+                        veh_collision_ep[~dead_agent_mask],
+                        veh_collision_step[~dead_agent_mask],
+                        off_road_step[~dead_agent_mask],
+                        time_step,
+                    )
 
 
         all_actions[~dead_agent_mask] = actions
@@ -366,9 +364,7 @@ def save_diff_heatmaps(
         h_coll, cnt_coll = to_heat(acc[fs][collision_group], CELLS, acc_or_prob)
         h_non,  cnt_non  = to_heat(acc[fs][non_collision_group], CELLS, acc_or_prob)
         avg_all = compute_overall_acc(acc[fs]['all'], acc_or_prob)
-        mask_valid = (cnt_coll >= min_count) & (cnt_non >= min_count)
         diff = (h_coll - h_non) / avg_all
-        diff = diff.masked_fill(~mask_valid, torch.nan)
         if transpose:
             diff = diff.T
         diffs.append(diff)
@@ -385,7 +381,7 @@ def save_diff_heatmaps(
 
     vlim = abs_max if abs_max > 0 else 1.0
 
-    cmap = cm.get_cmap("coolwarm").copy()
+    cmap = plt.get_cmap("coolwarm").copy()
     cmap.set_bad(color="#9e9e9e")
     norm = TwoSlopeNorm(vmin=-vlim, vcenter=0.0, vmax=vlim)
 
@@ -449,7 +445,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
     parser.add_argument('--dataset-size', type=int, default=9987)
-    parser.add_argument('--batch-size', type=int, default=100)
+    parser.add_argument('--batch-size', type=int, default=180)
     # EXPERIMENT
     parser.add_argument('--base-path', '-lpp', type=str, default='/data/after_cvpr/rl/scene_10000/')
     parser.add_argument('--lp-model-name', '-lpn', type=str, default='pos_lp')
@@ -458,13 +454,11 @@ if __name__ == "__main__":
     parser.add_argument('--zoom-radius', type=int, default=50)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     import matplotlib as mpl
+
     args = parser.parse_args()
-    from matplotlib import font_manager
-    font_path = "/gpudrive_lab/times.ttf"
-    font_prop = font_manager.FontProperties(fname=font_path)
-    print(font_prop.get_name())
+
     mpl.rcParams.update({
-        # 'font.family': 'Times New Roman',
+        "font.family": "serif",
         "figure.dpi": 300,
         "savefig.dpi": 300,
         "axes.titlesize": 19,
@@ -547,8 +541,9 @@ if __name__ == "__main__":
         if i != num_iter - 1:
             env.swap_data_batch()
     env.close()
-    save_acc_torch(f"lp_grid_prob_raw_il_{WINDOW}.pt", acc, future_steps, CELLS)
-
+    save_acc_torch(f"lp_grid_prob_raw_rl_{WINDOW}.pt", acc, future_steps, CELLS)
+    acc = torch.load(f"lp_grid_prob_raw_rl_{WINDOW}.pt")
+    acc = acc["acc"]
     save_diff_heatmaps(
         acc,
         future_steps=[10, 20, 30, 40],
@@ -559,4 +554,16 @@ if __name__ == "__main__":
         transpose=True,
         origin="lower",
         min_count=10,
+    )
+
+    save_diff_heatmaps(
+        acc,
+        future_steps=[10, 20, 30, 40],
+        CELLS=CELLS,
+        outdir=f"./heatmaps_lp_exclusive_full_{WINDOW}_gap",
+        collision_group="off_road",
+        non_collision_group="all", 
+        transpose=True,
+        origin="lower",
+        min_count=10
     )

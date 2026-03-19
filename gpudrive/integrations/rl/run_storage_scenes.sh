@@ -29,5 +29,5 @@ python gpudrive/integrations/rl/storage.py --num-scene "$NUM_SCENE" --model-name
   --dataset validation --dataset-size 2500
 
 echo "========== data_concat.py (scene_${NUM_SCENE}) =========="
-python gpudrive/integrations/il/data_concat.py --scene "$NUM_SCENE" --dataset validation --num-scene 2500
-python gpudrive/integrations/il/data_concat.py --scene "$NUM_SCENE" --dataset training --num-scene "$NUM_SCENE"
+python gpudrive/integrations/rl/data_concat.py --scene "$NUM_SCENE" --dataset validation --num-scene 2500
+python gpudrive/integrations/rl/data_concat.py --scene "$NUM_SCENE" --dataset training --num-scene "$NUM_SCENE"
