@@ -1,5 +1,6 @@
 """Obtain a policy using behavioral cloning."""
 import logging
+from typing import Any
 
 import h5py
 import numpy as np
@@ -166,6 +167,9 @@ def train(exp_config=None):
         backbone.load_state_dict(params["parameters"])
         backbone.eval()
         hidden_dim = 64
+        if exp_config.model == 'ego_final_lp':
+            layers = register_all_layers_forward_hook(backbone.shared_embed)
+            hidden_dim = 128
     if exp_config.exp == 'other':
         ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x in {0,1,6,7} or y in {0,1,6,7}})
     else:
@@ -221,13 +225,16 @@ def train(exp_config=None):
                     lp_input = baseline_obs
             else:
                 with torch.no_grad():
-                    if exp_config.exp == "other":
+                    if exp_config.model == 'ego_final_lp' and exp_config.exp == 'ego':
+                        _ = backbone(obs)
+                        nth_layer =list[Any](layers.keys())[-1]
+                        lp_input = layers[nth_layer]
+                    elif exp_config.exp == "other":
                         obs = obs[..., 6:6 * 128].view(batch_size, -1, 6)
                         lp_input =backbone.partner_embed(obs)
                     else:
-                        obs = obs[..., :6]
+                        obs = obs[..., :6]                        
                         lp_input = backbone.ego_embed(obs)
-
             # get future pred pos and action
             # if exp_config.exp == 'ego':
             #     future_mask = future_mask.squeeze(1)
@@ -296,7 +303,11 @@ def train(exp_config=None):
                             lp_input = baseline_obs
                     else:
                         with torch.no_grad():
-                            if exp_config.exp == "other":
+                            if exp_config.model == 'ego_final_lp' and exp_config.exp == 'ego':
+                                _ = backbone(obs)
+                                nth_layer =list[Any](layers.keys())[-1]
+                                lp_input = layers[nth_layer]
+                            elif exp_config.exp == "other":
                                 obs = obs[..., 6:6 * 128].view(batch_size, 127, 6)
                                 lp_input =backbone.partner_embed(obs)
                             else:

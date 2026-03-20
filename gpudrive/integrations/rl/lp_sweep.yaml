@@ -1,6 +1,6 @@
 program: gpudrive/integrations/rl/run_lp.py
 method: grid
-name: rl_10000_v2
+name: rl_10000_v2_final
 metric:
   goal: minimize
   name: eval/loss
@@ -20,9 +20,9 @@ parameters:
   num_scene:
     values: [10000]
   exp:
-    values: ['other', 'ego']
+    values: ['ego']
   model:
-    values: ['baseline', 'lp']
+    values: ['ego_final_lp']
   # EXPERIMENT
   batch_size:
     values: [256]
