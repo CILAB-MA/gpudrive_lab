@@ -343,7 +343,7 @@ def evaluate(exp_config):
     sm.set_array([])
     cbar = fig.colorbar(sm, cax=cax)
     cbar.ax.set_ylabel("Relative distance change", rotation=90, labelpad=16)
-    out_base = f"{exp_config['base_path']}corr_fig_{exp_config['num_scene']}_prob"
+    out_base = f"/data/after_cvpr/corr_fig_{exp_config['num_scene']}_prob"
     plt.savefig(out_base + "_diff.pdf", dpi=300, bbox_inches="tight", pad_inches=0.1)
     print(f"[Saved] {out_base}.pdf")
 
@@ -360,16 +360,18 @@ if __name__ == "__main__":
     parser.add_argument('--exp', type=str, default='other', choices=['other', 'ego'])
     parser.add_argument('--model', type=str, default='lp', choices=['lp', 'baseline'])
     parser.add_argument('--seed', '-s', type=int, default=3)
-    parser.add_argument('--num-scene', '-n', type=int, default=100)
+    parser.add_argument('--num-scene', '-n', type=int, default=1000)
     parser.add_argument('--future-step', '-f', type=int, default=10)
     args = parser.parse_args()
     from matplotlib import font_manager
     import matplotlib as mpl
     font_path = "/gpudrive_lab/times.ttf"
+    # Register font with FontManager first (required for Linux - TNR is not system-installed)
+    font_manager.fontManager.addfont(font_path)
     font_prop = font_manager.FontProperties(fname=font_path)
-    print(font_prop.get_name())
-    mpl.rcParams["font.family"] = font_prop.get_name()
-    mpl.rcParams["font.sans-serif"] = [font_prop.get_name()]
+    font_name = font_prop.get_name()
+    mpl.rcParams["font.family"] = font_name
+    mpl.rcParams["font.serif"] = [font_name]
     mpl.rcParams.update({
         "figure.dpi": 300,
         "savefig.dpi": 300,

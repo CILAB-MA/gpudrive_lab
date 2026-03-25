@@ -183,7 +183,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', '-d', type=str, default='training', choices=['training', 'validation'])
     args = parser.parse_args()
     # Configurations
-    num_cont_agents = 1 if args.sim_agent == 'log_replay' else 128
+    num_cont_agents = 1 if args.partner_portion_test == 1.0 else 128
 
     # Create data loader
     if args.dataset == 'training':
@@ -245,7 +245,7 @@ if __name__ == "__main__":
     bc_policy.load_state_dict(params["parameters"])
     bc_policy.eval()
     num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
-    if args.sim_agent == 'log_replay':
+    if args.sim_agent == 'log_replay' or args.partner_portion_test == 1.0:
         remove_controlled_agents = False
     else:
         remove_controlled_agents = True

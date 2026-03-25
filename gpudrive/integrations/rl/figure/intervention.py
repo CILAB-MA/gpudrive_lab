@@ -1,5 +1,6 @@
 """Obtain a policy using behavioral cloning."""
 import os, sys
+from typing import Any
 sys.path.append(os.getcwd())
 from concurrent.futures import ThreadPoolExecutor
 import logging, functools
@@ -120,7 +121,7 @@ def run(args, env, policy, ego_lp_models, other_lp_models, intervention_idx,
     intervention_other_labels = torch.as_tensor(intervention_other_labels, dtype=torch.long).to('cuda').transpose(0, 1)#[:, :50][]
     intervention_label = torch.as_tensor(intervention_label, dtype=torch.long).to('cuda').transpose(0, 1)
     intervention_idx = torch.as_tensor(intervention_idx, device='cuda', dtype=torch.long)
-    
+    expert_actions, _, _, _, _  = env.get_expert_actions()
     # TMP should be change
     for time_step in tqdm(range(env.episode_len)):
         # all_actions = torch.zeros(obs.shape[0], obs.shape[1], 3).to("cuda")
@@ -149,7 +150,7 @@ def run(args, env, policy, ego_lp_models, other_lp_models, intervention_idx,
                 orig_dict = defaultdict(dict)
                 prime_dict = defaultdict(dict)
                 other_dict = defaultdict(dict)
-                intervention_dict = defaultdict(dict)
+                intervention_dict = defaultdict[Any, dict](dict)
                 full_weights = torch.zeros((NUM_WORLD, 64, 4, 4)).to('cuda')[wm]
                 # full_weights2 = torch.zeros((NUM_WORLD, 128, 4)).to('cuda')[wm]
                 batch = torch.arange(len(full_weights), device='cuda')
@@ -252,7 +253,7 @@ def run(args, env, policy, ego_lp_models, other_lp_models, intervention_idx,
                     plot_other_linear_probing=plot_other_lp,
                     center_agent_indices=alive_ego_idx,
                     plot_linear_probing_label=False,
-                    plot_log_replay_trajectory=False,
+                    plot_log_replay_trajectory=True,
                     plot_intervention=plot_intervention,
                     zoom_radius=args.zoom_radius,
                 )
@@ -262,7 +263,7 @@ def run(args, env, policy, ego_lp_models, other_lp_models, intervention_idx,
                         img_from_fig(sim_states[i])
                     )
 
-        env.step_dynamics(policy_actions[..., time_step])
+        env.step_dynamics(expert_actions[:, :, time_step])
 
         obs = env.get_obs()
         dones = env.get_dones()
@@ -293,7 +294,7 @@ if __name__ == "__main__":
     # EXPERIMENT
     parser.add_argument('--base-path', '-bp', type=str, default='/data/after_cvpr/rl/scene_10000') #80000_subset_aix
     parser.add_argument('--image-path', '-vp', type=str, default='/data/after_cvpr/images/intervention_real_final_original')
-    parser.add_argument('--linear-probing', '-lp', type=str, default='original', choices=['original', 
+    parser.add_argument('--linear-probing', '-lp', type=str, default='intervention', choices=['original', 
     'intervention'])
     parser.add_argument('--intervention', '-i', type=str, default='mean', choices=['mean', 
     'sum', 'one'])
@@ -347,7 +348,7 @@ if __name__ == "__main__":
     
     # Make env
     env_config = EnvConfig(
-        dynamics_model="classic",
+        dynamics_model="delta_local",
         collision_behavior='ignore',
         steer_actions=torch.round(
                 torch.linspace(-torch.pi, torch.pi, 13),
@@ -364,11 +365,11 @@ if __name__ == "__main__":
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=scene_loader,
-        max_cont_agents=128,  # Number of agents to control
+        max_cont_agents=1,  # Number of agents to control
         device="cuda",
-        action_type="discrete",
+        action_type="continuous",
     )
-    lp_path = os.path.join(args.base_path, f'old/other_linear_prob')
+    lp_path = os.path.join(args.base_path, f'other_linear_prob')
     model_name = os.listdir(lp_path)[-1]
     # Load policy
     model_path = os.path.join(args.base_path, f"{model_name}.pt")
@@ -385,8 +386,8 @@ if __name__ == "__main__":
     policy.eval()
     num_iter = int(dataset_size // args.batch_size) if dataset_size != 0 else 0
     # Load linear probing model
-    lp_ego_root = os.path.join(args.base_path, f'old/ego_linear_prob', model_name.replace('.pth', ''))
-    lp_other_root = os.path.join(args.base_path, f'old/other_linear_prob', model_name.replace('.pth', ''))
+    lp_ego_root = os.path.join(args.base_path, f'ego_linear_prob', model_name.replace('.pth', ''))
+    lp_other_root = os.path.join(args.base_path, f'other_linear_prob', model_name.replace('.pth', ''))
     seed = 3
     future_steps = [10, 20, 30, 40]
     other_lp_models, ego_lp_models = [], []
