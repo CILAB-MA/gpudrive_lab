@@ -163,8 +163,8 @@ def evaluate(data):
             else:
                 actions, logprob, _, value = policy(obs_device)
 
-            if config.device == "cuda":
-                torch.cuda.synchronize()
+            # if config.device == "cuda":
+            #     torch.cuda.synchronize()
 
         with profile.env:
             # Step the environment and reset if done
@@ -275,8 +275,8 @@ def train(data):
                         action=atn,
                     )
 
-                if config.device == "cuda":
-                    torch.cuda.synchronize()
+                # if config.device == "cuda":
+                #     torch.cuda.synchronize()
 
             with profile.train_misc:
                 logratio = newlogprob - log_probs.reshape(-1)
@@ -330,8 +330,8 @@ def train(data):
                     data.policy.parameters(), config.max_grad_norm
                 )
                 data.optimizer.step()
-                if config.device == "cuda":
-                    torch.cuda.synchronize()
+                # if config.device == "cuda":
+                #     torch.cuda.synchronize()
 
             with profile.train_misc:
                 losses.policy_loss += pg_loss.item() / num_update_iters

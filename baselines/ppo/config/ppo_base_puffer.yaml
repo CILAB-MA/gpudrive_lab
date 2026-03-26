@@ -8,8 +8,8 @@ model_cpt: null
 
 environment: # Overrides default environment configs (see pygpudrive/env/config.py)
   name: "gpudrive"
-  num_worlds: 150 # Number of parallel environments
-  k_unique_scenes: 150 # Number of unique scenes to sample from
+  num_worlds: 80 # Number of parallel environments
+  k_unique_scenes: 80 # Number of unique scenes to sample from
   max_controlled_agents: 128 # Maximum number of agents controlled by the model. Make sure this aligns with the variable kMaxAgentCount in src/consts.hpp
   ego_state: true
   road_map_obs: true
@@ -38,7 +38,7 @@ environment: # Overrides default environment configs (see pygpudrive/env/config.
 
 wandb:
   entity: "cilab-ma"
-  project: "gpudrive_lab_rl"
+  project: "gpudrive_lab_rl_v2"
   group: "ppo_10000"
   mode: "online" # Options: online, offline, disabled
   tags: ["ppo", "ff"]
@@ -53,22 +53,22 @@ train:
   compile_mode: "reduce-overhead"
 
   # # # Data sampling # # #
-  resample_scenes: false
+  resample_scenes: true
   resample_dataset_size: 10_000 # Number of unique scenes to sample from
   resample_interval: 2_000_000
   sample_with_replacement: true
-  shuffle_dataset: false
+  shuffle_dataset: true
 
   # # # PPO # # #
   torch_deterministic: false
   total_timesteps: 1_000_000_000
-  batch_size: 131_072
-  minibatch_size: 8192
+  batch_size: 65_536
+  minibatch_size: 4096
   learning_rate: 3e-4
   anneal_lr: false
   gamma: 0.99
   gae_lambda: 0.95
-  update_epochs: 4
+  update_epochs: 2
   norm_adv: true
   clip_coef: 0.2
   clip_vloss: false
@@ -77,11 +77,11 @@ train:
   vf_coef: 0.3
   max_grad_norm: 0.5
   target_kl: null
-  log_window: 1000
+  log_window: 5000
 
   # # # Network # # #
   network:
-    input_dim: 64 # Embedding of the input features
+    input_dim: 128 # Embedding of the input features
     hidden_dim: 128 # Latent dimension
     dropout: 0.01
     class_name: "NeuralNet"
@@ -89,7 +89,7 @@ train:
 
   # # # Checkpointing # # #
   checkpoint_interval: 400 # Save policy every k iterations
-  checkpoint_path: "./runs"
+  checkpoint_path: "/data/after_cvpr/rl/scene_10000_v2"
 
   # # # Rendering # # #
   render: false # Determines whether to render the environment (note: will slow down training)
@@ -102,6 +102,6 @@ train:
 
 vec:
   backend: "native" # Only native is currently supported
-  num_workers: 1
+  num_workers: 2
   env_batch_size: 1
   zero_copy: false
