@@ -237,7 +237,7 @@ if __name__ == "__main__":
         
     params = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False)
     bc_policy = NeuralNet(
-        input_dim=64,
+        input_dim=128,
         action_dim=91,
         hidden_dim=128,
         config=config.environment,
