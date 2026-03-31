@@ -31,6 +31,8 @@ if __name__ == "__main__":
     print(models)
     for model in tqdm(models):
         for dataset in ['validation']: # Options: ['training', 'validation']
+            if "model_PPO____R_10000__03_27_05_07_12_842_015210" not in model:
+                continue
             if '.pt' not in model:
                 continue
             if 'optim' in model:

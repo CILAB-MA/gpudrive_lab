@@ -9,6 +9,7 @@ from gpudrive.env.config import EnvConfig
 from gpudrive.env.env_torch import GPUDriveTorchEnv
 import pufferlib, yaml
 from box import Box
+from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 def load_config(config_path):
     """Load the configuration file."""
@@ -63,6 +64,84 @@ def get_label(log_actions, st, en, done_step, index_array,
     return scene_labels
 
 
+def _lp_make_aux_info(partner_mask, partner_info, future_timestep):
+    partner_mask_bool = np.where(partner_mask == 0, 0, 1).astype(bool)
+    partner_info_pad = np.zeros((partner_info.shape[0], future_timestep, *partner_info.shape[2:]), dtype=np.float32)
+    partner_mask_pad = np.full((partner_mask.shape[0], future_timestep, *partner_mask.shape[2:]), 2, dtype=np.float32)
+    future_mask = np.concatenate([partner_mask, partner_mask_pad], axis=1)
+    future_mask_bool = np.where(future_mask == 0, 0, 1).astype(bool)[:, future_timestep:]
+    partner_info = np.concatenate([partner_info, partner_info_pad], axis=1)[:, future_timestep:]
+    combined_mask = np.logical_or(future_mask_bool, partner_mask_bool).astype("bool")
+    return partner_info, combined_mask
+
+
+def _lp_transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step):
+    t_partner_pos = aux_info[..., 1:3] * MAX_REL_AGENT_POS
+    t_ego_global_pos = np.zeros_like(ego_global_pos)
+    t_ego_global_rot = np.zeros_like(ego_global_rot)
+    t_ego_global_pos[:, :-future_step] = ego_global_pos[:, future_step:]
+    t_ego_global_rot[:, :-future_step] = ego_global_rot[:, future_step:]
+    t_partner_global_pos_x = t_ego_global_pos[..., 0, None] + t_partner_pos[..., 0] * np.cos(t_ego_global_rot) - t_partner_pos[..., 1] * np.sin(t_ego_global_rot)
+    t_partner_global_pos_y = t_ego_global_pos[..., 1, None] + t_partner_pos[..., 0] * np.sin(t_ego_global_rot) + t_partner_pos[..., 1] * np.cos(t_ego_global_rot)
+    delta_x = t_partner_global_pos_x - ego_global_pos[..., 0, None]
+    delta_y = t_partner_global_pos_y - ego_global_pos[..., 1, None]
+    cos_theta = np.cos(-ego_global_rot)
+    sin_theta = np.sin(-ego_global_rot)
+    current_relative_pos_x = delta_x * cos_theta + delta_y * sin_theta
+    current_relative_pos_y = -delta_x * sin_theta + delta_y * cos_theta
+    current_relative_pos_x = 2 * ((current_relative_pos_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    current_relative_pos_y = 2 * ((current_relative_pos_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    return np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+
+
+def _lp_transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step):
+    current_relative_pos = np.zeros_like(ego_global_pos)
+    ego_current_pos = ego_global_pos[:, :-future_step]
+    ego_future_pos = ego_global_pos[:, future_step:]
+    delta_x = ego_future_pos[..., 0] - ego_current_pos[..., 0]
+    delta_y = ego_future_pos[..., 1] - ego_current_pos[..., 1]
+    ego_current_rot = ego_global_rot[:, :-future_step]
+    cos_theta = np.cos(ego_current_rot)
+    sin_theta = np.sin(ego_current_rot)
+    rel_x = delta_x * cos_theta.squeeze(-1) + delta_y * sin_theta.squeeze(-1)
+    rel_y = -delta_x * sin_theta.squeeze(-1) + delta_y * cos_theta.squeeze(-1)
+    current_relative_pos_x = 2 * ((rel_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    current_relative_pos_y = 2 * ((rel_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    current_relative_pos[:, :-future_step, :] = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+    return current_relative_pos
+
+
+def _lp_get_multi_class_pos(pos):
+    x, y = pos[..., 0], pos[..., 1]
+    xbins = np.linspace(-0.05, 0.05, 9)
+    ybins = np.linspace(-0.05, 0.05, 9)
+    x_bins = np.digitize(x, xbins) - 1
+    y_bins = np.digitize(y, ybins) - 1
+    x_bins = np.clip(x_bins, 0, 7)
+    y_bins = np.clip(y_bins, 0, 7)
+    return x_bins * 8 + y_bins
+
+
+def build_lp_labels(obs, dead_mask, partner_mask, ego_global_pos, ego_global_rot, future_step):
+    valid_masks = (1 - dead_mask).astype("bool")
+    labels = {}
+
+    future_valid_mask_pad = np.zeros((valid_masks.shape[0], future_step), dtype=np.float32)
+    future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype("bool")[:, future_step:]
+    labels["lp_future_valid_mask"] = valid_masks & future_valid_masks
+    ego_pos = _lp_transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
+    labels["lp_ego_pos"] = _lp_get_multi_class_pos(ego_pos)
+
+    b, t, _ = obs.shape
+    partner_info = obs[..., 6:128 * 6].reshape(b, t, 127, 6)[..., :4]
+    aux_info, aux_mask = _lp_make_aux_info(partner_mask, partner_info, future_timestep=future_step)
+    other_pos = _lp_transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step=future_step)
+    other_pos[aux_mask] = 0
+    labels["lp_aux_mask"] = aux_mask.astype("bool")
+    labels["lp_other_pos"] = _lp_get_multi_class_pos(other_pos)
+    return labels
+
+
 def run_and_save(
     env,
     policy,
@@ -72,6 +151,7 @@ def run_and_save(
     label_path=None,
     save_trajectory=True,
     save_label=True,
+    lp_future_steps=None,
 ):
     """
     Single rollout that saves both trajectory and behavior labels.
@@ -228,21 +308,20 @@ def run_and_save(
         done_step[mask] = t
 
         if dones.all():
-            num_finished = cont_agent_mask.sum().float()
-            goal_rate = goal_achieved.sum().float() / num_finished
-            off_road_rate = (
-                torch.where(off_road > 0, 1, 0).sum().float() / num_finished
-            )
-            veh_coll_rate = (
-                torch.where(veh_collision > 0, 1, 0).sum().float() / num_finished
-            )
-            gmask = goal_achieved > 0
-            smask = gmask & (off_road <= 0) & (veh_collision <= 0)
-            print(
-                f'Offroad {off_road_rate} VehCol {veh_coll_rate} '
-                f'Goal {goal_rate} Save {smask.sum()}/{gmask.sum()}'
-            )
             break
+
+    # Match simulation.py metric computation style
+    num_finished = cont_agent_mask.sum().float()
+    off_road_rate = off_road.sum().float() / num_finished
+    veh_coll_rate = veh_collision.sum().float() / num_finished
+    goal_rate = goal_achieved.sum().float() / num_finished
+    collision_rate = off_road_rate + veh_coll_rate
+    gmask = goal_achieved > 0
+    smask = gmask & (off_road <= 0) & (veh_collision <= 0)
+    print(
+        f'Offroad {off_road_rate} VehCol {veh_coll_rate} '
+        f'Goal {goal_rate} Collision {collision_rate} Save {smask.sum()}/{gmask.sum()}'
+    )
 
     goal_mask = goal_achieved > 0
     save_mask = goal_mask & (off_road <= 0) & (veh_collision <= 0)
@@ -263,14 +342,24 @@ def run_and_save(
         os.makedirs(trajectory_path, exist_ok=True)
         os.makedirs(trajectory_path + '/global', exist_ok=True)
         os.makedirs(trajectory_path + '/id', exist_ok=True)
-        np.savez_compressed(
-            f"{trajectory_path}/trajectory_{save_index}.npz",
-            obs=traj,
-            actions=acts,
-            dead_mask=dead,
-            partner_mask=pm,
-            road_mask=rm,
-        )
+        save_payload = {
+            "obs": traj.numpy(),
+            "actions": acts.numpy(),
+            "dead_mask": dead.numpy(),
+            "partner_mask": pm.numpy(),
+            "road_mask": rm.numpy(),
+        }
+        if lp_future_steps:
+            obs_np = save_payload["obs"]
+            dead_np = save_payload["dead_mask"]
+            partner_mask_np = save_payload["partner_mask"]
+            gp_np = gp.numpy()
+            gr_np = gr.numpy()
+            for step in lp_future_steps:
+                lp = build_lp_labels(obs_np, dead_np, partner_mask_np, gp_np, gr_np, future_step=step)
+                for k, v in lp.items():
+                    save_payload[f"{k}_f{step}"] = v
+        np.savez_compressed(f"{trajectory_path}/trajectory_{save_index}.npz", **save_payload)
         np.savez_compressed(
             f"{trajectory_path}/global/global_trajectory_{save_index}.npz",
             ego_global_pos=gp,
@@ -324,11 +413,11 @@ if __name__ == "__main__":
                         help='Scene count for paths: save_path/model_path use scene_{num_scene}')
     parser.add_argument('--num_stack', type=int, default=1)
     parser.add_argument('--save_path', type=str, default=None,
-                        help='Override save base path. Default: /data/after_cvpr/linear_probe_data/scene_{num_scene}')
+                        help='Override save base path. Default: /data/after_cvpr/linear_probe_data/scene_{num_scene}_v2')
     parser.add_argument('--label_path', type=str, default=None,
                         help='Override label path. Default: {save_path}/{dataset}_rl_data/label')
     parser.add_argument('--model-path', '-mp', type=str, default=None,
-                        help='Override model dir. Default: /data/after_cvpr/rl/scene_{num_scene}/')
+                        help='Override model dir. Default: /data/after_cvpr/rl/scene_{num_scene}_v2/')
     parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_150__03_13_10_39_01_723_000761.pt')
     parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'])
     parser.add_argument('--save-trajectory', action='store_true', default=True,
@@ -340,11 +429,13 @@ if __name__ == "__main__":
     parser.add_argument('--dataset-size', type=int, default=2500)
     parser.add_argument('--batch-size', type=int, default=100)
     parser.add_argument('--start-idx', type=int, default=None, help="start scene number of dataset")
+    parser.add_argument('--lp-future-steps', type=int, nargs='*', default=[10, 20, 30, 40],
+                        help='Precompute LP labels for given future steps and store in trajectory npz (default: 10 20 30 40)')
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
     base_data = "/data/after_cvpr"
-    scene_key = f"scene_{args.num_scene}"
+    scene_key = f"scene_{args.num_scene}_v2"
     save_path = args.save_path or os.path.join(base_data, "linear_probe_data", scene_key)
     model_path = args.model_path or os.path.join(base_data, "rl", scene_key + "/")
     trajectory_path = os.path.join(save_path, f'{args.dataset}_rl_data_v2')
@@ -403,7 +494,7 @@ if __name__ == "__main__":
     config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
     params = torch.load(os.path.join(model_path.rstrip("/"), args.model_name), weights_only=False)
     policy = NeuralNet(
-        input_dim=64,
+        input_dim=128,
         action_dim=91,
         hidden_dim=128,
         dropout=0.01,
@@ -424,6 +515,7 @@ if __name__ == "__main__":
             label_path=label_path if args.save_label else None,
             save_trajectory=args.save_trajectory,
             save_label=args.save_label,
+            lp_future_steps=args.lp_future_steps,
         )
         if i != total_iter - 1:
             env.swap_data_batch()

@@ -13,7 +13,7 @@ export CUDA_VISIBLE_DEVICES="${2:?Usage: $0 <num_scene> <CUDA_VISIBLE_DEVICES>}"
 MODELS=(
   "model_PPO____S_150__03_13_10_39_01_723_000761.pt"
   "runs_PPO____S_200__03_08_06_06_21_203_model_PPO____S_200__03_08_06_06_21_203_001520.pt"
-  "model_PPO____S_200__03_04_04_06_56_997_007604.pt"
+  "model_PPO____R_10000__03_26_07_22_28_521_015217.pt"
 )
 case "$NUM_SCENE" in
   100)   MN="${MODELS[0]}" ;;

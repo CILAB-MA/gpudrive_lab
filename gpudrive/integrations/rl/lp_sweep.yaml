@@ -1,19 +1,19 @@
 program: gpudrive/integrations/rl/run_lp.py
 method: grid
-name: rl_10000_v2_final
+name: rl_10000
 metric:
   goal: minimize
   name: eval/loss
 parameters:
   data_path:
-    value: "scene_10000"
+    value: "scene_10000_v2"
   base_path:
     value: "/data/after_cvpr/linear_probe_data/"
   # MODEL
   model_path:
-    value: "/data/after_cvpr/rl/scene_10000/"
+    value: "/data/after_cvpr/rl/scene_10000_v2/"
   model_name:
-    values: ["model_PPO____S_200__03_04_04_06_56_997_007604"] # model_PPO____S_150__03_13_10_39_01_723_000761.pt
+    values: ["model_PPO____R_10000__03_26_07_22_28_521_015217"] # model_PPO____S_150__03_13_10_39_01_723_000761.pt
   # DATA
   future_step:
     values: [10, 20, 30, 40]

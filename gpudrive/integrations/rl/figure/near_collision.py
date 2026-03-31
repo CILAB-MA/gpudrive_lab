@@ -512,7 +512,7 @@ if __name__ == "__main__":
     config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
     params = torch.load(model_path, weights_only=False)
     policy = NeuralNet(
-        input_dim=64,
+        input_dim=128,
         action_dim=91,
         hidden_dim=128,
         config=config.environment,
