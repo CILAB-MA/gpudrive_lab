@@ -142,7 +142,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     base = "/data/after_cvpr/linear_probe_data"
-    scene_key = f"scene_{args.scene}"
+    scene_key = f"scene_{args.scene}_v2"
     save_path = f"{base}/{scene_key}"
     save_name = f"{args.dataset}_trajectory_{args.num_scene}.npz"
     subset_path = f"{base}/{scene_key}/{args.dataset}_rl_data_v2"

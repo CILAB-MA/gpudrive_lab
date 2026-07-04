@@ -1,9 +1,9 @@
-model_path: "/data/after_cvpr/rl/scene_10000/PPO____S_200__03_04_04_06_56_997"
+model_path: "/data/after_cvpr/rl/"
 rollout_len: 1
 pred_len: 1
-base_path: '/data/after_cvpr/'
+base_path: '/data/after_cvpr/linear_probe_data'
 model_name: 'model_PPO____S_200__03_04_04_06_56_997_007604'
-data_path: 'linear_probe_data'
+data_path: 'scene_1000'
 seed: 3
 exp: 'other'
 model: 'baseline'
@@ -12,7 +12,7 @@ batch_size: 256
 eval_freq: 2000
 future_step: 5
 num_scene: 10000
-num_workers: 16
+num_workers: 16 
 prefetch_factor: 4
 pin_memory: True
 lr: 0.0015

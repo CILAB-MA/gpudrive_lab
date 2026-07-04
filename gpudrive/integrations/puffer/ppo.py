@@ -363,6 +363,8 @@ def train(data):
         done_training = data.global_step >= config.total_timesteps
 
         # Logging
+        if config.device == "cuda":
+            torch.cuda.synchronize()
         if profile.update(data) or done_training:
             print_dashboard(
                 config.env,

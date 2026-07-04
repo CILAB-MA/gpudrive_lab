@@ -5,7 +5,8 @@ from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 class FutureDataset(torch.utils.data.Dataset):
     def __init__(self, obs, actions, ego_global_pos, ego_global_rot, masks=None, partner_mask=None, future_step=1, exp='other', xy_range=None, 
-                 partner_labels=None, ego_labels=None):
+                 partner_labels=None, ego_labels=None, precomputed_aux_mask=None, precomputed_other_pos=None,
+                 precomputed_future_valid_mask=None, precomputed_ego_pos=None):
         # obs
         self.obs = obs
         B, T, F = obs.shape
@@ -13,8 +14,9 @@ class FutureDataset(torch.utils.data.Dataset):
 
         # masks
         valid_masks = 1 - masks
-        action_mask = (np.abs(actions[..., 1]) >  0.5) | (np.abs(actions[..., 0]) >  5) | (np.abs(actions[..., -1]) > 0.2)
-        valid_masks[action_mask] = 0
+        if actions.shape[-1] == 3:
+            action_mask = (np.abs(actions[..., 1]) >  0.5) | (np.abs(actions[..., 0]) >  5) | (np.abs(actions[..., -1]) > 0.2)
+            valid_masks[action_mask] = 0
         self.valid_masks = valid_masks.astype('bool')
         self.future_step = future_step
         print(self.obs.shape, self.actions.shape, self.valid_masks.shape)
@@ -28,30 +30,40 @@ class FutureDataset(torch.utils.data.Dataset):
             self.ego_labels = ego_labels
             print(f"ego_labels shape: {self.ego_labels.shape}")
         if exp == 'other':
-            # future partner_mask
-            partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
-            aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, future_timestep=future_step)
-            self.aux_mask = aux_mask.astype('bool')
+            if precomputed_aux_mask is not None and precomputed_other_pos is not None:
+                self.aux_mask = precomputed_aux_mask.astype('bool')
+                self.other_pos = precomputed_other_pos
+            else:
+                # future partner_mask
+                partner_info = obs[..., 6:128 * 6].reshape(B, T, 127, 6)[..., :4]
+                aux_info, aux_mask = self._make_aux_info(partner_mask, partner_info, future_timestep=future_step)
+                self.aux_mask = aux_mask.astype('bool')
             print(f"future aux mask shape: {self.aux_mask.shape}")
 
         if exp == 'ego':
-            # future ego mask
-            future_valid_mask_pad = np.zeros((self.valid_masks.shape[0], future_step, *self.valid_masks.shape[2:]), dtype=np.float32)
-            future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype('bool')[:, future_step:]
-            self.future_valid_mask = self.valid_masks & future_valid_masks
+            if precomputed_future_valid_mask is not None and precomputed_ego_pos is not None:
+                self.future_valid_mask = precomputed_future_valid_mask.astype('bool')
+                self.ego_pos = precomputed_ego_pos
+            else:
+                # future ego mask
+                future_valid_mask_pad = np.zeros((self.valid_masks.shape[0], future_step, *self.valid_masks.shape[2:]), dtype=np.float32)
+                future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype('bool')[:, future_step:]
+                self.future_valid_mask = self.valid_masks & future_valid_masks
             print(f"future_valid_mask shape: {self.future_valid_mask.shape}")
         # road_mask
         if exp == 'other':
-            # future other pos
-            current_relative_other_pos = self._transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step=future_step)
-            current_relative_other_pos[aux_mask] = 0
-            self.other_pos = self._get_multi_class_pos(current_relative_other_pos)
+            if precomputed_aux_mask is None or precomputed_other_pos is None:
+                # future other pos
+                current_relative_other_pos = self._transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step=future_step)
+                current_relative_other_pos[aux_mask] = 0
+                self.other_pos = self._get_multi_class_pos(current_relative_other_pos)
             print(f"future other pos shape: {self.other_pos.shape}")
         else:
-            # future ego pos
-            current_relative_ego_pos = self._transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step,
-                                                                    )
-            self.ego_pos = self._get_multi_class_pos(current_relative_ego_pos, xy_range)
+            if precomputed_future_valid_mask is None or precomputed_ego_pos is None:
+                # future ego pos
+                current_relative_ego_pos = self._transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step,
+                                                                        )
+                self.ego_pos = self._get_multi_class_pos(current_relative_ego_pos, xy_range)
 
             # ego? -> current_relative_pos[aux_mask] = 0
             print("future ego pos shape: ", self.ego_pos.shape)

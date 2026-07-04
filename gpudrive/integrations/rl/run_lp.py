@@ -1,7 +1,7 @@
 """Obtain a policy using behavioral cloning."""
 import logging
+from typing import Any
 
-import h5py
 import numpy as np
 import torch
 from torch.optim import AdamW
@@ -46,13 +46,21 @@ def set_seed(seed=42, deterministic=False):
         torch.backends.cudnn.benchmark = False 
 
 def _load_trajectory_file(filepath):
-    """Load trajectory data from npz or h5. Returns dict-like with array values."""
-    h5_path = filepath.replace(".npz", ".h5")
-    if os.path.exists(h5_path):
-        with h5py.File(h5_path, "r") as f:
-            return {k: np.array(f[k]) for k in f.keys()}
-    with np.load(filepath) as data:
-        return {k: data[k] for k in data.keys()}
+    """Load trajectory data from npz only."""
+    try:
+        with np.load(filepath) as data:
+            return {k: data[k] for k in data.keys()}
+    except ValueError as e:
+        # Some legacy files were saved with pickled object arrays.
+        if "allow_pickle=False" not in str(e):
+            raise
+        with np.load(filepath, allow_pickle=True) as data:
+            if hasattr(data, "keys"):
+                return {k: data[k] for k in data.keys()}
+            obj = data.item()
+            if isinstance(obj, dict):
+                return obj
+        raise
 
 
 def get_dataloader(data_path, data_file, config, isshuffle=True):
@@ -68,19 +76,43 @@ def get_dataloader(data_path, data_file, config, isshuffle=True):
         ego_labels = data["ego_labels"].astype("int") if "ego_labels" in data else None
     if config.exp == "other":
         partner_labels = data["partner_labels"].astype("int") if "partner_labels" in data else None
+    precomputed_aux_mask = None
+    precomputed_other_pos = None
+    precomputed_future_valid_mask = None
+    precomputed_ego_pos = None
+    step_suffix = f"_f{config.future_step}"
+    if config.exp == "other":
+        aux_key = f"lp_aux_mask{step_suffix}"
+        pos_key = f"lp_other_pos{step_suffix}"
+        if aux_key in data and pos_key in data:
+            precomputed_aux_mask = data[aux_key]
+            precomputed_other_pos = data[pos_key]
+    if config.exp == "ego":
+        valid_key = f"lp_future_valid_mask{step_suffix}"
+        pos_key = f"lp_ego_pos{step_suffix}"
+        if valid_key in data and pos_key in data:
+            precomputed_future_valid_mask = data[valid_key]
+            precomputed_ego_pos = data[pos_key]
 
     ego_global_pos = None
     ego_global_rot = None
     global_file = data_file
-    if "validation" in data_file:
+    if "validation" in data_file and "full_version" in data_path:
         global_file = data_file[6:]  # strip "label/"
-    global_path = os.path.join(data_path, "global_" + global_file)
+    if "full_version" not in data_path:
+        global_path = os.path.join(data_path, "global", "global_" + global_file)
+    else:
+        global_path = os.path.join(data_path, "global_" + global_file)
     global_data = _load_trajectory_file(global_path)
     ego_global_pos = global_data["ego_global_pos"]
     ego_global_rot = global_data["ego_global_rot"]
     dataset = FutureDataset(
         expert_obs, expert_actions, ego_global_pos, ego_global_rot, expert_masks, partner_mask,
-        future_step=config.future_step, exp=config.exp, partner_labels=partner_labels, ego_labels=ego_labels
+        future_step=config.future_step, exp=config.exp, partner_labels=partner_labels, ego_labels=ego_labels,
+        precomputed_aux_mask=precomputed_aux_mask,
+        precomputed_other_pos=precomputed_other_pos,
+        precomputed_future_valid_mask=precomputed_future_valid_mask,
+        precomputed_ego_pos=precomputed_ego_pos,
     )
     dataloader = DataLoader(
         dataset,
@@ -155,14 +187,17 @@ def train(exp_config=None):
         
         params = torch.load(f"{exp_config.model_path}/{exp_config.model_name}.pt", weights_only=False)
         backbone = NeuralNet(
-            input_dim=64,
+            input_dim=128,
             action_dim=91,
             hidden_dim=128,
             config=config.environment,
         ).to("cuda")
         backbone.load_state_dict(params["parameters"])
         backbone.eval()
-        hidden_dim = 64
+        hidden_dim = 128
+        if exp_config.model == 'ego_final_lp':
+            layers = register_all_layers_forward_hook(backbone.shared_embed)
+            hidden_dim = 128
     if exp_config.exp == 'other':
         ood_labels = sorted({x * 8 + y for x in range(8) for y in range(8) if x in {0,1,6,7} or y in {0,1,6,7}})
     else:
@@ -173,7 +208,7 @@ def train(exp_config=None):
     train_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
     train_data_file = f"training_trajectory_{exp_config.num_scene}.npz"
     eval_data_path = os.path.join(exp_config.base_path, exp_config.data_path)
-    eval_data_file =  f"label/validation_trajectory_2500.npz"
+    eval_data_file =  f"label/validation_trajectory_2500.npz" if 'full_version' in exp_config.base_path else f"validation_trajectory_2500.npz"
     # Optimizer
     pos_optimizer = AdamW(pos_linear_model.parameters(), lr=exp_config.lr, eps=0.0001)
 
@@ -210,21 +245,24 @@ def train(exp_config=None):
             if exp_config.model == 'baseline':
                 baseline_obs = obs[..., :6].reshape(-1, 6)
                 if exp_config.exp == 'other':
-                    B, T, _ = obs.shape
-                    ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
-                    partner_obs = obs[..., 6:6 * 128].reshape(B, 1, 127, 6)
-                    lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
+                    B, T = obs.shape
+                    ego_obs = obs[..., :6].unsqueeze(1).repeat(1, 127, 1)
+                    partner_obs = obs[..., 6:6 * 128].reshape(B, 127, 6)
+                    lp_input = torch.cat([ego_obs, partner_obs], dim=-1).reshape(B, 127, -1)
                 else:
                     lp_input = baseline_obs
             else:
                 with torch.no_grad():
-                    if exp_config.exp == "other":
+                    if exp_config.model == 'ego_final_lp' and exp_config.exp == 'ego':
+                        _ = backbone(obs)
+                        nth_layer =list[Any](layers.keys())[-1]
+                        lp_input = layers[nth_layer]
+                    elif exp_config.exp == "other":
                         obs = obs[..., 6:6 * 128].view(batch_size, -1, 6)
                         lp_input =backbone.partner_embed(obs)
                     else:
-                        obs = obs[..., :6]
+                        obs = obs[..., :6]                        
                         lp_input = backbone.ego_embed(obs)
-
             # get future pred pos and action
             # if exp_config.exp == 'ego':
             #     future_mask = future_mask.squeeze(1)
@@ -285,15 +323,19 @@ def train(exp_config=None):
                     if exp_config.model == 'baseline':
                         baseline_obs = obs[..., :6].reshape(-1, 6)
                         if exp_config.exp == 'other':
-                            B, T, _ = obs.shape
-                            ego_obs = obs[..., :6].unsqueeze(2).repeat(1, 1, 127, 1)
-                            partner_obs = obs[..., 6:6 * 128].reshape(B, 1, 127, 6)
-                            lp_input = torch.cat([ego_obs, partner_obs], dim=-1).permute(0, 2, 1, 3).reshape(B, 127, -1)
+                            B, T = obs.shape
+                            ego_obs = obs[..., :6].unsqueeze(1).repeat(1, 127, 1)
+                            partner_obs = obs[..., 6:6 * 128].reshape(B, 127, 6)
+                            lp_input = torch.cat([ego_obs, partner_obs], dim=-1).reshape(B, 127, -1)
                         else:
                             lp_input = baseline_obs
                     else:
                         with torch.no_grad():
-                            if exp_config.exp == "other":
+                            if exp_config.model == 'ego_final_lp' and exp_config.exp == 'ego':
+                                _ = backbone(obs)
+                                nth_layer =list[Any](layers.keys())[-1]
+                                lp_input = layers[nth_layer]
+                            elif exp_config.exp == "other":
                                 obs = obs[..., 6:6 * 128].view(batch_size, 127, 6)
                                 lp_input =backbone.partner_embed(obs)
                             else:

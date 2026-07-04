@@ -9,6 +9,7 @@ from gpudrive.env.config import EnvConfig
 from gpudrive.env.env_torch import GPUDriveTorchEnv
 import pufferlib, yaml
 from box import Box
+from gpudrive.env.constants import MIN_REL_AGENT_POS, MAX_REL_AGENT_POS
 
 def load_config(config_path):
     """Load the configuration file."""
@@ -20,9 +21,11 @@ def load_config(config_path):
 def get_label(log_actions, st, en, done_step, index_array,
               dy_thresh=0.035, dyaw_thresh=0.02):
     """Generate behavior labels from expert actions (abnormal=0, retreat=1, turn=2, straight=3, default=4)."""
+    index_array = index_array.cpu()
+    done_step = done_step.cpu()
     unique_world = torch.unique(index_array)
     N = en - st
-    full_indices = torch.arange(N)
+    full_indices = torch.arange(N, device=unique_world.device)
     alive_world = torch.isin(full_indices, unique_world).long()
     scene_labels = []
     for n in range(N):
@@ -61,291 +64,459 @@ def get_label(log_actions, st, en, done_step, index_array,
     return scene_labels
 
 
-def save_label(env, save_path, idx, num_worlds, batch_size):
+def _lp_make_aux_info(partner_mask, partner_info, future_timestep):
+    partner_mask_bool = np.where(partner_mask == 0, 0, 1).astype(bool)
+    partner_info_pad = np.zeros((partner_info.shape[0], future_timestep, *partner_info.shape[2:]), dtype=np.float32)
+    partner_mask_pad = np.full((partner_mask.shape[0], future_timestep, *partner_mask.shape[2:]), 2, dtype=np.float32)
+    future_mask = np.concatenate([partner_mask, partner_mask_pad], axis=1)
+    future_mask_bool = np.where(future_mask == 0, 0, 1).astype(bool)[:, future_timestep:]
+    partner_info = np.concatenate([partner_info, partner_info_pad], axis=1)[:, future_timestep:]
+    combined_mask = np.logical_or(future_mask_bool, partner_mask_bool).astype("bool")
+    return partner_info, combined_mask
+
+
+def _lp_transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step):
+    t_partner_pos = aux_info[..., 1:3] * MAX_REL_AGENT_POS
+    t_ego_global_pos = np.zeros_like(ego_global_pos)
+    t_ego_global_rot = np.zeros_like(ego_global_rot)
+    t_ego_global_pos[:, :-future_step] = ego_global_pos[:, future_step:]
+    t_ego_global_rot[:, :-future_step] = ego_global_rot[:, future_step:]
+    t_partner_global_pos_x = t_ego_global_pos[..., 0, None] + t_partner_pos[..., 0] * np.cos(t_ego_global_rot) - t_partner_pos[..., 1] * np.sin(t_ego_global_rot)
+    t_partner_global_pos_y = t_ego_global_pos[..., 1, None] + t_partner_pos[..., 0] * np.sin(t_ego_global_rot) + t_partner_pos[..., 1] * np.cos(t_ego_global_rot)
+    delta_x = t_partner_global_pos_x - ego_global_pos[..., 0, None]
+    delta_y = t_partner_global_pos_y - ego_global_pos[..., 1, None]
+    cos_theta = np.cos(-ego_global_rot)
+    sin_theta = np.sin(-ego_global_rot)
+    current_relative_pos_x = delta_x * cos_theta + delta_y * sin_theta
+    current_relative_pos_y = -delta_x * sin_theta + delta_y * cos_theta
+    current_relative_pos_x = 2 * ((current_relative_pos_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    current_relative_pos_y = 2 * ((current_relative_pos_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    return np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+
+
+def _lp_transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step):
+    current_relative_pos = np.zeros_like(ego_global_pos)
+    ego_current_pos = ego_global_pos[:, :-future_step]
+    ego_future_pos = ego_global_pos[:, future_step:]
+    delta_x = ego_future_pos[..., 0] - ego_current_pos[..., 0]
+    delta_y = ego_future_pos[..., 1] - ego_current_pos[..., 1]
+    ego_current_rot = ego_global_rot[:, :-future_step]
+    cos_theta = np.cos(ego_current_rot)
+    sin_theta = np.sin(ego_current_rot)
+    rel_x = delta_x * cos_theta.squeeze(-1) + delta_y * sin_theta.squeeze(-1)
+    rel_y = -delta_x * sin_theta.squeeze(-1) + delta_y * cos_theta.squeeze(-1)
+    current_relative_pos_x = 2 * ((rel_x - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    current_relative_pos_y = 2 * ((rel_y - MIN_REL_AGENT_POS) / (MAX_REL_AGENT_POS - MIN_REL_AGENT_POS)) - 1
+    current_relative_pos[:, :-future_step, :] = np.stack([current_relative_pos_x, current_relative_pos_y], axis=-1)
+    return current_relative_pos
+
+
+def _lp_get_multi_class_pos(pos):
+    x, y = pos[..., 0], pos[..., 1]
+    xbins = np.linspace(-0.05, 0.05, 9)
+    ybins = np.linspace(-0.05, 0.05, 9)
+    x_bins = np.digitize(x, xbins) - 1
+    y_bins = np.digitize(y, ybins) - 1
+    x_bins = np.clip(x_bins, 0, 7)
+    y_bins = np.clip(y_bins, 0, 7)
+    return x_bins * 8 + y_bins
+
+
+def build_lp_labels(obs, dead_mask, partner_mask, ego_global_pos, ego_global_rot, future_step):
+    valid_masks = (1 - dead_mask).astype("bool")
+    labels = {}
+
+    future_valid_mask_pad = np.zeros((valid_masks.shape[0], future_step), dtype=np.float32)
+    future_valid_masks = np.concatenate([valid_masks, future_valid_mask_pad], axis=1).astype("bool")[:, future_step:]
+    labels["lp_future_valid_mask"] = valid_masks & future_valid_masks
+    ego_pos = _lp_transform_relative_ego_pos(ego_global_pos, ego_global_rot, future_step=future_step)
+    labels["lp_ego_pos"] = _lp_get_multi_class_pos(ego_pos)
+
+    b, t, _ = obs.shape
+    partner_info = obs[..., 6:128 * 6].reshape(b, t, 127, 6)[..., :4]
+    aux_info, aux_mask = _lp_make_aux_info(partner_mask, partner_info, future_timestep=future_step)
+    other_pos = _lp_transform_relative_other_pos(aux_info, ego_global_pos, ego_global_rot, future_step=future_step)
+    other_pos[aux_mask] = 0
+    labels["lp_aux_mask"] = aux_mask.astype("bool")
+    labels["lp_other_pos"] = _lp_get_multi_class_pos(other_pos)
+    return labels
+
+
+def run_and_save(
+    env,
+    policy,
+    batch_idx,
+    batch_size,
+    trajectory_path=None,
+    label_path=None,
+    save_trajectory=True,
+    save_label=True,
+    lp_future_steps=None,
+):
     """
-    Generate and save behavior labels from expert trajectories (goal-achieved agents only).
-    Uses expert (continuous) actions, no policy needed.
-    """
-    device = env.device
-    obs = env.reset()
-    goal_achieved = torch.zeros(env.cont_agent_mask.sum().item(), device=device)
-    off_road = torch.zeros_like(goal_achieved)
-    veh_collision = torch.zeros_like(goal_achieved)
-    cont_agent_mask = env.cont_agent_mask.to(device)
-    alive_agent_mask = env.cont_agent_mask.clone()
-    index_array = torch.tensor(
-        [i for i, count in enumerate(alive_agent_mask.sum(-1).tolist()) for _ in range(count)],
-        device=device
-    )
-    expert_actions, _, _, _, _ = env.get_expert_actions()
-    log_actions = expert_actions[alive_agent_mask]
-    done_step = torch.zeros(len(log_actions), device=device)
-    ego_ids = env.ego_ids.clone()[alive_agent_mask]
-    alive_agent_num = env.cont_agent_mask.sum().item()
-    expert_partner_id_lst = torch.full(
-        (alive_agent_num, env.episode_len, 127), -1, device=device, dtype=torch.long
-    )
-
-    for t in tqdm(range(env.episode_len)):
-        expert_partner_id_lst[:, t] = env.partner_ids.clone()[alive_agent_mask].int()
-        expert_actions, _, _, _, _ = env.get_expert_actions()
-        env.step_dynamics(expert_actions[:, :, t, :])
-        obs = env.get_obs()
-        done = env.get_dones()
-        infos = env.get_infos()
-        goal_achieved += infos.goal_achieved[cont_agent_mask]
-        off_road += infos.off_road[cont_agent_mask]
-        veh_collision += infos.collided[cont_agent_mask]
-        off_road = torch.clamp(off_road, max=1.0)
-        veh_collision = torch.clamp(veh_collision, max=1.0)
-        mask = (done[alive_agent_mask] == 1.0) & (done_step == 0)
-        done_step[mask] = t
-        if done.all():
-            break
-
-    goal_mask = goal_achieved > 0
-    scene_labels = get_label(
-        log_actions.cpu().numpy(), idx * num_worlds, (idx + 1) * num_worlds, done_step, index_array
-    )
-    index_array = index_array + idx * num_worlds
-    index_array_np = index_array.cpu().numpy()
-    ego_ids_np = ego_ids.cpu().int().numpy()
-    N, T, M = expert_partner_id_lst.shape
-    scene_ego_keys = list(zip(index_array_np, ego_ids_np))
-    expert_partner_id_lst_np = expert_partner_id_lst.cpu().numpy()
-    id_to_label = {key: label for key, label in zip(scene_ego_keys, scene_labels)}
-    scene_idx_expanded = np.repeat(index_array[:, None, None].cpu().numpy(), T * M).reshape(N, T, M)
-    partner_ids_flat = expert_partner_id_lst_np.reshape(-1)
-    scene_idx_flat = scene_idx_expanded.reshape(-1)
-    labels_flat = np.array([id_to_label.get((s, pid), -1) for s, pid in zip(scene_idx_flat, partner_ids_flat)])
-    partner_labels = labels_flat.reshape(N, T, M)[goal_mask.cpu().numpy()]
-    scene_labels_filtered = scene_labels[goal_mask.cpu().numpy()]
-
-    os.makedirs(save_path, exist_ok=True)
-    np.savez_compressed(
-        f'{save_path}/label_trajectory_{batch_size * idx}.npz',
-        partner_label=partner_labels,
-        ego_label=scene_labels_filtered
-    )
-    print(f'alive agent: {len(scene_labels_filtered)}')
-
-
-def save_trajectory(env, policy, save_path, save_index=0):
-    """
-    Save the trajectory, partner_mask and road_mask in the environment, distinguishing them by each scene and agent.
-    Actions are RL policy actions (discrete indices 0-90), not expert actions.
+    Single rollout that saves both trajectory and behavior labels.
+    Runs policy once through the episode, then saves trajectory (goal+no-collision) and
+    labels (goal-achieved agents) to respective paths.
 
     Args:
-        env: GPUDriveTorchEnv (use vecenv.env when created via PufferGPUDrive).
+        env: GPUDriveTorchEnv with discrete action type.
         policy: NeuralNet policy that returns discrete actions.
+        batch_idx: Current batch index (for file naming).
+        batch_size: Batch size / num_worlds.
+        trajectory_path: Where to save trajectory npz files.
+        label_path: Where to save label npz files.
+        save_trajectory: If True, save trajectory data.
+        save_label: If True, save behavior labels.
     """
+    device = env.device
     obs = env.reset()
     road_mask = env.get_road_mask()
     partner_mask = env.get_partner_mask()
-    # partner_id = env.get_partner_id().unsqueeze(-1)
-    device = env.device
-    
-    cont_agent_mask = env.cont_agent_mask.to(device)  # (num_worlds, num_agents)
+    cont_agent_mask = env.cont_agent_mask.to(device)
+    alive_agent_mask = env.cont_agent_mask.clone()
     alive_agent_indices = cont_agent_mask.nonzero(as_tuple=False)
     alive_agent_num = env.cont_agent_mask.sum().item()
+    index_array = torch.tensor(
+        [i for i, count in enumerate(alive_agent_mask.sum(-1).tolist()) for _ in range(count)],
+        device=device,
+    )
     print("alive_agent_num : ", alive_agent_num)
-    
-    expert_trajectory_lst = torch.zeros((alive_agent_num, env.episode_len, obs.shape[-1]), device=device)
-    rl_actions_lst = torch.zeros((alive_agent_num, env.episode_len), device=device, dtype=torch.long)
-    expert_dead_mask_lst = torch.ones((alive_agent_num, env.episode_len), device=device, dtype=torch.bool)
-    expert_partner_mask_lst = torch.full((alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long)
-    expert_road_mask_lst = torch.ones((alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool)
-    expert_global_pos_lst = torch.zeros((alive_agent_num, env.episode_len, 2), device=device) # global pos (2)
-    expert_global_rot_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
-    expert_partner_id_lst = torch.zeros((alive_agent_num, env.episode_len, 127), device=device) # global actions (1)
-    expert_ego_id_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
-    expert_scene_id_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device) # global actions (1)
-    # Initialize dead agent mask
+
+    # Trajectory buffers
+    expert_trajectory_lst = torch.zeros(
+        (alive_agent_num, env.episode_len, obs.shape[-1]), device=device
+    )
+    rl_actions_lst = torch.zeros(
+        (alive_agent_num, env.episode_len), device=device, dtype=torch.long
+    )
+    expert_dead_mask_lst = torch.ones(
+        (alive_agent_num, env.episode_len), device=device, dtype=torch.bool
+    )
+    expert_partner_mask_lst = torch.full(
+        (alive_agent_num, env.episode_len, 127), 2, device=device, dtype=torch.long
+    )
+    expert_road_mask_lst = torch.ones(
+        (alive_agent_num, env.episode_len, 200), device=device, dtype=torch.bool
+    )
+    expert_global_pos_lst = torch.zeros((alive_agent_num, env.episode_len, 2), device=device)
+    expert_global_rot_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device)
+    expert_partner_id_lst = torch.zeros(
+        (alive_agent_num, env.episode_len, 127), device=device
+    )
+    expert_ego_id_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device)
+    expert_scene_id_lst = torch.zeros((alive_agent_num, env.episode_len, 1), device=device)
+    # Label buffers: log_actions (accel, steer, steer) for get_label
+    log_actions_lst = torch.zeros(
+        (alive_agent_num, env.episode_len, 3), device=device
+    )
+    done_step = torch.zeros(alive_agent_num, device=device)
+    ego_ids = env.ego_ids.clone()[alive_agent_mask]
+
     agent_info = (
-            env.sim.absolute_self_observation_tensor()
-            .to_torch()
-            .to(device)
-        )
-    dead_agent_mask = ~env.cont_agent_mask.clone().to(device) # (num_worlds, num_agents)
-    road_mask = env.get_road_mask()
-    goal_achieved = 0
-    off_road = 0
-    veh_collision = 0
-    for time_step in tqdm(range(env.episode_len)):
+        env.sim.absolute_self_observation_tensor().to_torch().to(device)
+    )
+    dead_agent_mask = ~env.cont_agent_mask.clone().to(device)
+    goal_achieved = torch.zeros(alive_agent_num, device=device)
+    off_road = torch.zeros(alive_agent_num, device=device)
+    veh_collision = torch.zeros(alive_agent_num, device=device)
+
+    # For label computation: per-agent previous global pos/yaw (for inverse delta)
+    prev_pos = torch.zeros((alive_agent_num, 2), device=device)
+    prev_yaw = torch.zeros(alive_agent_num, device=device)
+    prev_init = torch.zeros(alive_agent_num, dtype=torch.bool, device=device)
+
+    for t in tqdm(range(env.episode_len)):
         with torch.no_grad():
             alive_obs = obs[~dead_agent_mask]
-            actions, *_ = policy(alive_obs)
-        all_actions = torch.zeros(obs.shape[0], obs.shape[1], device=device, dtype=torch.long)
+            actions, *_ = policy(alive_obs, deterministic=True)
+        all_actions = torch.zeros(
+            obs.shape[0], obs.shape[1], device=device, dtype=torch.long
+        )
         all_actions[~dead_agent_mask] = actions
+
         for idx, (world_idx, agent_idx) in enumerate(alive_agent_indices):
             if not dead_agent_mask[world_idx, agent_idx]:
-                expert_trajectory_lst[idx][time_step] = obs[world_idx, agent_idx]
-                rl_actions_lst[idx][time_step] = all_actions[world_idx, agent_idx]
-                expert_partner_mask_lst[idx][time_step] = partner_mask[world_idx, agent_idx]
-                expert_road_mask_lst[idx][time_step] = road_mask[world_idx, agent_idx]
-                expert_global_pos_lst[idx, time_step] = agent_info[world_idx, agent_idx, 0:2]
-                expert_global_rot_lst[idx, time_step] = agent_info[world_idx, agent_idx, 7:8]
-                expert_partner_id_lst[idx, time_step] = env.partner_ids[world_idx, agent_idx].clone()
-                expert_ego_id_lst[idx, time_step] = agent_info[world_idx, agent_idx, -1]
-                expert_scene_id_lst[idx, time_step] = world_idx
-            expert_dead_mask_lst[idx][time_step] = dead_agent_mask[world_idx, agent_idx]
+                expert_trajectory_lst[idx][t] = obs[world_idx, agent_idx]
+                rl_actions_lst[idx][t] = all_actions[world_idx, agent_idx]
+                expert_partner_mask_lst[idx][t] = partner_mask[world_idx, agent_idx]
+                expert_road_mask_lst[idx][t] = road_mask[world_idx, agent_idx]
+                expert_global_pos_lst[idx, t] = agent_info[world_idx, agent_idx, 0:2]
+                expert_global_rot_lst[idx, t] = agent_info[world_idx, agent_idx, 7:8]
+                expert_partner_id_lst[idx, t] = env.partner_ids[
+                    world_idx, agent_idx
+                ].clone()
+                expert_ego_id_lst[idx, t] = agent_info[world_idx, agent_idx, -1]
+                expert_scene_id_lst[idx, t] = world_idx
+
+                # --- Inverse delta-style local (dx, dy, dyaw) from global trajectory ---
+                cur_pos = agent_info[world_idx, agent_idx, 0:2]       # (2,)
+                cur_yaw = agent_info[world_idx, agent_idx, 7]         # scalar
+
+                if not prev_init[idx]:
+                    # Initialize at first timestep
+                    prev_pos[idx] = cur_pos
+                    prev_yaw[idx] = cur_yaw
+                    prev_init[idx] = True
+                    dx_local = torch.tensor(0.0, device=device)
+                    dy_local = torch.tensor(0.0, device=device)
+                    dyaw_local = torch.tensor(0.0, device=device)
+                else:
+                    # DeltaGlobal.inverse: world-frame delta
+                    dx_global = torch.clamp(cur_pos[0] - prev_pos[idx, 0], -6.0, 6.0)
+                    dy_global = torch.clamp(cur_pos[1] - prev_pos[idx, 1], -6.0, 6.0)
+                    dyaw_global = cur_yaw - prev_yaw[idx]
+
+                    # DeltaLocal.inverse: rotate into ego frame at time t
+                    yaw_t = prev_yaw[idx]
+                    cos_yaw = torch.cos(-yaw_t)
+                    sin_yaw = torch.sin(-yaw_t)
+                    dx_local = dx_global * cos_yaw - dy_global * sin_yaw
+                    dy_local = dx_global * sin_yaw + dy_global * cos_yaw
+                    dx_local = torch.clamp(dx_local, -6.0, 6.0)
+                    dy_local = torch.clamp(dy_local, -6.0, 6.0)
+                    dyaw_local = torch.atan2(
+                        torch.sin(dyaw_global), torch.cos(dyaw_global)
+                    )
+
+                    prev_pos[idx] = cur_pos
+                    prev_yaw[idx] = cur_yaw
+
+                log_actions_lst[idx, t, 0] = dx_local
+                log_actions_lst[idx, t, 1] = dy_local
+                log_actions_lst[idx, t, 2] = dyaw_local
+            expert_dead_mask_lst[idx][t] = dead_agent_mask[world_idx, agent_idx]
 
         env.step_dynamics(all_actions)
         dones = env.get_dones().to(device)
-        
         dead_agent_mask = torch.logical_or(dead_agent_mask, dones)
-        obs = env.get_obs() 
+        obs = env.get_obs()
         road_mask = env.get_road_mask()
         partner_mask = env.get_partner_mask()
-        # partner_id = env.get_partner_id().unsqueeze(-1)
         agent_info = (
-        env.sim.absolute_self_observation_tensor()
-        .to_torch()
-        .to(device)
+            env.sim.absolute_self_observation_tensor().to_torch().to(device)
         )
         infos = env.get_infos()
-        
+
         goal_achieved += infos.goal_achieved[cont_agent_mask]
         off_road += infos.off_road[cont_agent_mask]
         veh_collision += infos.collided[cont_agent_mask]
         goal_achieved = torch.clamp(goal_achieved, max=1.0)
+        off_road = torch.clamp(off_road, max=1.0)
+        veh_collision = torch.clamp(veh_collision, max=1.0)
 
-        if (dead_agent_mask == True).all():
-            num_finished_agents = cont_agent_mask.sum().float()
-            goal_rate = goal_achieved.sum().float() / num_finished_agents
-            off_road_rate = (
-                torch.where(off_road > 0, 1, 0).sum().float()
-                / num_finished_agents
-            )
-            veh_coll_rate = (
-                torch.where(veh_collision > 0, 1, 0).sum().float()
-                / num_finished_agents
-            )
-            collision = veh_collision > 0
-            goal_mask = goal_achieved > 0
-            # Goal achieved AND no offroad AND no collision
-            save_mask = goal_mask & (off_road <= 0) & (veh_collision <= 0)
-            print(f'Offroad {off_road_rate} VehCol {veh_coll_rate} Goal {goal_rate} Save {save_mask.sum()}/{goal_mask.sum()}')
+        mask = (dones[alive_agent_mask] == 1.0) & (done_step == 0)
+        done_step[mask] = t
+
+        if dones.all():
             break
-    
-    expert_trajectory_lst = expert_trajectory_lst[save_mask].to('cpu')
-    rl_actions_lst = rl_actions_lst[save_mask].to('cpu')
-    expert_dead_mask_lst = expert_dead_mask_lst[save_mask].to('cpu')
-    expert_partner_mask_lst = expert_partner_mask_lst[save_mask].to('cpu')
-    expert_road_mask_lst = expert_road_mask_lst[save_mask].to('cpu')
-    # global pos
-    expert_global_pos_lst = expert_global_pos_lst[save_mask].to('cpu')
-    expert_global_rot_lst = expert_global_rot_lst[save_mask].to('cpu')
-    expert_partner_id_lst = expert_partner_id_lst[save_mask].to('cpu')
-    expert_ego_id_lst = expert_ego_id_lst[save_mask].to('cpu')
-    expert_scene_id_lst = expert_scene_id_lst[save_mask].to('cpu')
-    os.makedirs(save_path, exist_ok=True)
-    os.makedirs(save_path + '/global', exist_ok=True)
-    os.makedirs(save_path + '/id', exist_ok=True)
-    np.savez_compressed(f"{save_path}/trajectory_{save_index}.npz",
-                        obs=expert_trajectory_lst,
-                        actions=rl_actions_lst,
-                        dead_mask=expert_dead_mask_lst,
-                        partner_mask=expert_partner_mask_lst,
-                        road_mask=expert_road_mask_lst)
-    np.savez_compressed(f"{save_path}/global/global_trajectory_{save_index}.npz",
-                        ego_global_pos=expert_global_pos_lst,
-                        ego_global_rot=expert_global_rot_lst)
-    np.savez_compressed(f"{save_path}/id/id_trajectory_{save_index}.npz",
-                        ego_id=expert_ego_id_lst,
-                        scene_id=expert_scene_id_lst,
-                        partner_id=expert_partner_id_lst)
+
+    # Match simulation.py metric computation style
+    num_finished = cont_agent_mask.sum().float()
+    off_road_rate = off_road.sum().float() / num_finished
+    veh_coll_rate = veh_collision.sum().float() / num_finished
+    goal_rate = goal_achieved.sum().float() / num_finished
+    collision_rate = off_road_rate + veh_coll_rate
+    gmask = goal_achieved > 0
+    smask = gmask & (off_road <= 0) & (veh_collision <= 0)
+    print(
+        f'Offroad {off_road_rate} VehCol {veh_coll_rate} '
+        f'Goal {goal_rate} Collision {collision_rate} Save {smask.sum()}/{gmask.sum()}'
+    )
+
+    goal_mask = goal_achieved > 0
+    save_mask = goal_mask & (off_road <= 0) & (veh_collision <= 0)
+
+    # Save trajectory (strict filter: goal + no offroad + no collision)
+    if save_trajectory and trajectory_path is not None:
+        save_index = batch_idx * batch_size
+        traj = expert_trajectory_lst[save_mask].to('cpu')
+        acts = rl_actions_lst[save_mask].to('cpu')
+        dead = expert_dead_mask_lst[save_mask].to('cpu')
+        pm = expert_partner_mask_lst[save_mask].to('cpu')
+        rm = expert_road_mask_lst[save_mask].to('cpu')
+        gp = expert_global_pos_lst[save_mask].to('cpu')
+        gr = expert_global_rot_lst[save_mask].to('cpu')
+        pid = expert_partner_id_lst[save_mask].to('cpu')
+        eid = expert_ego_id_lst[save_mask].to('cpu')
+        sid = expert_scene_id_lst[save_mask].to('cpu')
+        os.makedirs(trajectory_path, exist_ok=True)
+        os.makedirs(trajectory_path + '/global', exist_ok=True)
+        os.makedirs(trajectory_path + '/id', exist_ok=True)
+        save_payload = {
+            "obs": traj.numpy(),
+            "actions": acts.numpy(),
+            "dead_mask": dead.numpy(),
+            "partner_mask": pm.numpy(),
+            "road_mask": rm.numpy(),
+        }
+        if lp_future_steps:
+            obs_np = save_payload["obs"]
+            dead_np = save_payload["dead_mask"]
+            partner_mask_np = save_payload["partner_mask"]
+            gp_np = gp.numpy()
+            gr_np = gr.numpy()
+            for step in lp_future_steps:
+                lp = build_lp_labels(obs_np, dead_np, partner_mask_np, gp_np, gr_np, future_step=step)
+                for k, v in lp.items():
+                    save_payload[f"{k}_f{step}"] = v
+        np.savez_compressed(f"{trajectory_path}/trajectory_{save_index}.npz", **save_payload)
+        np.savez_compressed(
+            f"{trajectory_path}/global/global_trajectory_{save_index}.npz",
+            ego_global_pos=gp,
+            ego_global_rot=gr,
+        )
+        np.savez_compressed(
+            f"{trajectory_path}/id/id_trajectory_{save_index}.npz",
+            ego_id=eid,
+            scene_id=sid,
+            partner_id=pid,
+        )
+
+    # Save labels (use same filter as trajectory: goal + no offroad + no collision)
+    if save_label and label_path is not None:
+        st, en = batch_idx * batch_size, (batch_idx + 1) * batch_size
+        scene_labels = get_label(
+            log_actions_lst.cpu().numpy(), st, en, done_step, index_array
+        )
+        index_array_off = index_array + batch_idx * batch_size
+        index_array_np = index_array_off.cpu().numpy()
+        ego_ids_np = ego_ids.cpu().int().numpy()
+        N, T, M = expert_partner_id_lst.shape
+        scene_ego_keys = list(zip(index_array_np, ego_ids_np))
+        partner_id_np = expert_partner_id_lst.cpu().numpy()
+        id_to_label = {
+            key: label for key, label in zip(scene_ego_keys, scene_labels)
+        }
+        scene_idx_exp = np.repeat(
+            index_array_off[:, None, None].cpu().numpy(), T * M
+        ).reshape(N, T, M)
+        partner_flat = partner_id_np.reshape(-1)
+        scene_flat = scene_idx_exp.reshape(-1)
+        labels_flat = np.array(
+            [id_to_label.get((s, pid), -1) for s, pid in zip(scene_flat, partner_flat)]
+        )
+        save_mask_np = save_mask.cpu().numpy()
+        partner_labels = labels_flat.reshape(N, T, M)[save_mask_np]
+        scene_labels_filtered = scene_labels[save_mask_np]
+        os.makedirs(label_path, exist_ok=True)
+        np.savez_compressed(
+            f'{label_path}/label_trajectory_{batch_size * batch_idx}.npz',
+            partner_label=partner_labels,
+            ego_label=scene_labels_filtered,
+        )
+        print(f'label alive agent: {len(scene_labels_filtered)}')
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--num-scene', '-n', type=int, default=100,
+                        help='Scene count for paths: save_path/model_path use scene_{num_scene}')
     parser.add_argument('--num_stack', type=int, default=1)
-    parser.add_argument('--save_path', type=str, default='/data/after_cvpr/linear_probe_data/')
-    parser.add_argument('--model-path', '-mp', type=str, default='/data/after_cvpr/rl/scene_10000/PPO____S_200__03_04_04_06_56_997')
-    parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_200__03_04_04_06_56_997_007604.pt') # early_attn_s11_0808_043910
-    parser.add_argument('--dataset', type=str, default='training', choices=['training', 'validation', 'testing'],)
-    parser.add_argument('--function', type=str, default='save_trajectory',
-                        choices=['save_trajectory', 'save_label'])
-    parser.add_argument('--dataset-size', type=int, default=10000) # total_world
-    parser.add_argument('--batch-size', type=int, default=100) # num_world
+    parser.add_argument('--save_path', type=str, default=None,
+                        help='Override save base path. Default: /data/after_cvpr/linear_probe_data/scene_{num_scene}_v2')
+    parser.add_argument('--label_path', type=str, default=None,
+                        help='Override label path. Default: {save_path}/{dataset}_rl_data/label')
+    parser.add_argument('--model-path', '-mp', type=str, default=None,
+                        help='Override model dir. Default: /data/after_cvpr/rl/scene_{num_scene}_v2/')
+    parser.add_argument('--model-name', '-mn', type=str, default='model_PPO____S_150__03_13_10_39_01_723_000761.pt')
+    parser.add_argument('--dataset', type=str, default='validation', choices=['training', 'validation', 'testing'])
+    parser.add_argument('--save-trajectory', action='store_true', default=True,
+                        help='Save trajectory data (obs, actions, masks)')
+    parser.add_argument('--no-save-trajectory', action='store_false', dest='save_trajectory')
+    parser.add_argument('--save-label', action='store_true', default=True,
+                        help='Save behavior labels')
+    parser.add_argument('--no-save-label', action='store_false', dest='save_label')
+    parser.add_argument('--dataset-size', type=int, default=2500)
+    parser.add_argument('--batch-size', type=int, default=100)
     parser.add_argument('--start-idx', type=int, default=None, help="start scene number of dataset")
+    parser.add_argument('--lp-future-steps', type=int, nargs='*', default=[10, 20, 30, 40],
+                        help='Precompute LP labels for given future steps and store in trajectory npz (default: 10 20 30 40)')
     args = parser.parse_args()
 
     torch.set_printoptions(precision=3, sci_mode=False)
-    if args.function == 'save_label':
-        save_path = f"/data/full_version/processed/{args.dataset}_only_goal/label"
-        env_config = EnvConfig(collision_behavior="remove")
-    else:
-        save_path = os.path.join(args.save_path, f'{args.dataset}_rl_data')
-        env_config = EnvConfig(
-            ego_state=True,
-            road_map_obs=True,
-            partner_obs=True,
-            norm_obs=True,
-            bev_obs=False,
-            reward_type="weighted_combination",
-            dynamics_model="classic",
-            collision_behavior="ignore",
-            dist_to_goal_threshold=2.0,
-            polyline_reduction_threshold=0.1,
-            remove_non_vehicles=True,
-            lidar_obs=False,
-            disable_classic_obs=False,
-            obs_radius=50.0,
-            steer_actions=torch.round(
-                torch.linspace(-torch.pi, torch.pi, 13), decimals=3
-            ),
-            accel_actions=torch.round(
-                torch.linspace(-4.0, 4.0, 7), decimals=3
-            ),
-            num_stack=1,
-        )
+    base_data = "/data/after_cvpr"
+    scene_key = f"scene_{args.num_scene}_v2"
+    save_path = args.save_path or os.path.join(base_data, "linear_probe_data", scene_key)
+    model_path = args.model_path or os.path.join(base_data, "rl", scene_key + "/")
+    trajectory_path = os.path.join(save_path, f'{args.dataset}_rl_data_v2')
+    label_path = args.label_path or os.path.join(save_path, f"{args.dataset}_rl_data_v2", "label")
+
+    env_config = EnvConfig(
+        ego_state=True,
+        road_map_obs=True,
+        partner_obs=True,
+        norm_obs=True,
+        bev_obs=False,
+        reward_type="weighted_combination",
+        dynamics_model="classic",
+        collision_behavior="ignore",
+        dist_to_goal_threshold=2.0,
+        polyline_reduction_threshold=0.1,
+        remove_non_vehicles=True,
+        lidar_obs=False,
+        disable_classic_obs=False,
+        obs_radius=50.0,
+        steer_actions=torch.round(
+            torch.linspace(-torch.pi, torch.pi, 13), decimals=3
+        ),
+        accel_actions=torch.round(
+            torch.linspace(-4.0, 4.0, 7), decimals=3
+        ),
+        num_stack=args.num_stack,
+    )
     print()
+    print("num_scene : ", args.num_scene, f" (scene_{args.num_scene})")
     print("num_stack : ", args.num_stack)
-    print("save_path : ", save_path)
+    print("trajectory_path : ", trajectory_path)
+    print("label_path : ", label_path)
+    print("model_path : ", model_path)
     print("dataset : ", args.dataset)
-    print("function : ", args.function)
+    print("save_trajectory : ", args.save_trajectory)
+    print("save_label : ", args.save_label)
     print('Scene Loader')
-    # Create data loader
     train_loader = SceneDataLoader(
         root=f"/data/full_version/data/{args.dataset}/",
         batch_size=args.batch_size,
         dataset_size=args.dataset_size,
         sample_with_replacement=False,
         shuffle=False,
-        start_idx=args.start_idx
+        start_idx=args.start_idx,
     )
     print('Call Env')
-    # Make env
-    action_type = "continuous" if args.function == "save_label" else "discrete"
     env = GPUDriveTorchEnv(
         config=env_config,
         data_loader=train_loader,
-        max_cont_agents=128,  # Number of agents to control
+        max_cont_agents=128,
         device="cuda",
-        action_type=action_type,
+        action_type="discrete",
     )
-    policy = None
-    if args.function == "save_trajectory":
-        print('Launch Env')
-        config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
-        params = torch.load(f"{args.model_path}/{args.model_name}", weights_only=False)
-        policy = NeuralNet(
-            input_dim=64,
-            action_dim=91,
-            hidden_dim=128,
-            dropout=0.01,
-            config=config.environment,
-        ).to("cuda")
-        policy.load_state_dict(params["parameters"])
-        policy.eval()
+    print('Load policy')
+    config = load_config("baselines/ppo/config/ppo_base_puffer.yaml")
+    params = torch.load(os.path.join(model_path.rstrip("/"), args.model_name), weights_only=False)
+    policy = NeuralNet(
+        input_dim=128,
+        action_dim=91,
+        hidden_dim=128,
+        dropout=0.01,
+        config=config.environment,
+    ).to("cuda")
+    policy.load_state_dict(params["parameters"])
+    policy.eval()
+
     total_iter = int(args.dataset_size // args.batch_size)
     init_iter = 0 if args.start_idx is None else args.start_idx // args.batch_size
-
     for i in tqdm(range(init_iter, total_iter), total=total_iter, initial=init_iter):
-        if args.function == 'save_trajectory':
-            save_trajectory(env, policy, save_path, i * args.batch_size)
-        elif args.function == 'save_label':
-            save_label(env, save_path, i, args.batch_size, args.batch_size)
+        run_and_save(
+            env,
+            policy,
+            batch_idx=i,
+            batch_size=args.batch_size,
+            trajectory_path=trajectory_path if args.save_trajectory else None,
+            label_path=label_path if args.save_label else None,
+            save_trajectory=args.save_trajectory,
+            save_label=args.save_label,
+            lp_future_steps=args.lp_future_steps,
+        )
         if i != total_iter - 1:
             env.swap_data_batch()
     env.close()

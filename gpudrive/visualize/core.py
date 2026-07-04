@@ -278,7 +278,7 @@ class MatplotlibVisualizer:
             ax.clear()  # Clear any existing content
             ax.set_aspect("equal", adjustable="box")
             figs.append(fig)  # Add the new figure
-            plt.close(fig)  # Close the figure to prevent carryover
+            plt.close(fig) # Close the figure to prevent carryover
 
             # Get control mask and omit out-of-bound agents (dead agents)
             controlled = self.controlled_agent_mask[env_idx, :]
@@ -1823,13 +1823,18 @@ class MatplotlibVisualizer:
     ):
         if self.render_3d:
             raise NotImplementedError("3D rendering not supported for importance weight plotting.")
-        if self.controlled_agent_mask[env_idx, :].sum() != 1:
+        if self.controlled_agent_mask[env_idx, :].sum() == 0:
             return fig
+        if self.controlled_agent_mask[env_idx, :].sum() > 1:
+            controlled_agent_mask = self.ego_agent_mask[env_idx, :]
+        else:
+            controlled_agent_mask = self.controlled_agent_mask[env_idx, :]
+
         
         ax = fig.axes[0]
 
         # 1) ego 중심 그리드
-        controlled_agents = (response_type.moving[env_idx, :] & self.controlled_agent_mask[env_idx, :])
+        controlled_agents = (response_type.moving[env_idx, :] & controlled_agent_mask)
         if not controlled_agents.any():
             return fig
         
@@ -1940,13 +1945,17 @@ class MatplotlibVisualizer:
     ):
         if self.render_3d:
             raise NotImplementedError("3D rendering not supported for importance weight plotting.")
-        if self.controlled_agent_mask[env_idx, :].sum() != 1:
+        if self.controlled_agent_mask[env_idx, :].sum() == 0:
             return fig
+        if self.controlled_agent_mask[env_idx, :].sum() > 1:
+            controlled_agent_mask = self.ego_agent_mask[env_idx, :]
+        else:
+            controlled_agent_mask = self.controlled_agent_mask[env_idx, :]
         
         ax = fig.axes[0]
 
         moving_agents = response_type.moving[env_idx, :]
-        alive_ego = self.controlled_agent_mask[env_idx, :]
+        alive_ego = controlled_agent_mask
         controlled_agents = (moving_agents & alive_ego)
         if alive_ego.sum().item() == 0:
             return fig
@@ -1969,7 +1978,37 @@ class MatplotlibVisualizer:
         rotated_grid = R @ grid_points
 
         # 2) 대상 agent 선택 (ego 제외 127 중 rank)
-        non_ego_global = np.where(~self.controlled_agent_mask[env_idx].cpu().numpy().astype(bool))[0]
+        non_ego_global = np.where(~controlled_agent_mask.cpu().numpy().astype(bool))[0]
+        target_gidx_set = set()
+        for target_non_ego_rank in target_non_ego_ranks:
+            if isinstance(target_non_ego_rank, torch.Tensor):
+                target_non_ego_rank = target_non_ego_rank.item()
+            if 0 <= target_non_ego_rank < len(non_ego_global):
+                target_gidx_set.add(int(non_ego_global[target_non_ego_rank]))
+        # target이 아닌 움직이는 non-ego → 회색 처리 (먼저 그려서 뒤에 깔림)
+        gray_color = np.array(to_rgb(AGENT_COLOR_BY_STATE["log_replay"]))
+        for rank, gidx in enumerate(non_ego_global):
+            gidx = int(gidx)
+            if gidx in target_gidx_set:
+                continue
+            if bool(response_type.moving[env_idx, gidx]):
+                pos_x = float(agent_states.pos_x[env_idx, gidx].item())
+                pos_y = float(agent_states.pos_y[env_idx, gidx].item())
+                rot_a = float(agent_states.rotation_angle[env_idx, gidx].item())
+                veh_l = float(agent_states.vehicle_length[env_idx, gidx].item())
+                veh_w = float(agent_states.vehicle_width[env_idx, gidx].item())
+                if (abs(pos_x) < OUT_OF_BOUNDS and abs(pos_y) < OUT_OF_BOUNDS and
+                    0.5 < veh_l < 15 and 0.5 < veh_w < 15):
+                    bboxes = np.array([[pos_x, pos_y, veh_l, veh_w, rot_a]], dtype=float)
+                    utils.plot_numpy_bounding_boxes_multiple_policy_different_color(
+                        ax=ax,
+                        bboxes_s=bboxes,
+                        colors=np.array([gray_color]),
+                        alpha=1.0,
+                        line_width_scale=3,
+                        as_center_pts=False,
+                        label=None,
+                    )
         for c, target_non_ego_rank in enumerate(target_non_ego_ranks):
             color = to_rgb(palette[c][0])
             color_ = palette[c][1]
