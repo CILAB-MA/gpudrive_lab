@@ -3,7 +3,7 @@ GPUDrive-Interpretation
 
 <!-- ![Python version](https://img.shields.io/badge/Python-3.11-blue) [![Paper](https://img.shields.io/badge/arXiv-2408.01584-b31b1b.svg)](https://arxiv.org/abs/2408.01584) -->
 
-Deeper Analysis of imitation learning in autonomous driving.
+Deeper Analysis of autonomous driving in autonomous driving.
 
 ## Original Repo
 This repository is forked from `gpudrive` (https://github.com/Emerge-Lab/gpudrive).
@@ -39,6 +39,8 @@ To train the IL model,
 python baselines/il/imitation_learning.py --use-wandb
 ```
 After run the code, you can check the model in `<base_path>/<model_path>/<sweep_name>`. (See `baselines/il/il.yaml`)
+
+### Train the RL (TBD)`)
 
 ### Train the linear probing
 To train the linear probing,
