@@ -280,11 +280,12 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
         if (dead_agent_mask == True).all():
             break
 
-    # Make video
+    # Make video (world id keeps absolute CSV / scene row_index)
     root = os.path.join(args.image_path, args.dataset, sweep_name, args.model_name, str(args.partner_portion_test))
     os.makedirs(root, exist_ok=True)
     for i in range(args.batch_size):
-        out_dir = os.path.join(root, f"lp_world{i + world_mask.shape[0] * scene_batch_idx}")
+        scene_id = args.start_idx + i + world_mask.shape[0] * scene_batch_idx
+        out_dir = os.path.join(root, f"lp_world{scene_id}")
         if args.random:
             random = '_random'
         else:
@@ -294,10 +295,26 @@ def run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx, s
         save_frames_parallel(frames[i], out_dir, stem=f"lp_{args.linear_probing}", diff_cls_total=diff_cls_total[:, i])
 
 
+def pad_df_to_length(df, end_idx, fill_values):
+    """Pad dataframe so row_index is preserved up to end_idx (missing rows filled)."""
+    df = df.copy()
+    for col, fill in fill_values.items():
+        if col not in df.columns:
+            df[col] = fill
+        df[col] = df[col].fillna(fill)
+    pad_len = end_idx - len(df)
+    if pad_len > 0:
+        pad_df = pd.DataFrame({col: [fill] * pad_len for col, fill in fill_values.items()})
+        df = pd.concat([df, pad_df], ignore_index=True)
+        logger.info(f"Padded CSV with {pad_len} rows (total={len(df)})")
+    return df.iloc[:end_idx].reset_index(drop=True)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Simulation experiment')
     parser.add_argument('--dataset', '-d', type=str, default='validation', choices=['training', 'validation'])
-    parser.add_argument('--dataset-size', type=int, default=100) # total_world
+    parser.add_argument('--dataset-size', type=int, default=100, help='number of scenes to run from start-idx')
+    parser.add_argument('--start-idx', '-s', type=int, default=0, help='first scene / CSV row_index (inclusive)')
     parser.add_argument('--batch-size', type=int, default=100) # num_world
     # EXPERIMENT
     parser.add_argument('--model-path', '-mp', type=str, default='/data/full_version/model/exp_80000_subset_aix') #80000_subset_aix
@@ -312,49 +329,63 @@ if __name__ == "__main__":
     parser.add_argument('--zoom-radius', type=int, default=50)
     parser.add_argument('--partner-portion-test', '-pp', type=float, default=0.0)
     args = parser.parse_args()
-    dump = [0]*4
-    dump_idx = -1
+
+    end_idx = args.start_idx + args.dataset_size
     cols = [f"step{i}" for i in (10, 20, 30, 40)]
     cols1 = [f"step{i}_0" for i in (10, 20, 30, 40)]
     cols2 = [f"step{i}_1" for i in (10, 20, 30, 40)]
     cols3 = [f"step{i}_2" for i in (10, 20, 30, 40)]
-    # cols4 = [f"step{i}_3" for i in (10, 20, 30, 40)]
-    df = pd.read_csv("/data/full_version/intervention.csv")
-    df_more = pd.read_csv("/data/full_version/intervention_others.csv")
-    intervention_idx = df['intervention_idx'].tolist() 
-    intervention_idx_more1 = df_more['intervention_idx_0'].tolist() 
-    intervention_idx_more2 = df_more['intervention_idx_1'].tolist() 
-    intervention_idx_more3 = df_more['intervention_idx_2'].tolist() 
-    # intervention_idx_more4 = df_more['intervention_idx_3'].tolist() 
-    intervention_other_indices = np.concatenate([[intervention_idx_more1],[intervention_idx_more2],[intervention_idx_more3]],axis=0)
-    pad_len = args.dataset_size - len(intervention_idx) 
-    intervention_label = np.stack([df[c].to_numpy() for c in cols], axis=1)
-    intervention_label1 = np.stack([df_more[c].to_numpy() for c in cols1], axis=1)
-    intervention_label2 = np.stack([df_more[c].to_numpy() for c in cols2], axis=1)
-    intervention_label3 = np.stack([df_more[c].to_numpy() for c in cols3], axis=1)
-    # intervention_label4 = np.stack([df_more[c].to_numpy() for c in cols4], axis=1)
-    intervention_other_labels = np.concatenate([intervention_label1,intervention_label2,intervention_label3], axis=1)
+
+    df = pad_df_to_length(
+        pd.read_csv("/data/full_version/intervention.csv"),
+        end_idx,
+        {**{"intervention_idx": 0}, **{c: 0 for c in cols}},
+    )
+    df_more = pad_df_to_length(
+        pd.read_csv("/data/full_version/intervention_others.csv"),
+        end_idx,
+        {
+            "intervention_idx_0": -1, "intervention_idx_1": -1, "intervention_idx_2": -1,
+            **{c: 0 for c in cols1 + cols2 + cols3},
+        },
+    )
+
+    # Keep row_index == scene id, then take [start_idx, end_idx)
+    df = df.iloc[args.start_idx:end_idx].reset_index(drop=True)
+    df_more = df_more.iloc[args.start_idx:end_idx].reset_index(drop=True)
+
+    intervention_idx = df['intervention_idx'].astype(int).tolist()
+    intervention_other_indices = np.stack([
+        df_more['intervention_idx_0'].astype(int).to_numpy(),
+        df_more['intervention_idx_1'].astype(int).to_numpy(),
+        df_more['intervention_idx_2'].astype(int).to_numpy(),
+    ], axis=0)
+    intervention_label = np.stack([df[c].astype(int).to_numpy() for c in cols], axis=1)
+    intervention_other_labels = np.concatenate([
+        np.stack([df_more[c].astype(int).to_numpy() for c in cols1], axis=1),
+        np.stack([df_more[c].astype(int).to_numpy() for c in cols2], axis=1),
+        np.stack([df_more[c].astype(int).to_numpy() for c in cols3], axis=1),
+    ], axis=1)
     if args.random:
         np.random.seed(42)
         intervention_label = np.random.randint(
-        low=0, high=64, size=intervention_label.shape, dtype=intervention_label.dtype
+            low=0, high=64, size=intervention_label.shape, dtype=intervention_label.dtype
         )
         intervention_other_labels = np.random.randint(
-        low=0, high=64, size=intervention_other_labels.shape, dtype=intervention_other_labels.dtype
+            low=0, high=64, size=intervention_other_labels.shape, dtype=intervention_other_labels.dtype
         )
-    if pad_len > 0:
-        intervention_idx += [0] * pad_len
-        intervention_label = np.pad(intervention_label, ((0, pad_len), (0, 0)), mode="constant", constant_values=0)
-    # Make scene loader
+
+    # SceneDataLoader: start_idx : dataset_size  (dataset_size acts as exclusive end)
     scene_loader = SceneDataLoader(
         root=f"/data/full_version/data/{args.dataset}/",
         batch_size=args.batch_size,
-        dataset_size=args.dataset_size,
+        dataset_size=end_idx,
+        start_idx=args.start_idx,
         sample_with_replacement=False,
         shuffle=False,
     )
     dataset_size = args.dataset_size
-    print(f'{args.dataset} len scene loader {len(scene_loader)}')
+    print(f'{args.dataset} start_idx={args.start_idx} end_idx={end_idx} len scene loader {len(scene_loader)}')
     
     # Make env
     env = GPUDriveTorchEnv(
@@ -394,15 +425,17 @@ if __name__ == "__main__":
         ego_lp_models.append(ego_model)
     
     # Simulate the environment with the policy
-    df = pd.read_csv(f'/data/full_version/expert_{args.dataset}_data_v2.csv')
-    expert_dict = df.set_index('scene_idx').to_dict(orient='index')
     total_iter = int(args.dataset_size // args.batch_size)
     for i in range(total_iter):
-        intervention_idx_batch = intervention_idx[i * args.batch_size: (i + 1) * args.batch_size]
-        intervention_label_batch = intervention_label[i * args.batch_size: (i + 1) * args.batch_size]
+        sl = slice(i * args.batch_size, (i + 1) * args.batch_size)
+        intervention_idx_batch = intervention_idx[sl]
+        intervention_label_batch = intervention_label[sl]
+        intervention_other_indices_batch = intervention_other_indices[:, sl]
+        intervention_other_labels_batch = intervention_other_labels[sl]
         run(args, env, bc_policy, ego_lp_models, other_lp_models, scene_batch_idx=i, sweep_name=sweep_name,
             intervention_idx=intervention_idx_batch, intervention_label=intervention_label_batch,
-            intervention_other_indices=intervention_other_indices, intervention_other_labels=intervention_other_labels)
+            intervention_other_indices=intervention_other_indices_batch,
+            intervention_other_labels=intervention_other_labels_batch)
         if i != num_iter - 1:
             env.swap_data_batch()
     env.close()
