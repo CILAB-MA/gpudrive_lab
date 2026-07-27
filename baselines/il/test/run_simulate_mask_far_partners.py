@@ -1,8 +1,6 @@
-"""Sweep IL checkpoints in an experiment folder with far-partner masking.
+"""Sweep IL checkpoints: far-partner *deletion* via remove_agents_by_distance.
 
-Mirrors ``baselines/il/test/run_simulation.py``:
-  -sn <exp> under -mp → run simulate_mask_far_partners.py per *.pth
-  (skip *optim*), then write result_far{thresh}_total.csv.
+Default ``--dataset-size 2000`` for a quick trend check (not full val).
 """
 from __future__ import annotations
 
@@ -25,10 +23,17 @@ def arg_parse():
         help="Default: /data/after_cvpr/images/mask_far_partners_il/{sweep-name}",
     )
     p.add_argument("--dataset", "-d", type=str, default="validation")
-    p.add_argument("--dataset-size", type=int, default=9987)
+    p.add_argument("--dataset-size", type=int, default=2000, help="Cap scenes (default 2000 for trend)")
     p.add_argument("--batch-size", type=int, default=100)
     p.add_argument("--num-stack", type=int, default=5)
-    p.add_argument("--far-thresh", type=float, default=20.0)
+    p.add_argument("--far-thresh", type=float, default=None,
+                   help="Far-threshold delete (m). Ignored with --nearest-first.")
+    p.add_argument("--remove-perc", type=float, default=0.2)
+    p.add_argument(
+        "--nearest-first",
+        action="store_true",
+        help="Delete nearest perc first (tag near{perc*100}).",
+    )
     p.add_argument("--partner-portion-test", "-pp", type=float, default=0.0)
     p.add_argument(
         "--sim-agent",
@@ -42,9 +47,50 @@ def arg_parse():
         "--filter-csv",
         type=str,
         default=None,
-        help="Only Model names in this CSV (optional).",
+        help="Only Model names in this CSV (default: {model_dir}/log_replay/result_0.0_total.csv).",
+    )
+    p.add_argument(
+        "--all-models",
+        action="store_true",
+        help="Run every *.pth (ignore filter csv).",
+    )
+    p.add_argument(
+        "--match-seeds",
+        type=str,
+        default=None,
+        help="Optional comma-separated seed ids to keep (e.g. '3,11,42').",
     )
     return p.parse_args()
+
+
+def resolve_filter_models(model_dir: str, filter_csv: str | None, all_models: bool):
+    if all_models:
+        return None
+    path = filter_csv
+    if path is None:
+        cand = os.path.join(model_dir, "log_replay", "result_0.0_total.csv")
+        if os.path.isfile(cand):
+            path = cand
+    if path is None:
+        return None
+    if not os.path.isfile(path):
+        raise SystemExit(f"filter csv not found: {path}")
+    df = pd.read_csv(path)
+    if "Model" not in df.columns:
+        raise SystemExit(f"no Model column in {path}")
+    if "Dataset" in df.columns:
+        val = df[df["Dataset"].astype(str).str.contains("val", case=False, na=False)]
+        if len(val):
+            df = val
+    models = sorted({str(m) for m in df["Model"].dropna().tolist()})
+    print(f"filter csv: {path} ({len(models)} models)")
+    return set(models)
+
+
+def seed_of(model: str):
+    import re
+    m = re.search(r"_s(\d+)_", model)
+    return int(m.group(1)) if m else None
 
 
 if __name__ == "__main__":
@@ -55,13 +101,20 @@ if __name__ == "__main__":
     )
     os.makedirs(out_dir, exist_ok=True)
 
-    allow = None
-    if args.filter_csv:
-        df_f = pd.read_csv(args.filter_csv)
-        allow = set(df_f["Model"].dropna().astype(str).tolist())
-        print(f"filter csv: {args.filter_csv} ({len(allow)} models)")
+    allow = resolve_filter_models(model_dir, args.filter_csv, args.all_models)
+    seed_allow = None
+    if args.match_seeds:
+        seed_allow = {int(x.strip()) for x in args.match_seeds.split(",") if x.strip()}
+        print(f"match seeds: {sorted(seed_allow)}")
 
-    tag = f"far{args.far_thresh:g}"
+    if args.nearest_first:
+        tag = f"near{int(round(args.remove_perc * 100))}"
+    elif args.far_thresh is not None:
+        tag = f"far{args.far_thresh:g}"
+    elif args.remove_perc <= 0.0:
+        tag = "normal"
+    else:
+        tag = f"farperc{int(round(args.remove_perc * 100))}"
     result_csv = os.path.join(out_dir, f"result_{tag}.csv")
     if os.path.exists(result_csv):
         os.remove(result_csv)
@@ -74,10 +127,13 @@ if __name__ == "__main__":
             continue
         if allow is not None and model not in allow:
             continue
+        if seed_allow is not None and seed_of(model) not in seed_allow:
+            continue
         selected.append(model)
 
     print(f"model dir: {model_dir}")
     print(f"out dir:   {out_dir}")
+    print(f"tag:       {tag}")
     print(f"models to run ({len(selected)}): {selected}")
     if not selected:
         raise SystemExit("no models selected")
@@ -90,13 +146,17 @@ if __name__ == "__main__":
             f"--dataset-size {args.dataset_size} "
             f"--batch-size {args.batch_size} "
             f"--num-stack {args.num_stack} "
-            f"--far-thresh {args.far_thresh} "
+            f"--remove-perc {args.remove_perc} "
             f"-mp {model_dir} "
             f"-mn {model} "
             f"-pp {args.partner_portion_test} "
             f"-sa {args.sim_agent} "
             f"--out-dir {out_dir}"
         )
+        if args.nearest_first:
+            cmd += " --nearest-first"
+        if args.far_thresh is not None and not args.nearest_first:
+            cmd += f" --far-thresh {args.far_thresh}"
         print(cmd)
         result = subprocess.run(cmd, shell=True)
         if result.returncode != 0:

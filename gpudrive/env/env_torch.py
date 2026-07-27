@@ -1410,6 +1410,110 @@ class GPUDriveTorchEnv(GPUDriveGymEnv):
         # Reset static scenario data for the visualizer
         self.vis.initialize_static_scenario_data(self.cont_agent_mask)
 
+    def remove_agents_by_distance(
+        self,
+        perc_to_rmv_per_scene=0.0,
+        remove_controlled_agents=True,
+        far_thresh_m=None,
+        nearest_first=False,
+    ):
+        """Delete agents by distance (far-first, near-first, or beyond a threshold).
+
+        Distance reference (global xy):
+            - Removing uncontrolled agents: nearest controlled agent.
+            - Removing controlled agents (or no controlled present): mean
+              position of all valid agents in the scene.
+
+        Selection:
+            - If ``far_thresh_m`` is set: delete all candidates with
+              distance > ``far_thresh_m`` (meters).
+            - Else: delete ``perc_to_rmv_per_scene`` fraction ordered by
+              distance. Default is farthest-first; set ``nearest_first=True``
+              to remove closest agents first.
+
+        Args:
+            perc_to_rmv_per_scene (float): Fraction of candidates to remove
+                per scene when ``far_thresh_m`` is None. Ignored if
+                ``far_thresh_m`` is set.
+            remove_controlled_agents (bool): If True, remove controlled
+                agents; if False, remove uncontrolled agents.
+            far_thresh_m (float | None): If set, remove candidates farther
+                than this distance in meters.
+            nearest_first (bool): If True (and ``far_thresh_m`` is None),
+                remove nearest agents first instead of farthest.
+
+        Returns:
+            int: Number of agents deleted across all worlds.
+        """
+        if far_thresh_m is None and perc_to_rmv_per_scene <= 0.0:
+            return 0
+
+        agent_ids = LocalEgoState.from_tensor(
+            self_obs_tensor=self.sim.self_observation_tensor(),
+            backend="torch",
+            device=self.device,
+        ).id
+        agent_pos = self.get_global_pos()  # [W, A, 2]
+
+        if remove_controlled_agents:
+            agent_mask = self.cont_agent_mask
+        else:
+            agent_mask = (~self.cont_agent_mask) & (agent_ids != -1)
+
+        n_deleted = 0
+        for env_idx in range(self.num_worlds):
+            cand_mask = agent_mask[env_idx]
+            if not cand_mask.any():
+                continue
+
+            cand_idx = cand_mask.nonzero(as_tuple=False).squeeze(-1)
+            scene_agent_ids = agent_ids[env_idx, cand_idx].long()
+            cand_pos = agent_pos[env_idx, cand_idx]  # [N, 2]
+
+            # Reference points for distance ranking
+            if remove_controlled_agents:
+                valid_mask = agent_ids[env_idx] != -1
+                if valid_mask.any():
+                    ref = agent_pos[env_idx, valid_mask].mean(dim=0, keepdim=True)
+                else:
+                    ref = cand_pos.mean(dim=0, keepdim=True)
+                dists = torch.norm(cand_pos - ref, dim=-1)
+            else:
+                ctrl_mask = self.cont_agent_mask[env_idx]
+                if ctrl_mask.any():
+                    ref = agent_pos[env_idx, ctrl_mask]  # [C, 2]
+                    dists = torch.cdist(cand_pos, ref).min(dim=-1).values
+                else:
+                    valid_mask = agent_ids[env_idx] != -1
+                    ref = agent_pos[env_idx, valid_mask].mean(dim=0, keepdim=True)
+                    dists = torch.norm(cand_pos - ref, dim=-1)
+
+            if far_thresh_m is not None:
+                keep_idx = torch.where(dists > float(far_thresh_m))[0]
+                if keep_idx.numel() == 0:
+                    continue
+                # Farthest among those beyond the threshold
+                order = torch.argsort(dists[keep_idx], descending=True)
+                sampled_agent_ids = scene_agent_ids[keep_idx[order]]
+            else:
+                num_to_sample = max(
+                    1, int(perc_to_rmv_per_scene * scene_agent_ids.size(0))
+                )
+                num_to_sample = min(num_to_sample, scene_agent_ids.size(0))
+                order = torch.argsort(dists, descending=not nearest_first)
+                sampled_agent_ids = scene_agent_ids[order[:num_to_sample]]
+
+            self.sim.deleteAgents({env_idx: sampled_agent_ids.tolist()})
+            n_deleted += int(sampled_agent_ids.numel())
+
+        self.cont_agent_mask = self.get_controlled_agents_mask()
+        self.max_agent_count = self.cont_agent_mask.shape[1]
+        self.num_valid_controlled_agents_across_worlds = (
+            self.cont_agent_mask.sum().item()
+        )
+        self.vis.initialize_static_scenario_data(self.cont_agent_mask)
+        return n_deleted
+
     def swap_data_batch(self, data_batch=None):
         """
         Swap the current data batch in the simulator with a new one

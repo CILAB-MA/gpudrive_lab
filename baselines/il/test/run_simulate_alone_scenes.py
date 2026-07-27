@@ -1,8 +1,12 @@
-"""Sweep all policy checkpoints in a model folder on alone scenes.
+"""Sweep IL checkpoints on alone scenes.
 
 Mirrors baselines/il/test/run_simulation.py: list *.pth (skip *optim*),
 run simulate_alone_scenes.py per model, then aggregate result_alone.csv
 into result_alone_total.csv.
+
+By default only models listed in ``log_replay/result_0.0_total.csv`` are run
+(same matching rule as RL alone ↔ self_play/result_0.0_total.csv).
+Use ``--all-models`` to sweep every *.pth.
 """
 from __future__ import annotations
 
@@ -45,29 +49,99 @@ def arg_parse():
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+    parser.add_argument(
+        "--filter-csv",
+        type=str,
+        default=None,
+        help=(
+            "Only run Model names listed in this CSV "
+            "(default: {model_dir}/log_replay/result_0.0_total.csv if present)."
+        ),
+    )
+    parser.add_argument(
+        "--all-models",
+        action="store_true",
+        help="Ignore --filter-csv and run every *.pth in the model dir.",
+    )
+    parser.add_argument(
+        "--match-seeds",
+        type=str,
+        default=None,
+        help="Optional comma-separated seed ids to keep (e.g. '3,11,42').",
+    )
     return parser.parse_args()
+
+
+def resolve_filter_models(model_dir: str, filter_csv: str | None, all_models: bool):
+    if all_models:
+        return None
+    path = filter_csv
+    if path is None:
+        cand = os.path.join(model_dir, "log_replay", "result_0.0_total.csv")
+        if os.path.isfile(cand):
+            path = cand
+    if path is None:
+        return None
+    if not os.path.isfile(path):
+        raise SystemExit(f"filter csv not found: {path}")
+    df = pd.read_csv(path)
+    if "Model" not in df.columns:
+        raise SystemExit(f"no Model column in {path}")
+    # Prefer validation rows when Dataset column exists (train+val totals).
+    if "Dataset" in df.columns:
+        val = df[df["Dataset"].astype(str).str.contains("val", case=False, na=False)]
+        if len(val):
+            df = val
+    models = sorted({str(m) for m in df["Model"].dropna().tolist()})
+    print(f"filter csv: {path} ({len(models)} models)")
+    return set(models)
+
+
+def seed_of(model: str):
+    import re
+    m = re.search(r"_s(\d+)_", model)
+    return int(m.group(1)) if m else None
 
 
 if __name__ == "__main__":
     args = arg_parse()
     model_dir = os.path.join(args.model_path, args.sweep_name)
+    allow = resolve_filter_models(model_dir, args.filter_csv, args.all_models)
+    seed_allow = None
+    if args.match_seeds:
+        seed_allow = {int(x.strip()) for x in args.match_seeds.split(",") if x.strip()}
+        print(f"match seeds: {sorted(seed_allow)}")
+
     models = sorted(os.listdir(model_dir))
     print(f"model dir: {model_dir}")
-    print(models)
 
     os.makedirs(args.out_dir, exist_ok=True)
     result_csv = os.path.join(args.out_dir, "result_alone.csv")
-    # Fresh sweep each run (avoid duplicate Model rows on re-run)
     if os.path.exists(result_csv):
         os.remove(result_csv)
 
     mask_flag = "--mask-partners" if args.mask_partners else "--no-mask-partners"
-    for model in tqdm(models):
+    selected = []
+    for model in models:
         if ".pth" not in model:
             continue
         if "optim" in model:
             continue
+        if allow is not None and model not in allow:
+            continue
+        if seed_allow is not None and seed_of(model) not in seed_allow:
+            continue
+        selected.append(model)
 
+    if allow is not None:
+        missing = sorted(allow - set(selected))
+        if missing:
+            print(f"[warn] in filter csv but missing from model dir: {missing}")
+    print(f"models to run ({len(selected)}): {selected}")
+    if not selected:
+        raise SystemExit("no models selected")
+
+    for model in tqdm(selected):
         cmd = (
             f"CUDA_VISIBLE_DEVICES={args.gpu_id} "
             f"python baselines/il/test/simulate_alone_scenes.py "

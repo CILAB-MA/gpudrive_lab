@@ -27,12 +27,19 @@ from gpudrive.env.env_torch import GPUDriveTorchEnv
 
 
 def zero_partner_obs_il(obs, num_stack=5, ego_dim=6, partner_dim=6, n_partners=127):
-    """Zero partner features in every stack frame of an IL observation."""
+    """Zero partner features and ego collision flag in every stack frame.
+
+    Partners may still exist in the simulator; masking them in obs alone would
+    leak collisions via ego ``is_collided`` (last of the 6 ego feats).
+    """
     out = obs.clone()
     feat = int(out.shape[-1] / num_stack)
     partner_size = partner_dim * n_partners
+    # ego: [speed, length, width, goal_x, goal_y, is_collided]
+    ego_collided_idx = 5
     for s in range(num_stack):
         base = s * feat
+        out[..., base + ego_collided_idx] = 0
         out[..., base + ego_dim : base + ego_dim + partner_size] = 0
     return out
 
@@ -171,7 +178,7 @@ def parse_args():
         "--mask-partners",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Force partner_mask=non-exist and zero partner obs features (default: on)",
+        help="Pad partners + zero partner obs and ego is_collided (default: on)",
     )
     p.add_argument(
         "--out-dir",

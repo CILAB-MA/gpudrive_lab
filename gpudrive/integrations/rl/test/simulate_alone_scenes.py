@@ -36,11 +36,18 @@ EGO_FEAT_DIM = 6
 PARTNER_FEAT_DIM = 6
 N_PARTNERS = 127
 PARTNER_OBS_SLICE = slice(EGO_FEAT_DIM, EGO_FEAT_DIM + PARTNER_FEAT_DIM * N_PARTNERS)
+# ego: [speed, length, width, goal_x, goal_y, is_collided]
+EGO_COLLIDED_IDX = 5
 
 
 def zero_partner_obs_rl(obs):
-    """Zero partner features in an RL observation (num_stack=1)."""
+    """Zero partner features and ego collision flag (num_stack=1).
+
+    Partners may still exist in the simulator; masking them in obs alone would
+    leak collisions via ego ``is_collided``.
+    """
     out = obs.clone()
+    out[..., EGO_COLLIDED_IDX] = 0
     out[..., PARTNER_OBS_SLICE] = 0
     return out
 
@@ -77,8 +84,7 @@ def run_batch(env, policy, mask_partners=True):
         with torch.no_grad():
             alive_obs = obs[~dead_agent_mask]
             if mask_partners:
-                # RL NeuralNet has no partner pad-mask; zero partner feats so
-                # the policy sees an empty partner channel (same as alone).
+                # Zero partners + ego is_collided (sim may still have partners).
                 alive_obs = zero_partner_obs_rl(alive_obs)
             actions, *_ = policy(alive_obs, deterministic=True)
         all_actions[~dead_agent_mask] = actions
@@ -161,7 +167,7 @@ def parse_args():
         "--mask-partners",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Zero partner obs features so policy sees empty partners (default: on)",
+        help="Zero partner obs and ego is_collided so policy sees empty partners (default: on)",
     )
     p.add_argument(
         "--out-dir",

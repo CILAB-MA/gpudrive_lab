@@ -1,11 +1,6 @@
-"""Sweep RL checkpoints in an experiment folder with far-partner masking.
+"""Sweep RL checkpoints: far-partner *deletion* via remove_agents_by_distance.
 
-Mirrors ``run_simulation.py`` / ``run_simulate_alone_scenes.py``:
-  -sn <exp> under -mp → run simulate_mask_far_partners.py per *.pt
-  (skip *optim*), then write result_far{thresh}_total.csv.
-
-By default only models listed in ``self_play/result_0.0_total.csv`` are run
-(same filter as alone eval). Use ``--all-models`` to sweep every *.pt.
+Default ``--dataset-size 2000`` for a quick trend check (not full val).
 """
 from __future__ import annotations
 
@@ -28,9 +23,16 @@ def arg_parse():
         help="Default: /data/after_cvpr/images/mask_far_partners_rl/{sweep-name}",
     )
     p.add_argument("--dataset", "-d", type=str, default="validation")
-    p.add_argument("--dataset-size", type=int, default=9987)
+    p.add_argument("--dataset-size", type=int, default=2000, help="Cap scenes (default 2000 for trend)")
     p.add_argument("--batch-size", type=int, default=100)
-    p.add_argument("--far-thresh", type=float, default=20.0)
+    p.add_argument("--far-thresh", type=float, default=None,
+                   help="Far-threshold delete (m). Ignored with --nearest-first.")
+    p.add_argument("--remove-perc", type=float, default=0.2)
+    p.add_argument(
+        "--nearest-first",
+        action="store_true",
+        help="Delete nearest perc first (tag near{perc*100}).",
+    )
     p.add_argument("--partner-portion-test", "-pp", type=float, default=0.0)
     p.add_argument("--gpu-id", "-g", type=int, default=0)
     p.add_argument(
@@ -76,7 +78,12 @@ if __name__ == "__main__":
     os.makedirs(out_dir, exist_ok=True)
 
     allow = resolve_filter_models(model_dir, args.filter_csv, args.all_models)
-    tag = f"far{args.far_thresh:g}"
+    if args.nearest_first:
+        tag = f"near{int(round(args.remove_perc * 100))}"
+    elif args.far_thresh is not None:
+        tag = f"far{args.far_thresh:g}"
+    else:
+        tag = f"farperc{int(round(args.remove_perc * 100))}"
     result_csv = os.path.join(out_dir, f"result_{tag}.csv")
     if os.path.exists(result_csv):
         os.remove(result_csv)
@@ -97,6 +104,7 @@ if __name__ == "__main__":
             print(f"[warn] in filter csv but missing from model dir: {missing}")
     print(f"model dir: {model_dir}")
     print(f"out dir:   {out_dir}")
+    print(f"tag:       {tag}")
     print(f"models to run ({len(selected)}): {selected}")
     if not selected:
         raise SystemExit("no models selected")
@@ -108,12 +116,16 @@ if __name__ == "__main__":
             f"-d {args.dataset} "
             f"--dataset-size {args.dataset_size} "
             f"--batch-size {args.batch_size} "
-            f"--far-thresh {args.far_thresh} "
+            f"--remove-perc {args.remove_perc} "
             f"-mp {model_dir} "
             f"-mn {model} "
             f"-pp {args.partner_portion_test} "
             f"--out-dir {out_dir}"
         )
+        if args.nearest_first:
+            cmd += " --nearest-first"
+        if args.far_thresh is not None and not args.nearest_first:
+            cmd += f" --far-thresh {args.far_thresh}"
         print(cmd)
         result = subprocess.run(cmd, shell=True)
         if result.returncode != 0:
