@@ -1,12 +1,4 @@
-"""Spurious-correlation probe: *delete* far partners, then roll out RL policy.
 
-Uses ``env.remove_agents_by_distance(..., far_thresh_m=...)`` to physically
-remove uncontrolled agents farther than ``--far-thresh`` meters from the
-nearest controlled ego. Near partners stay in the sim.
-
-Default: validation, 2000 scenes (trend check), ``pp=0.0``,
-``max_cont_agents=1`` (so far partners are uncontrolled and deletable).
-"""
 from __future__ import annotations
 
 import argparse
@@ -212,6 +204,12 @@ def main():
         nearest_first = False
         tag = f"far{args.far_thresh:g}"
         mode_desc = f"far_thresh={args.far_thresh}m"
+    elif args.remove_perc <= 0.0:
+        far_thresh_m = None
+        remove_perc = 0.0
+        nearest_first = False
+        tag = "normal"
+        mode_desc = "no partner deletion (matched normal)"
     else:
         far_thresh_m = None
         remove_perc = args.remove_perc

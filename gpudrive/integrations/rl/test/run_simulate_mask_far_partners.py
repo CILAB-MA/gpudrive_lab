@@ -82,6 +82,8 @@ if __name__ == "__main__":
         tag = f"near{int(round(args.remove_perc * 100))}"
     elif args.far_thresh is not None:
         tag = f"far{args.far_thresh:g}"
+    elif args.remove_perc <= 0.0:
+        tag = "normal"
     else:
         tag = f"farperc{int(round(args.remove_perc * 100))}"
     result_csv = os.path.join(out_dir, f"result_{tag}.csv")
