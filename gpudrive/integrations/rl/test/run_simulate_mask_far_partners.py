@@ -1,7 +1,4 @@
-"""Sweep RL checkpoints: far-partner *deletion* via remove_agents_by_distance.
 
-Default ``--dataset-size 2000`` for a quick trend check (not full val).
-"""
 from __future__ import annotations
 
 import argparse
@@ -49,7 +46,7 @@ def arg_parse():
     return p.parse_args()
 
 
-def resolve_filter_models(model_dir: str, filter_csv: str | None, all_models: bool):
+def resolve_filter_models(model_dir, filter_csv, all_models):
     if all_models:
         return None
     path = filter_csv

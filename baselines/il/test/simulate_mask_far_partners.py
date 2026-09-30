@@ -1,11 +1,4 @@
-"""Spurious-correlation probe: *delete* far partners, then roll out IL policy.
 
-Uses ``env.remove_agents_by_distance(..., far_thresh_m=...)`` to physically
-remove uncontrolled agents farther than ``--far-thresh`` meters from the
-nearest controlled ego (global xy). Near partners stay in the sim.
-
-Default: validation, 2000 scenes (trend check), ``max_cont_agents=1``, ``pp=0.0``.
-"""
 from __future__ import annotations
 
 import argparse
@@ -24,8 +17,7 @@ from gpudrive.env.dataset import SceneDataLoader
 from gpudrive.env.env_torch import GPUDriveTorchEnv
 
 
-def partner_counts(env, alive_agent_mask: torch.Tensor):
-    """Mean existing partner count per controlled agent (after far deletion)."""
+def partner_counts(env, alive_agent_mask):
     partner_mask = env.get_partner_mask().to(alive_agent_mask.device)
     exists = partner_mask != 2
     alive = alive_agent_mask
@@ -34,7 +26,7 @@ def partner_counts(env, alive_agent_mask: torch.Tensor):
     return float(exists[alive].float().sum().item() / alive.sum().item())
 
 
-def run_batch(env, bc_policy, num_stack: int = 5):
+def run_batch(env, bc_policy, num_stack=5):
     obs = env.reset()
     alive_agent_mask = env.cont_agent_mask.clone()
     dead_agent_mask = ~env.cont_agent_mask.clone()
@@ -129,11 +121,10 @@ def run_batch(env, bc_policy, num_stack: int = 5):
 def apply_distance_delete(
     env,
     *,
-    far_thresh_m: float | None = None,
-    remove_perc: float = 0.0,
-    nearest_first: bool = False,
+    far_thresh_m=None,
+    remove_perc=0.0,
+    nearest_first=False,
 ) -> int:
-    """Delete uncontrolled partners by distance (far thresh or perc order)."""
     return env.remove_agents_by_distance(
         perc_to_rmv_per_scene=remove_perc,
         remove_controlled_agents=False,

@@ -27,7 +27,7 @@ def load_config(config_path):
     return pufferlib.namespace(**config)
 
 
-def partner_counts(env, alive_agent_mask: torch.Tensor):
+def partner_counts(env, alive_agent_mask):
     partner_mask = env.get_partner_mask().to(alive_agent_mask.device)
     exists = partner_mask != 2
     alive = alive_agent_mask
@@ -117,9 +117,9 @@ def run_batch(env, policy):
 def apply_distance_delete(
     env,
     *,
-    far_thresh_m: float | None = None,
-    remove_perc: float = 0.0,
-    nearest_first: bool = False,
+    far_thresh_m=None,
+    remove_perc=0.0,
+    nearest_first= False,
 ) -> int:
     return env.remove_agents_by_distance(
         perc_to_rmv_per_scene=remove_perc,

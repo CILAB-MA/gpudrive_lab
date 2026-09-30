@@ -63,7 +63,7 @@ def arg_parse():
     return p.parse_args()
 
 
-def resolve_filter_models(model_dir: str, filter_csv: str | None, all_models: bool):
+def resolve_filter_models(model_dir, filter_csv, all_models):
     if all_models:
         return None
     path = filter_csv
